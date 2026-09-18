@@ -10,4 +10,5 @@ DICE[6] = DICE[5].concat([
   "EILPST","AEIOUS","An,Er,He,In,Qu,Th", // digraph die renders as combo tiles
 ]);
 
-export const QUALITY = { full: { 4: 40, 5: 80, 6: 130 }, fallback: { 4: 12, 5: 20, 6: 30 } };
+// soundswrite floors: the Sounds-Write list finds ~45% as many words per board as the full list
+export const QUALITY = { full: { 4: 40, 5: 80, 6: 130 }, soundswrite: { 4: 18, 5: 36, 6: 58 }, fallback: { 4: 12, 5: 20, 6: 30 } };

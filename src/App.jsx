@@ -221,6 +221,13 @@ export default function WordShakeWorkbook() {
                 <div style={{ color: T.mist, fontSize: 13, textTransform: "uppercase", letterSpacing: 1.2 }}>Today's sound</div>
                 <div style={{ color: "rgba(255,255,255,.35)", fontSize: 12 }}>Sounds-Write</div>
               </div>
+              <div style={{ marginBottom: 12, borderRadius: 12, padding: "10px 14px", fontSize: 14.5, lineHeight: 1.45, color: T.mist, background: soundDef ? "rgba(255,176,32,.08)" : "rgba(255,255,255,.04)", border: `1px solid ${soundDef ? "rgba(255,176,32,.4)" : T.faint}` }}>
+                {soundDef ? (
+                  <><b style={{ color: T.amber }}>Sounds-Write words only.</b> The board, the answers and the scoring use just the Sounds-Write high-frequency word list{phStats.words ? ` (${phStats.words.toLocaleString()} words)` : ""}. Other dictionary words don't count this round.</>
+                ) : (
+                  <><b style={{ color: "#EFF4F9" }}>Full dictionary.</b> Every word in the classroom-safe dictionary counts{dict.status === "full" ? ` (${dict.count.toLocaleString()} words)` : ""}. Pick a sound below to play with Sounds-Write high-frequency words only.</>
+                )}
+              </div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: soundDef ? 6 : 0 }}>
                 <Chip active={!settings.phSound} onClick={() => pickSound(null)}>Off</Chip>
               </div>
@@ -263,7 +270,7 @@ export default function WordShakeWorkbook() {
                     <Toggle on={settings.phBonus} onClick={() => setSettings(v => ({ ...v, phBonus: !v.phBonus }))} label="+2 bonus points for target-sound words" />
                   </div>
                   <div style={{ marginTop: 10, fontSize: 12.5, color: "rgba(255,255,255,.45)" }}>
-                    Sound-checked: matched against a built-in Sounds-Write-aligned word list ({phStats.words.toLocaleString()} words, {phStats.tags.toLocaleString()} sound-spelling tags). Board words outside the list stay valid — they just carry no phonics tag.
+                    Every word on the board comes from the Sounds-Write list, so every answer with {soundDef.lab} in a ticked spelling is highlighted{settings.phBonus ? " and earns the +2 bonus" : ""}.
                   </div>
                 </div>
               )}
@@ -281,10 +288,11 @@ export default function WordShakeWorkbook() {
           </button>
 
           <div style={{ fontSize: 13, color: T.mist, display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ width: 8, height: 8, borderRadius: "50%", background: dict.status === "full" ? T.green : dict.status === "fallback" ? T.amber : T.mist }} />
-            {dict.status === "loading" && "Loading the full word list…"}
-            {dict.status === "full" && `Full dictionary ready — ${dict.count.toLocaleString()} words (classroom-filtered)`}
-            {dict.status === "fallback" && `Offline — using the built-in starter list (${dict.count.toLocaleString()} common words)`}
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: dict.status === "loading" ? T.mist : soundDef || dict.status === "full" ? T.green : T.amber }} />
+            {dict.status === "loading" && "Loading the word lists…"}
+            {dict.status !== "loading" && soundDef && `Sounds-Write words only — ${phStats.words.toLocaleString()} words`}
+            {!soundDef && dict.status === "full" && `Full dictionary ready — ${dict.count.toLocaleString()} words (classroom-filtered)`}
+            {!soundDef && dict.status === "fallback" && `Offline — using the built-in starter list (${dict.count.toLocaleString()} common words)`}
           </div>
         </main>
       )}
@@ -305,7 +313,7 @@ export default function WordShakeWorkbook() {
             </div>
             {settings.showCount && S && (
               <div style={{ color: T.mist, marginTop: 8, fontSize: 16 }}>
-                <b style={{ color: "#EFF4F9" }}>{S.total}</b> words are hiding in this grid
+                <b style={{ color: "#EFF4F9" }}>{S.total}</b> {soundDef ? "Sounds-Write words" : "words"} are hiding in this grid
                 {PH && <> · <b style={{ color: T.amber }}>{PH.count}</b> with today's sound</>}
                 {" "}· shortest counts: {settings.minLen} letters
               </div>
@@ -356,7 +364,7 @@ export default function WordShakeWorkbook() {
 
             {steps[step].t === "stats" && (
               <div style={{ textAlign: "center", width: "min(720px,94vw)" }}>
-                <div className="ws-display" style={{ fontSize: 30, color: T.mist }}>Hiding in this grid…</div>
+                <div className="ws-display" style={{ fontSize: 30, color: T.mist }}>{soundDef ? "Sounds-Write words hiding in this grid…" : "Hiding in this grid…"}</div>
                 <div className="ws-display" style={{ fontSize: "min(16vw,110px)", fontWeight: 700, color: T.amber, lineHeight: 1.05 }}>{S.total} words</div>
                 {PH && <div className="ws-display" style={{ fontSize: 22, color: T.mist }}>including <b style={{ color: T.amber }}>{PH.count}</b> with today's sound {soundDef && soundDef.lab}</div>}
                 <div style={{ display: "grid", gap: 10, marginTop: 24 }}>

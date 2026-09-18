@@ -2,12 +2,12 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { neighborsFor } from "./solver.js";
+import { BLOCKLIST } from "./blocklist.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /* Certified Sounds-Write word table (built offline from pronunciation-aligned data;
-   regenerate with build-phonics-table.js). The app only ever looks words up here —
-   a word not on this list is still a valid game word, it just carries no phonics tag.
+   regenerate with build-phonics-table.js). The app only ever looks words up here.
    Loaded from disk at server start instead of embedding it in the bundle. */
 const PHONICS_TABLE_SRC = fs.readFileSync(path.join(__dirname, "..", "data", "phonics-table.txt"), "utf8");
 
@@ -38,7 +38,9 @@ const _phWords = new Set(); let _phTags = 0;
     (PH_LISTS[sound] = PH_LISTS[sound] || {})[sp] = list;
   }
 }
-export const PH_STATS = { words: _phWords.size, tags: _phTags };
+// Re-screened so blocklist additions apply without regenerating the table.
+export const SW_WORDS = [..._phWords].filter(w => !BLOCKLIST.has(w));
+export const PH_STATS = { words: SW_WORDS.length, tags: _phTags };
 export function tagLookup(word, soundId, ticked) {
   const bySp = PH_TABLE[soundId];
   if (!bySp) return null;
