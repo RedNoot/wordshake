@@ -6,6 +6,7 @@ import { Toggle } from "./components/Toggle.jsx";
 import { Hi } from "./components/Hi.jsx";
 import { Board } from "./components/Board.jsx";
 import { SoundCard } from "./components/SoundCard.jsx";
+import { signInConfigured, initAuth, signIn, signOut, authFetch } from "./auth.js";
 
 const pts = L => (L <= 4 ? 1 : L === 5 ? 2 : L === 6 ? 3 : L === 7 ? 5 : 11);
 
@@ -22,6 +23,9 @@ export default function WordShakeWorkbook() {
   const [paused, setPaused] = useState(false);
   const [step, setStep] = useState(0);
   const [pathWord, setPathWord] = useState(0);
+  const [accountsReady, setAccountsReady] = useState(false);
+  const [account, setAccount] = useState(null);
+  const [accountNote, setAccountNote] = useState("");
 
   const endsAtRef = useRef(0);
   const pauseLeftRef = useRef(0);
@@ -32,12 +36,40 @@ export default function WordShakeWorkbook() {
   useEffect(() => {
     fetch("/api/status")
       .then(r => r.json())
-      .then(({ dictStatus, dictCount, phonicsStats }) => {
+      .then(({ dictStatus, dictCount, phonicsStats, accounts }) => {
         setDict({ status: dictStatus, count: dictCount });
         setPhStats(phonicsStats);
+        setAccountsReady(accounts);
       })
       .catch(() => setDict({ status: "fallback", count: 0 }));
   }, []);
+
+  /* ---- teacher sign-in: optional, only adds saved settings (workbook mode works signed out) ---- */
+  const loadAccount = async user => {
+    if (!user) return;
+    setAccountNote("");
+    const res = await authFetch("/api/me").catch(() => null);
+    if (!res) {
+      await signOut();
+      return setAccountNote("Your sign-in has expired. Sign in again to use your saved settings.");
+    }
+    setAccount(user);
+    const body = await res.json();
+    if (res.ok) {
+      if (body.settings) setSettings(v => ({ ...v, ...body.settings }));
+    } else {
+      setAccountNote("You're signed in, but saved settings aren't available right now.");
+    }
+  };
+
+  useEffect(() => {
+    if (signInConfigured) initAuth().then(loadAccount).catch(() => setAccountNote("Google sign-in didn't finish. Please try again."));
+  }, []); // eslint-disable-line
+
+  const signInHere = () => signIn().then(loadAccount).catch(e => {
+    if (e.code !== "auth/popup-closed-by-user" && e.code !== "auth/cancelled-popup-request") setAccountNote("Google sign-in didn't finish. Please try again.");
+  });
+  const signOutHere = async () => { await signOut(); setAccount(null); setAccountNote(""); };
 
   const pickSound = id => setSettings(v => ({
     ...v, phSound: id,
@@ -73,6 +105,10 @@ export default function WordShakeWorkbook() {
   const start = async () => {
     setBusy(true);
     beep(660, 0.05, 0.001);
+    if (account) {
+      authFetch("/api/me/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(settings) })
+        .catch(() => { /* saving settings must never block a round */ });
+    }
     const res = await fetch("/api/game", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -155,7 +191,7 @@ export default function WordShakeWorkbook() {
     <div className="ws-root" style={{ minHeight: "100vh", background: `radial-gradient(1200px 700px at 50% -10%, #16283f 0%, ${T.ink} 55%)`, color: "#EFF4F9", display: "flex", flexDirection: "column" }}>
       <style>{CSS}</style>
 
-      <header style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", padding: "16px 26px 0" }}>
+      <header style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "baseline", justifyContent: "space-between", padding: "16px 26px 0" }}>
         <div className="ws-display" style={{ fontSize: 26, fontWeight: 700, letterSpacing: 0.5 }}>
           Word<span style={{ color: T.amber }}>Shake</span>
           <span style={{ fontFamily: "'Atkinson Hyperlegible',sans-serif", fontWeight: 400, fontSize: 14, color: T.mist, marginLeft: 12 }}>workbook round</span>
@@ -165,6 +201,16 @@ export default function WordShakeWorkbook() {
             ✕ Quit to settings
           </button>
         )}
+        {phase === "setup" && signInConfigured && accountsReady && (account ? (
+          <div style={{ display: "flex", alignItems: "baseline", gap: 12, fontSize: 14, color: T.mist }}>
+            <span>Signed in as <b style={{ color: "#EFF4F9" }}>{account.displayName || account.email}</b></span>
+            <button className="ws-btn" onClick={signOutHere} style={{ background: "none", border: "none", color: T.mist, textDecoration: "underline", cursor: "pointer", fontSize: 14, padding: 0 }}>Sign out</button>
+          </div>
+        ) : (
+          <button className="ws-btn" onClick={signInHere} title="Sign in to have WordShake remember your settings" style={{ background: "none", border: `1px solid ${T.faint}`, color: "#EFF4F9", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 13 }}>
+            Sign in with Google
+          </button>
+        ))}
       </header>
 
       {/* today's-sound banner on every game screen */}
@@ -181,6 +227,11 @@ export default function WordShakeWorkbook() {
       {/* ---------- SETUP ---------- */}
       {phase === "setup" && (
         <main className="ws-fade" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 26, padding: "18px 24px 40px", overflowY: "auto" }}>
+          {accountNote && (
+            <div role="status" style={{ maxWidth: 680, background: "rgba(255,176,32,.1)", border: "1px solid rgba(255,176,32,.4)", borderRadius: 12, padding: "10px 14px", fontSize: 14.5, color: T.mist }}>
+              {accountNote}
+            </div>
+          )}
           <div style={{ textAlign: "center", maxWidth: 680 }}>
             <h1 className="ws-display" style={{ fontSize: 42, fontWeight: 700, margin: 0 }}>Ready to shake the dice?</h1>
             <p style={{ color: T.mist, fontSize: 17, marginTop: 8 }}>

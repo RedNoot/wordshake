@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WordShake connection check</title>
+  <style>
+    body { margin: 0; min-height: 100vh; background: #0E1A2B; color: #EFF4F9; font: 16px/1.45 system-ui, sans-serif; display: flex; justify-content: center; padding: 28px 16px; box-sizing: border-box; }
+    main { width: 100%; max-width: 520px; }
+    h1 { font-size: 28px; margin: 0 0 6px; }
+    h1 span { color: #FFB020; }
+    p { color: #9FB3C8; margin: 0 0 18px; }
+    .row { display: flex; justify-content: space-between; gap: 12px; padding: 14px 16px; border: 1px solid rgba(255,255,255,.12); border-radius: 12px; margin-top: 10px; }
+    .ok { color: #57C785; } .bad { color: #FF5D5D; } .wait { color: #9FB3C8; }
+    #verdict { margin-top: 18px; padding: 16px; border-radius: 12px; font-size: 18px; font-weight: 700; }
+    #verdict:empty { display: none; }
+    button { margin-top: 18px; font-size: 16px; padding: 10px 18px; border-radius: 10px; border: none; background: #FFB020; color: #0E1A2B; font-weight: 700; cursor: pointer; }
+    small { display: block; margin-top: 22px; color: rgba(255,255,255,.4); word-break: break-word; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Word<span>Shake</span> connection check</h1>
+    <p>Open this on a student device at school. It checks whether live games can reach the WordShake server from this network.</p>
+    <div class="row"><span>Live connection</span><b id="websocket" class="wait">Checking…</b></div>
+    <div class="row"><span>Backup connection</span><b id="polling" class="wait">Checking…</b></div>
+    <div id="verdict" aria-live="polite"></div>
+    <button id="again" hidden>Check again</button>
+    <small id="device"></small>
+  </main>
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const $ = id => document.getElementById(id);
+
+    // Median round trip in ms over one transport, or null if it can't connect.
+    function probe(transport) {
+      return new Promise(resolve => {
+        const socket = io({ transports: [transport], upgrade: false, reconnection: false, timeout: 8000, forceNew: true });
+        const finish = result => { socket.close(); resolve(result); };
+        socket.on("connect_error", () => finish(null));
+        socket.on("connect", async () => {
+          const times = [];
+          for (let i = 0; i < 5; i++) {
+            const start = performance.now();
+            const answered = await new Promise(r => socket.timeout(5000).emit("check:ping", Date.now(), err => r(!err)));
+            if (!answered) return finish(null);
+            times.push(performance.now() - start);
+          }
+          times.sort((a, b) => a - b);
+          finish(Math.round(times[2]));
+        });
+      });
+    }
+
+    function show(id, ms) {
+      $(id).textContent = ms === null ? "✗ Blocked" : `✓ Works (${ms} ms)`;
+      $(id).className = ms === null ? "bad" : "ok";
+    }
+
+    async function run() {
+      $("again").hidden = true;
+      $("verdict").textContent = "";
+      for (const id of ["websocket", "polling"]) { $(id).textContent = "Checking…"; $(id).className = "wait"; }
+      const live = await probe("websocket");
+      show("websocket", live);
+      const backup = await probe("polling");
+      show("polling", backup);
+      const verdict = $("verdict");
+      if (live !== null) {
+        verdict.textContent = "✓ Live games will work on this device.";
+        verdict.style.background = "rgba(87,199,133,.15)";
+      } else if (backup !== null) {
+        verdict.textContent = "✓ Live games will work, using the slower backup connection.";
+        verdict.style.background = "rgba(255,176,32,.15)";
+      } else {
+        verdict.textContent = "✗ This network blocks live games. Ask IT to allow wordshake.onrender.com, including WebSockets.";
+        verdict.style.background = "rgba(255,93,93,.15)";
+      }
+      $("again").hidden = false;
+    }
+
+    $("device").textContent = navigator.userAgent;
+    $("again").onclick = run;
+    run();
+  </script>
+</body>
+</html>
