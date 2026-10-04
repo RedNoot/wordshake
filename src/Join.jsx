@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { T, CSS } from "./theme.js";
 import { getSocket, call } from "./net.js";
+import { Play } from "./Play.jsx";
 
 const CODE_LEN = 4;
 const ERRORS = {
@@ -37,6 +38,7 @@ export function Join({ initialCode }) {
   const [guestName, setGuestName] = useState("");
   const [me, setMe] = useState(null);               // { name }
   const [phase, setPhase] = useState("lobby");
+  const [round, setRound] = useState(null);         // this device's view of the current round (letters only, never the answers)
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const stepRef = useRef(step);
@@ -48,6 +50,7 @@ export function Join({ initialCode }) {
     store.set(tokenKey(c), res.token);
     setMe({ name: res.name });
     setPhase(res.phase);
+    setRound(res.round ? { ...res.round, clockAt: Date.now() } : null);
     setMessage("");
     setStep("joined");
   };
@@ -79,9 +82,12 @@ export function Join({ initialCode }) {
     const s = getSocket();
     const onRoster = r => setRoom(r);
     const onPhase = p => setPhase(p);
+    const onRoundState = r => setRound(r ? { ...r, clockAt: Date.now() } : null);
+    const onClock = c => setRound(cur => cur && cur.n === c.n ? { ...cur, state: c.state, remainingMs: c.remainingMs, clockAt: Date.now() } : cur);
     const end = reason => () => {
       store.del(tokenKey(codeRef.current));
       setMe(null);
+      setRound(null);
       setMessage(ENDED[reason] || ENDED.closed);
       if (reason === "kicked") lookup(codeRef.current, true); else { setStep("code"); setCode(""); window.history.replaceState(null, "", "/join"); }
     };
@@ -92,6 +98,8 @@ export function Join({ initialCode }) {
     const onReconnect = () => { if (stepRef.current === "joined") enter(codeRef.current); else if (["names", "confirm", "guest"].includes(stepRef.current)) call("player:lookup", { code: codeRef.current }).then(r => r.ok && setRoom(r.room)); };
     s.on("room:roster", onRoster);
     s.on("room:phase", onPhase);
+    s.on("round:state", onRoundState);
+    s.on("round:clock", onClock);
     s.on("room:closed", onClosed);
     s.on("room:kicked", onKicked);
     s.on("room:replaced", onReplaced);
@@ -99,6 +107,7 @@ export function Join({ initialCode }) {
     if (initialCode) enter(cleanCode(initialCode));
     return () => {
       s.off("room:roster", onRoster); s.off("room:phase", onPhase); s.off("room:closed", onClosed);
+      s.off("round:state", onRoundState); s.off("round:clock", onClock);
       s.off("room:kicked", onKicked); s.off("room:replaced", onReplaced); s.io.off("reconnect", onReconnect);
     };
   }, []); // eslint-disable-line
@@ -183,13 +192,14 @@ export function Join({ initialCode }) {
           </form>
         )}
 
-        {step === "joined" && me && (
+        {step === "joined" && me && round && <Play round={round} name={me.name} onRound={setRound} />}
+
+        {step === "joined" && me && !round && (
           <div className="ws-fade" style={{ display: "grid", gap: 16, justifyItems: "center", textAlign: "center", marginTop: 30 }}>
             <div className="ws-display" style={{ fontSize: 44, fontWeight: 700 }}>{phase === "lobby" ? <>You're in, <span style={{ color: T.amber }}>{me.name}</span>!</> : me.name}</div>
             <div aria-live="polite" style={{ fontSize: 24, color: T.mist, maxWidth: 520, lineHeight: 1.4 }}>
               {phase === "lobby" && "Wait for your teacher to start the game."}
-              {phase === "playing" && <><b style={{ color: T.green }}>The round has started!</b><br />Find words on the big screen and write them in your book.</>}
-              {phase === "reveal" && <><b style={{ color: T.red }}>Pens down!</b><br />Look at the big screen.</>}
+              {phase !== "lobby" && "Look at the big screen."}
             </div>
             {phase === "lobby" && <button onClick={notMe} style={{ ...link, marginTop: 20 }}>Not {me.name}? Tap here</button>}
           </div>

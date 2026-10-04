@@ -46,12 +46,12 @@ app.get("/api/status", route(async (req, res) => {
   });
 }));
 
-app.post("/api/game", route(async (req, res) => {
-  const { size = 4, minLen = 3, phSound = null, phTicked = [] } = req.body || {};
-  if (![4, 5, 6].includes(size)) return res.status(400).json({ error: "invalid size" });
-  if (![2, 3, 4].includes(minLen)) return res.status(400).json({ error: "invalid minLen" });
+// Builds a board and its answers, or returns { error } for bad settings.
+async function makeGame({ size = 4, minLen = 3, phSound = null, phTicked = [] }) {
+  if (![4, 5, 6].includes(size)) return { error: "invalid size" };
+  if (![2, 3, 4].includes(minLen)) return { error: "invalid minLen" };
   const soundDef = resolveSound(phSound, phTicked);
-  if (soundDef === undefined) return res.status(400).json({ error: "invalid sound" });
+  if (soundDef === undefined) return { error: "invalid sound" };
 
   // A target sound switches the whole round to the Sounds-Write word list; Off uses the full dictionary.
   let words, quality;
@@ -64,8 +64,21 @@ app.post("/api/game", route(async (req, res) => {
     quality = QUALITY[dict.status === "full" ? "full" : "fallback"][size];
   }
   const phon = soundDef && phTicked.length ? { soundId: phSound, ticked: new Set(phTicked) } : null;
+  return generateGame(size, minLen, words, quality, phon);
+}
 
-  res.json(generateGame(size, minLen, words, quality, phon));
+// Any real word, used to tell a student "not on today's list" rather than "not a word" in a Sounds-Write round.
+let fullDictSet = null;
+const isRealWord = async w => {
+  const dict = await dictPromise;
+  fullDictSet ??= new Set(dict.words);
+  return fullDictSet.has(w);
+};
+
+app.post("/api/game", route(async (req, res) => {
+  const game = await makeGame(req.body || {});
+  if (game.error) return res.status(400).json(game);
+  res.json(game);
 }));
 
 app.get("/api/me", teacherRoute(async (req, res, teacher) => {
@@ -126,6 +139,8 @@ attachRooms(io, {
     return verifyTeacher(token);
   },
   getClass,
+  makeGame,
+  isRealWord,
 });
 
 const PORT = process.env.PORT || 3001;

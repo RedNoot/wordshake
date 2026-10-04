@@ -12,7 +12,7 @@ import { ClassLists } from "./ClassLists.jsx";
 import { Lobby } from "./Lobby.jsx";
 
 const pts = L => (L <= 4 ? 1 : L === 5 ? 2 : L === 6 ? 3 : L === 7 ? 5 : 11);
-// What joined devices are told: the round runs on paper (workbook) until live entry arrives in Phase 3.
+// What joined devices are told about the big screen: in a round (countdown or playing), showing answers, or in the lobby.
 const roomPhaseFor = phase => (phase === "countdown" || phase === "playing" ? "playing" : phase === "reveal" ? "reveal" : "lobby");
 const ROOM_ERRORS = {
   "class-not-found": "That class list no longer exists. Pick another class.",
@@ -43,6 +43,13 @@ export default function WordShakeWorkbook() {
   const [roomNote, setRoomNote] = useState("");
   const roomRef = useRef(null);
   roomRef.current = room;
+  const [liveRound, setLiveRound] = useState(null);  // the room's round number while students play on devices; null for a workbook round
+  const liveRef = useRef(null);
+  liveRef.current = liveRound;
+  const phaseRef = useRef(phase);
+  phaseRef.current = phase;
+  const pausedRef = useRef(false);
+  pausedRef.current = paused;
 
   const endsAtRef = useRef(0);
   const pauseLeftRef = useRef(0);
@@ -108,7 +115,32 @@ export default function WordShakeWorkbook() {
     const res = await call("host:resume", { idToken: await getIdToken() });
     if (res.ok) {
       setRoom(res.room);
-      setPhase(p => (p === "setup" || p === "loading" || p === "home" ? "lobby" : p));
+      const r = res.round, fresh = ["setup", "loading", "home"].includes(phaseRef.current);
+      if (r && res.room.phase !== "lobby" && (fresh || liveRef.current !== r.n)) {
+        // A refresh mid-round: bring the board and the clock back from the server.
+        const { seconds, size, minLen, phSound, phTicked, phBonus } = r.settings;
+        setSettings(v => ({ ...v, seconds, size, minLen, phSound, phTicked, phBonus }));
+        setGame(r.game);
+        setLiveRound(r.n);
+        setRemaining(r.remainingMs / 1000);
+        if (r.state === "over" || res.room.phase === "reveal") { setStep(0); setPhase("reveal"); }
+        else {
+          const ms = r.state === "countdown" ? seconds * 1000 : r.remainingMs;
+          endsAtRef.current = Date.now() + ms;
+          pauseLeftRef.current = ms;
+          lastTickRef.current = null;
+          setPaused(r.state === "paused");
+          if (r.state === "countdown") call("host:clock", { n: r.n, state: "playing", remainingMs: ms });
+          setPhase("playing");
+        }
+      } else if (r && liveRef.current === r.n && phaseRef.current === "playing") {
+        // Reconnected during our own round: the big screen's clock is the one that counts.
+        call("host:clock", pausedRef.current
+          ? { n: r.n, state: "paused" }
+          : { n: r.n, state: "playing", remainingMs: Math.max(0, endsAtRef.current - Date.now()) });
+      } else {
+        setPhase(p => (p === "setup" || p === "loading" || p === "home" ? "lobby" : p));
+      }
     } else if (roomRef.current) {
       setRoom(null);
       setRoomNote("The room closed while you were away. Open a new one when you're ready.");
@@ -166,6 +198,7 @@ export default function WordShakeWorkbook() {
     if (!window.confirm("Close the room? Everyone who joined will be sent back to the join screen.")) return;
     await call("host:close");
     setRoom(null);
+    setLiveRound(null);
     setPhase("setup");
   };
 
@@ -207,15 +240,31 @@ export default function WordShakeWorkbook() {
     setBusy(true);
     beep(660, 0.05, 0.001);
     saveSettingsNow();
-    const res = await fetch("/api/game", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        size: settings.size, minLen: settings.minLen,
-        phSound: settings.phSound, phTicked: settings.phTicked,
-      }),
-    });
-    const g = await res.json();
+    let g;
+    if (room) {
+      // Students play on their devices: the server builds the board and checks their words.
+      const { seconds, size, minLen, phSound, phTicked, phBonus } = settings;
+      const res = await call("host:start", { settings: { seconds, size, minLen, phSound, phTicked, phBonus } });
+      if (!res.ok) {
+        setBusy(false);
+        setPhase("lobby");
+        return setRoomNote(res.error === "offline" ? "We can't reach the game server. Check the wifi, then try again." : "The round didn't start. Please try again.");
+      }
+      g = res.game;
+      setLiveRound(res.n);
+      setRoomNote("");
+    } else {
+      const res = await fetch("/api/game", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          size: settings.size, minLen: settings.minLen,
+          phSound: settings.phSound, phTicked: settings.phTicked,
+        }),
+      });
+      g = await res.json();
+      setLiveRound(null);
+    }
     setGame(g);
     setBusy(false);
     setStep(0); setPathWord(0); setPaused(false);
@@ -233,6 +282,7 @@ export default function WordShakeWorkbook() {
       const t = setTimeout(() => {
         endsAtRef.current = Date.now() + settings.seconds * 1000;
         lastTickRef.current = null;
+        if (liveRef.current) call("host:clock", { n: liveRef.current, state: "playing", remainingMs: settings.seconds * 1000 });
         setPhase("playing");
       }, 650);
       return () => clearTimeout(t);
@@ -254,8 +304,15 @@ export default function WordShakeWorkbook() {
     return () => clearInterval(id);
   }, [phase, paused, beep, gong]);
 
-  const pause = () => { pauseLeftRef.current = endsAtRef.current - Date.now(); setPaused(true); };
-  const resume = () => { endsAtRef.current = Date.now() + pauseLeftRef.current; setPaused(false); };
+  // Ending the round (time up, End now, back to the lobby) reaches devices through host:phase; pause and resume go here.
+  const pause = () => {
+    pauseLeftRef.current = endsAtRef.current - Date.now(); setPaused(true);
+    if (liveRef.current) call("host:clock", { n: liveRef.current, state: "paused" });
+  };
+  const resume = () => {
+    endsAtRef.current = Date.now() + pauseLeftRef.current; setPaused(false);
+    if (liveRef.current) call("host:clock", { n: liveRef.current, state: "playing", remainingMs: pauseLeftRef.current });
+  };
   const endNow = () => { gong(); setPhase("reveal"); setStep(0); };
 
   /* ---- reveal steps ---- */
@@ -358,7 +415,7 @@ export default function WordShakeWorkbook() {
 
       {/* ---------- LOBBY ---------- */}
       {phase === "lobby" && room && (
-        <Lobby room={room} busy={busy} onStart={start} onSettings={() => setPhase("setup")} onClose={closeRoom} onKick={kick} startLabel="Start the round →" />
+        <Lobby room={room} busy={busy} onStart={start} onSettings={() => setPhase("setup")} onClose={closeRoom} onKick={kick} startLabel="Start the round →" note={roomNote} />
       )}
 
       {/* today's-sound banner on every game screen */}
@@ -617,8 +674,8 @@ export default function WordShakeWorkbook() {
 
             {steps[step].t === "pens" && (
               <div style={{ textAlign: "center" }}>
-                <div className="ws-display" style={{ fontSize: "min(14vw,110px)", fontWeight: 700, color: T.red }}>Pens down!</div>
-                <p style={{ color: T.mist, fontSize: 20, marginTop: 12 }}>Time's up. Swap books with a partner — let's see how this board scored.</p>
+                <div className="ws-display" style={{ fontSize: "min(14vw,110px)", fontWeight: 700, color: T.red }}>{liveRound ? "Time's up!" : "Pens down!"}</div>
+                <p style={{ color: T.mist, fontSize: 20, marginTop: 12 }}>{liveRound ? "Devices down — let's see how this board scored." : "Time's up. Swap books with a partner — let's see how this board scored."}</p>
               </div>
             )}
 
@@ -646,7 +703,7 @@ export default function WordShakeWorkbook() {
                 <div className="ws-display" style={{ fontSize: 38, fontWeight: 700 }}>
                   <span style={{ color: T.amber }}>{soundDef.lab}</span> words on this board
                 </div>
-                <p style={{ color: T.mist, margin: 0, fontSize: 17 }}>One sound — different spellings. Sort the words in your book by their spelling of {soundDef.lab}.</p>
+                <p style={{ color: T.mist, margin: 0, fontSize: 17 }}>One sound — different spellings. {liveRound ? `Did you find any? Look at each spelling of ${soundDef.lab}.` : `Sort the words in your book by their spelling of ${soundDef.lab}.`}</p>
                 {PH.count === 0 && <p style={{ color: T.mist, fontSize: 18 }}>None this time — the dice were stubborn. Shake again!</p>}
                 <div style={{ overflowY: "auto", width: "100%", minHeight: 0, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 14, alignItems: "start", alignContent: "start", padding: "4px 2px" }}>
                   {settings.phTicked.map(g => {
@@ -676,7 +733,7 @@ export default function WordShakeWorkbook() {
                     <span style={{ color: T.mist, fontWeight: 400, fontSize: 22 }}> · {group.length} found by the board</span>
                   </div>
                   <p style={{ color: T.mist, margin: 0 }}>
-                    Tick the ones in your book — cross out anything that isn't here.
+                    {liveRound ? "How many of these did you find?" : "Tick the ones in your book — cross out anything that isn't here."}
                     {PH && <> Words with <span style={{ color: T.amber }}>today's sound</span> are underlined{settings.phBonus ? " (+2 bonus)" : ""}.</>}
                   </p>
                   <div style={{ overflowY: "auto", width: "100%", minHeight: 0, padding: "6px 4px", display: "grid", gridTemplateColumns: `repeat(auto-fill, minmax(${Math.max(8, L + 3)}ch, 1fr))`, gap: "10px 14px", alignContent: "start" }}>
@@ -721,8 +778,8 @@ export default function WordShakeWorkbook() {
 
             {steps[step].t === "score" && (
               <div style={{ textAlign: "center", width: "min(560px,94vw)" }}>
-                <div className="ws-display" style={{ fontSize: 40, fontWeight: 700 }}>Add up your score</div>
-                <p style={{ color: T.mist, fontSize: 17, marginTop: 6 }}>Only ticked words count. Teacher's call on anything unusual!</p>
+                <div className="ws-display" style={{ fontSize: 40, fontWeight: 700 }}>{liveRound ? "How did you score?" : "Add up your score"}</div>
+                <p style={{ color: T.mist, fontSize: 17, marginTop: 6 }}>{liveRound ? "Your device has added up your points. Here's how words score:" : "Only ticked words count. Teacher's call on anything unusual!"}</p>
                 <div style={{ marginTop: 20, display: "grid", gap: 8 }}>
                   {[[`${settings.minLen}–4 letters`, 1], ["5 letters", 2], ["6 letters", 3], ["7 letters", 5], ["8+ letters", 11]]
                     .filter(([label]) => !(settings.minLen > 4 && label.includes("–4")))

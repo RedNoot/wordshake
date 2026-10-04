@@ -4,7 +4,7 @@ import { T } from "./theme.js";
 
 const btn = { background: "none", border: `1px solid ${T.faint}`, color: T.mist, borderRadius: 10, padding: "9px 16px", cursor: "pointer", fontSize: 15 };
 
-export function Lobby({ room, onStart, onSettings, onClose, onKick, busy, startLabel }) {
+export function Lobby({ room, onStart, onSettings, onClose, onKick, busy, startLabel, note }) {
   const joinHost = window.location.host;
   const joinUrl = `${window.location.origin}/join/${room.code}`;
   const [qr, setQr] = useState("");
@@ -64,6 +64,7 @@ export function Lobby({ room, onStart, onSettings, onClose, onKick, busy, startL
         </section>
       </div>
 
+      {note && <div role="alert" style={{ background: "rgba(255,93,93,.12)", border: "1px solid rgba(255,93,93,.45)", borderRadius: 12, padding: "10px 16px", fontSize: 16 }}>{note}</div>}
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap", justifyContent: "center", alignItems: "center", marginTop: 6 }}>
         <button className="ws-btn ws-display" onClick={onStart} disabled={busy}
           style={{ fontSize: 28, fontWeight: 700, background: T.amber, color: T.ink, border: "none", borderRadius: 16, padding: "16px 42px", cursor: "pointer", boxShadow: "0 6px 0 #B87A0A", opacity: busy ? 0.7 : 1 }}>
@@ -73,7 +74,7 @@ export function Lobby({ room, onStart, onSettings, onClose, onKick, busy, startL
         <button className="ws-btn" onClick={onClose} style={btn}>Close room</button>
       </div>
       <p style={{ color: "rgba(255,255,255,.45)", fontSize: 13.5, margin: 0, textAlign: "center", maxWidth: 640 }}>
-        This round is played in workbooks: students write their words on paper and their device shows when the round starts and ends.
+        Students swipe words on their own device and see only their own words and score. Anyone who joins after the start plays from the next round.
       </p>
     </main>
   );

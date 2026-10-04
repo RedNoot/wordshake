@@ -1,10 +1,13 @@
 import { randomBytes, randomInt } from "crypto";
 import { cleanGuestName, uniqueName } from "./names.js";
+import { pickRoundSettings } from "./settings.js";
+import { newRound, setClock, remainingMs, playerView, checkWord } from "./round.js";
 
 // No vowels, so a code can't spell a word; no 0/O or 1/I to confuse.
 const CODE_CHARS = "BCDFGHJKLMNPQRSTVWXZ23456789";
 const CODE_LEN = 4;
 const PHASES = ["lobby", "playing", "reveal"];
+const CLOCK_STATES = ["playing", "paused", "over"];
 const HOST_GONE_MS = 2 * 60 * 60 * 1000;   // a room with no teacher for 2 hours is closed
 const MAX_AGE_MS = 12 * 60 * 60 * 1000;    // and no room outlives a school day
 const LOOKUP_FAILS = { max: 100, windowMs: 10 * 60 * 1000 }; // per school IP: room codes can't be guessed
@@ -17,10 +20,11 @@ const obj = d => (d && typeof d === "object" ? d : {});
 /*
  * Live rooms, held in server memory only (a restart closes every room).
  * room = { code, teacherId, hostSocket, className, roster: [{ id, name }] | null,
- *          players: Map<playerId, { id, name, studentId, token, socketId }>, phase, createdAt, hostSeenAt }
+ *          players: Map<playerId, { id, name, studentId, token, socketId }>, phase, createdAt, hostSeenAt,
+ *          round: see round.js | null, roundNo }
  * Socket.IO rooms: host:CODE (the big screen), players:CODE (joined devices), lookup:CODE (devices on the name grid).
  */
-export function attachRooms(io, { verifyTeacher, getClass, now = Date.now }) {
+export function attachRooms(io, { verifyTeacher, getClass, makeGame, isRealWord, now = Date.now }) {
   const rooms = new Map();
   const byTeacher = new Map();
   const lookupFails = new Map();
@@ -78,7 +82,20 @@ export function attachRooms(io, { verifyTeacher, getClass, now = Date.now }) {
     socket.leave(`lookup:${room.code}`);
     socket.join(`players:${room.code}`);
     notify(room);
-    return { ok: true, token: p.token, name: p.name, phase: room.phase, className: room.className };
+    return { ok: true, token: p.token, name: p.name, phase: room.phase, className: room.className, round: roundFor(room, p.id) };
+  }
+
+  // The round a device should see: none in the lobby, otherwise its own view of the current round.
+  const roundFor = (room, playerId) => (room.round && room.phase !== "lobby" ? playerView(room.round, playerId, now()) : null);
+  const hostRound = room => room.round && {
+    n: room.round.n, settings: room.round.settings, game: room.round.game, state: room.round.state, remainingMs: remainingMs(room.round, now()),
+  };
+  // Each device gets its own copy (its own words, and whether it joined in time to play).
+  function sendRound(room) {
+    for (const p of players(room)) {
+      const s = p.socketId && io.sockets.sockets.get(p.socketId);
+      if (s) s.emit("round:state", roundFor(room, p.id));
+    }
   }
 
   const clientIp = socket => (socket.handshake.headers["x-forwarded-for"] || socket.handshake.address || "").split(",")[0].trim();
@@ -138,7 +155,7 @@ export function attachRooms(io, { verifyTeacher, getClass, now = Date.now }) {
       const room = {
         code, teacherId: teacher.id, hostSocket: null, className: cls ? cls.name : null,
         roster: cls ? cls.students.map(s => ({ id: s.id, name: s.name })) : null,
-        players: new Map(), phase: "lobby", createdAt: now(), hostSeenAt: now(),
+        players: new Map(), phase: "lobby", createdAt: now(), hostSeenAt: now(), round: null, roundNo: 0,
       };
       rooms.set(code, room);
       byTeacher.set(teacher.id, code);
@@ -152,15 +169,44 @@ export function attachRooms(io, { verifyTeacher, getClass, now = Date.now }) {
       const room = rooms.get(byTeacher.get(teacher.id));
       if (!room) return ack({ error: "no-room" });
       attachHost(socket, room);
-      ack({ ok: true, room: hostView(room) });
+      ack({ ok: true, room: hostView(room), round: hostRound(room) });
+    });
+
+    // A new round: the server builds the board and keeps the answers; devices get the letters only.
+    on("host:start", async ({ settings }, ack) => {
+      const room = hostRoom(socket);
+      if (!room) return ack({ error: "no-room" });
+      const picked = pickRoundSettings(settings);
+      if (!picked) return ack({ error: "invalid settings" });
+      const game = await makeGame(picked);
+      if (game.error) return ack({ error: game.error });
+      room.round = newRound(++room.roundNo, picked, game, [...room.players.keys()]);
+      room.phase = "playing";
+      sendRound(room);
+      notify(room);
+      ack({ ok: true, n: room.round.n, game });
+    });
+
+    // The big screen runs the clock; the server mirrors it so it knows when to stop accepting words.
+    on("host:clock", async ({ n, state, remainingMs: ms }, ack) => {
+      const room = hostRoom(socket);
+      if (!room || !room.round || room.round.n !== n) return ack({ error: "no-round" });
+      if (!CLOCK_STATES.includes(state)) return ack({ error: "invalid state" });
+      setClock(room.round, state, ms, now());
+      io.to(`players:${room.code}`).emit("round:clock", { n, state, remainingMs: remainingMs(room.round, now()) });
+      ack({ ok: true });
     });
 
     on("host:phase", async ({ phase }, ack) => {
       const room = hostRoom(socket);
       if (!room) return ack({ error: "no-room" });
       if (!PHASES.includes(phase)) return ack({ error: "invalid phase" });
+      // Leaving a round early (back to the lobby) ends it for every device.
+      if (phase !== "playing" && room.round && room.round.state !== "over") setClock(room.round, "over", 0, now());
+      const changed = room.phase !== phase;
       room.phase = phase;
       io.to(`players:${room.code}`).emit("room:phase", phase);
+      if (changed) sendRound(room);
       notify(room);
       ack({ ok: true });
     });
@@ -171,6 +217,7 @@ export function attachRooms(io, { verifyTeacher, getClass, now = Date.now }) {
       const p = room.players.get(playerId);
       if (!p) return ack({ error: "no-player" });
       room.players.delete(p.id);
+      if (room.round) { room.round.found.delete(p.id); room.round.eligible.delete(p.id); }
       const s = p.socketId && io.sockets.sockets.get(p.socketId);
       if (s) { s.emit("room:kicked"); s.leave(`players:${room.code}`); s.data.player = null; }
       notify(room);
@@ -221,6 +268,14 @@ export function attachRooms(io, { verifyTeacher, getClass, now = Date.now }) {
       const p = typeof token === "string" && players(room).find(x => x.token === token);
       if (!p) return ack({ error: "no-player" });
       ack(attachPlayer(socket, room, p));
+    });
+
+    on("player:word", async ({ n, word }, ack) => {
+      const ref = socket.data.player;
+      const room = ref && rooms.get(ref.code);
+      if (!room || !room.players.has(ref.id)) return ack({ error: "not-joined" });
+      if (!room.round || room.round.n !== n || room.phase !== "playing") return ack({ result: "late" });
+      ack(await checkWord(room.round, ref.id, word, now(), isRealWord));
     });
 
     // "That's not me": frees the name for its owner.

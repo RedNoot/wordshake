@@ -7,6 +7,12 @@ import { attachRooms } from "../server/lib/rooms.js";
 import { AuthError } from "../server/lib/auth.js";
 
 const CLASS = { id: "class1", name: "3/4B", students: [{ id: "s1", name: "Ava" }, { id: "s2", name: "Ben" }, { id: "s3", name: "Chloe" }] };
+// C A T S on the top row, X everywhere else: "cat" and "cats" are the only answers.
+const GAME = size => ({
+  tiles: ["C", "A", "T", "S", ...Array(size * size - 4).fill("X")], rots: Array(size * size).fill("0"),
+  solution: { list: ["cat", "cats"], phonics: { tagMap: { cat: [[1, 2]] } } },
+});
+const ROUND = { seconds: 60, size: 4, minLen: 3, phSound: null, phTicked: [], phBonus: false };
 const TEACHERS = { "tok-a": { id: "teacherA", name: "A" }, "tok-b": { id: "teacherB", name: "B" } };
 
 let server, url, roomsApi, clock = 1_000_000;
@@ -18,6 +24,8 @@ before(async () => {
   roomsApi = attachRooms(io, {
     verifyTeacher: async t => { if (!TEACHERS[t]) throw new AuthError(401, "token-invalid"); return TEACHERS[t]; },
     getClass: async (tid, cid) => (tid === "teacherA" && cid === "class1" ? CLASS : null),
+    makeGame: async ({ size }) => GAME(size),
+    isRealWord: async w => ["tac", "cat", "cats"].includes(w),
     now: () => clock,
   });
   await new Promise(r => server.listen(0, r));
@@ -172,6 +180,98 @@ test("rooms expire when the teacher has been gone for 2 hours", async () => {
   assert.equal(roomsApi.rooms.has(code), false);
 });
 
+
+test("device play: letters only, word checks, scoring, clock and late joiners", async () => {
+  const host = await client();
+  const { room } = await call(host, "host:open", { idToken: "tok-a", classId: "class1" });
+  const kid = await client();
+  const joined = await call(kid, "player:join", { code: room.code, studentId: "s1" });
+  assert.equal(joined.round, null, "no round in the lobby");
+
+  assert.deepEqual(await call(host, "host:start", { settings: { ...ROUND, seconds: 7 } }), { error: "invalid settings" });
+  const gotRound = next(kid, "round:state");
+  const started = await call(host, "host:start", { settings: ROUND });
+  assert.equal(started.ok, true);
+  assert.deepEqual(started.game.solution.list, ["cat", "cats"], "the big screen gets the answers");
+  const view = await gotRound;
+  assert.equal(view.tiles.length, 16);
+  assert.equal(view.state, "countdown");
+  assert.equal(view.eligible, true);
+  assert.equal(JSON.stringify(view).includes("cats"), false, "devices never get the answers");
+
+  const word = w => call(kid, "player:word", { n: started.n, word: w });
+  assert.equal((await word("cat")).result, "early", "nothing counts before GO");
+
+  const clockMsg = next(kid, "round:clock");
+  await call(host, "host:clock", { n: started.n, state: "playing", remainingMs: 60000 });
+  assert.equal((await clockMsg).remainingMs, 60000);
+
+  assert.deepEqual(await word("CAT"), { result: "ok", word: "cat", pts: 1, bonus: 0, total: 1 });
+  assert.equal((await word("cat")).result, "dupe");
+  assert.equal((await word("ca")).result, "short");
+  assert.equal((await word("dog")).result, "board");
+  assert.equal((await word("tac")).result, "notword", "full dictionary round: a word that isn't on the list isn't a word");
+  assert.equal((await word("<b>")).result, "notword");
+  assert.equal((await word("cats")).total, 2);
+  assert.equal((await call(kid, "player:word", { n: started.n - 1, word: "cat" })).result, "late", "old round");
+
+  // A late joiner waits for the next round.
+  const late = await client();
+  const lateJoin = await call(late, "player:join", { code: room.code, guestName: "Max" });
+  assert.equal(lateJoin.round.eligible, false);
+  assert.equal((await call(late, "player:word", { n: started.n, word: "cat" })).result, "wait");
+
+  // Reconnecting mid-round brings the found words back.
+  kid.close();
+  const kid2 = await client();
+  const back = await call(kid2, "player:rejoin", { code: room.code, token: joined.token });
+  assert.deepEqual(back.round.words.map(w => w.word), ["cat", "cats"]);
+  assert.equal(back.round.total, 2);
+
+  // Paused: nothing counts. Time runs out: nothing counts after a short grace.
+  await call(host, "host:clock", { n: started.n, state: "paused" });
+  assert.equal((await call(kid2, "player:word", { n: started.n, word: "tac" })).result, "paused");
+  await call(host, "host:clock", { n: started.n, state: "playing", remainingMs: 1000 });
+  clock += 2000;
+  assert.equal((await call(kid2, "player:word", { n: started.n, word: "cat" })).result, "dupe", "inside the grace period");
+  clock += 1000;
+  assert.equal((await call(kid2, "player:word", { n: started.n, word: "cats" })).result, "late");
+
+  // The big screen ends the round as its timer hits zero: a word already on its way still counts during the grace.
+  await call(host, "host:clock", { n: started.n, state: "playing", remainingMs: 5000 });
+  clock += 5000;
+  await call(host, "host:clock", { n: started.n, state: "over" });
+  clock += 1000;
+  assert.equal((await call(kid2, "player:word", { n: started.n, word: "tac" })).result, "notword", "checked, inside the grace");
+  clock += 1000;
+  assert.equal((await call(kid2, "player:word", { n: started.n, word: "tac" })).result, "late");
+  // Ended while paused: no grace.
+  await call(host, "host:clock", { n: started.n, state: "playing", remainingMs: 5000 });
+  await call(host, "host:clock", { n: started.n, state: "paused" });
+  await call(host, "host:clock", { n: started.n, state: "over" });
+  assert.equal((await call(kid2, "player:word", { n: started.n, word: "tac" })).result, "late");
+
+  // Teacher refreshes mid-round: the round comes back with the answers.
+  const host2 = await client();
+  const resumed = await call(host2, "host:resume", { idToken: "tok-a" });
+  assert.equal(resumed.round.n, started.n);
+  assert.deepEqual(resumed.round.game.solution.list, ["cat", "cats"]);
+
+  // Back to the lobby ends the round on every device.
+  const toLobby = next(kid2, "round:state");
+  await call(host2, "host:phase", { phase: "lobby" });
+  assert.equal(await toLobby, null);
+
+  // Next round: the late joiner plays this time, everyone starts from zero.
+  const r2 = next(late, "round:state");
+  const second = await call(host2, "host:start", { settings: { ...ROUND, phSound: "a", phTicked: ["a"], phBonus: true } });
+  assert.equal((await r2).eligible, true);
+  await call(host2, "host:clock", { n: second.n, state: "playing", remainingMs: 60000 });
+  assert.deepEqual(await call(late, "player:word", { n: second.n, word: "cat" }), { result: "ok", word: "cat", pts: 1, bonus: 2, total: 3 }, "+2 for today's sound");
+  assert.equal((await call(late, "player:word", { n: second.n, word: "tac" })).result, "notlist", "Sounds-Write round: real word, not on today's list");
+});
+
+// Runs last: it locks this machine's address out of joining.
 test("guessing room codes gets throttled, whichever message is used", async () => {
   const kid = await client();
   const guesses = [
