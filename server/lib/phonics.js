@@ -38,8 +38,12 @@ const _phWords = new Set(); let _phTags = 0;
     (PH_LISTS[sound] = PH_LISTS[sound] || {})[sp] = list;
   }
 }
+// Words young students read as people's names; they stay in the full dictionary.
+const NAME_WORDS = new Set(("al als alan anna annas beth bobby brad carl carls donna donnas ed harry harries henry jake jakes " +
+  "jane janes jenny jerry jill jimmy joe joes john johns josh ken lee lees matt matts mel mike mikes mon pam peter peters " +
+  "reg regs rick ricks ruth sally sallies sue sues ted terry tom toms tony").split(" "));
 // Re-screened so blocklist additions apply without regenerating the table.
-export const SW_WORDS = [..._phWords].filter(w => !BLOCKLIST.has(w));
+export const SW_WORDS = [..._phWords].filter(w => !BLOCKLIST.has(w) && !NAME_WORDS.has(w));
 export const PH_STATS = { words: SW_WORDS.length, tags: _phTags };
 export function tagLookup(word, soundId, ticked) {
   const bySp = PH_TABLE[soundId];
@@ -96,6 +100,15 @@ export const SOUNDS = [
 ];
 export const SOUND_BY_ID = Object.fromEntries(SOUNDS.map(s => [s.id, s]));
 export const PH_THRESH = { 4: 6, 5: 9, 6: 12 };
+
+// The sound definition (null for Off), or undefined if the sound or any spelling isn't real.
+// Own-key checks matter: names like "__proto__" would otherwise reach the phonics lookups and crash the process.
+export function resolveSound(phSound, phTicked) {
+  const soundDef = phSound === null ? null : Object.hasOwn(SOUND_BY_ID, phSound) ? SOUND_BY_ID[phSound] : undefined;
+  if (soundDef === undefined || !Array.isArray(phTicked)) return undefined;
+  const valid = soundDef ? phTicked.every(g => soundDef.sp.some(s => s[0] === g)) : phTicked.length === 0;
+  return valid ? soundDef : undefined;
+}
 
 /* ---- spelling-only fallback tagger (no pronunciation data) ---- */
 export function tagSolution(list, phon) {
