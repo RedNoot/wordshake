@@ -172,9 +172,13 @@ test("rooms expire when the teacher has been gone for 2 hours", async () => {
   assert.equal(roomsApi.rooms.has(code), false);
 });
 
-test("guessing room codes gets throttled", async () => {
+test("guessing room codes gets throttled, whichever message is used", async () => {
   const kid = await client();
-  let last;
-  for (let i = 0; i < 101; i++) last = await call(kid, "player:lookup", { code: "ZZZZ" });
-  assert.deepEqual(last, { error: "too-many" });
+  const guesses = [
+    () => call(kid, "player:lookup", { code: "ZZZZ" }),
+    () => call(kid, "player:rejoin", { code: "ZZZZ", token: "x" }),
+    () => call(kid, "player:join", { code: "ZZZZ", guestName: "Max" }),
+  ];
+  for (let i = 0; i < 100; i++) assert.deepEqual(await guesses[i % 3](), { error: "no-room" });
+  for (const g of guesses) assert.deepEqual(await g(), { error: "too-many" });
 });

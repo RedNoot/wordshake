@@ -92,6 +92,15 @@ export function attachRooms(io, { verifyTeacher, getClass, now = Date.now }) {
     else f.count++;
   }
 
+  // Every student message names a room code, so all of them count towards the guessing limit.
+  const studentRoom = (socket, code) => {
+    const ip = clientIp(socket);
+    if (tooManyFails(ip)) return { error: "too-many" };
+    const room = rooms.get(normCode(code));
+    if (!room) { recordFail(ip); return { error: "no-room" }; }
+    return { room };
+  };
+
   const hostRoom = socket => {
     const room = socket.data.hostOf && rooms.get(socket.data.hostOf);
     if (room && room.hostSocket === socket.id) { room.hostSeenAt = now(); return room; }
@@ -177,17 +186,15 @@ export function attachRooms(io, { verifyTeacher, getClass, now = Date.now }) {
 
     /* ---- student devices ---- */
     on("player:lookup", async ({ code }, ack) => {
-      const ip = clientIp(socket);
-      if (tooManyFails(ip)) return ack({ error: "too-many" });
-      const room = rooms.get(normCode(code));
-      if (!room) { recordFail(ip); return ack({ error: "no-room" }); }
+      const { room, error } = studentRoom(socket, code);
+      if (error) return ack({ error });
       socket.join(`lookup:${room.code}`);
       ack({ ok: true, room: lookupView(room) });
     });
 
     on("player:join", async ({ code, studentId, guestName }, ack) => {
-      const room = rooms.get(normCode(code));
-      if (!room) return ack({ error: "no-room" });
+      const { room, error } = studentRoom(socket, code);
+      if (error) return ack({ error });
       if (studentId != null) {
         const student = room.roster && room.roster.find(s => s.id === studentId);
         if (!student) return ack({ error: "no-student" });
@@ -209,8 +216,8 @@ export function attachRooms(io, { verifyTeacher, getClass, now = Date.now }) {
 
     // A device that joined before (saved token) comes straight back, e.g. after the iPad slept.
     on("player:rejoin", async ({ code, token }, ack) => {
-      const room = rooms.get(normCode(code));
-      if (!room) return ack({ error: "no-room" });
+      const { room, error } = studentRoom(socket, code);
+      if (error) return ack({ error });
       const p = typeof token === "string" && players(room).find(x => x.token === token);
       if (!p) return ack({ error: "no-player" });
       ack(attachPlayer(socket, room, p));

@@ -2,8 +2,10 @@ import { io } from "socket.io-client";
 
 let socket;
 // One live connection per page, opened only when a room is involved (workbook mode never needs it).
+// Default transports: starts on plain HTTP polling and upgrades to a websocket when the network allows,
+// so a school firewall that blocks websockets still works.
 export function getSocket() {
-  socket ??= io({ transports: ["websocket", "polling"] });
+  socket ??= io();
   return socket;
 }
 
