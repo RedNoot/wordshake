@@ -33,3 +33,6 @@ export async function authFetch(url, options = {}) {
     if (res.status !== 401 || forceRefresh) return res;
   }
 }
+
+// A fresh ID token for the signed-in teacher, for opening or resuming a live room.
+export const getIdToken = () => auth.currentUser.getIdToken();

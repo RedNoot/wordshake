@@ -8,8 +8,10 @@ import { generateGame } from "./lib/generate.js";
 import { loadDictionary } from "./lib/dictionary.js";
 import { PH_STATS, SW_WORDS, resolveSound } from "./lib/phonics.js";
 import { AUTH, AuthError, verifyTeacher } from "./lib/auth.js";
-import { storeReady, loadTeacher, saveSettings } from "./lib/store.js";
+import { storeReady, loadTeacher, saveSettings, listClasses, getClass, countClasses, createClass, updateClass, deleteClass } from "./lib/store.js";
 import { pickSettings } from "./lib/settings.js";
+import { pickClass, LIMITS } from "./lib/classes.js";
+import { attachRooms } from "./lib/rooms.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -77,6 +79,34 @@ app.put("/api/me/settings", teacherRoute(async (req, res, teacher) => {
   res.json({ ok: true });
 }));
 
+/* ---- class lists ---- */
+const validClassId = id => /^[A-Za-z0-9]{1,40}$/.test(id);
+
+app.get("/api/classes", teacherRoute(async (req, res, teacher) => {
+  res.json(await listClasses(teacher.id));
+}));
+
+app.post("/api/classes", teacherRoute(async (req, res, teacher) => {
+  if (await countClasses(teacher.id) >= LIMITS.classes) return res.status(400).json({ error: "too-many-classes" });
+  const cls = pickClass(req.body);
+  if (cls.error) return res.status(400).json(cls);
+  res.json(await createClass(teacher.id, cls));
+}));
+
+app.put("/api/classes/:id", teacherRoute(async (req, res, teacher) => {
+  const existing = validClassId(req.params.id) && await getClass(teacher.id, req.params.id);
+  if (!existing) return res.status(404).json({ error: "class-not-found" });
+  const cls = pickClass(req.body, existing.students);
+  if (cls.error) return res.status(400).json(cls);
+  res.json(await updateClass(teacher.id, existing.id, cls));
+}));
+
+app.delete("/api/classes/:id", teacherRoute(async (req, res, teacher) => {
+  if (!validClassId(req.params.id)) return res.status(404).json({ error: "class-not-found" });
+  await deleteClass(teacher.id, req.params.id);
+  res.json({ ok: true });
+}));
+
 app.get("/check", (req, res) => res.sendFile(path.join(__dirname, "check.html")));
 
 if (process.env.NODE_ENV === "production") {
@@ -89,6 +119,13 @@ const server = http.createServer(app);
 const io = new Server(server);
 io.on("connection", socket => {
   socket.on("check:ping", (sentAt, ack) => { if (typeof ack === "function") ack(sentAt); });
+});
+attachRooms(io, {
+  verifyTeacher: async token => {
+    if (!storeReady) throw new AuthError(503, "accounts-not-configured");
+    return verifyTeacher(token);
+  },
+  getClass,
 });
 
 const PORT = process.env.PORT || 3001;

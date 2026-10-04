@@ -6,14 +6,24 @@ import { Toggle } from "./components/Toggle.jsx";
 import { Hi } from "./components/Hi.jsx";
 import { Board } from "./components/Board.jsx";
 import { SoundCard } from "./components/SoundCard.jsx";
-import { signInConfigured, initAuth, signIn, signOut, authFetch } from "./auth.js";
+import { signInConfigured, initAuth, signIn, signOut, authFetch, getIdToken } from "./auth.js";
+import { getSocket, call } from "./net.js";
+import { ClassLists } from "./ClassLists.jsx";
+import { Lobby } from "./Lobby.jsx";
 
 const pts = L => (L <= 4 ? 1 : L === 5 ? 2 : L === 6 ? 3 : L === 7 ? 5 : 11);
+// What joined devices are told: the round runs on paper (workbook) until live entry arrives in Phase 3.
+const roomPhaseFor = phase => (phase === "countdown" || phase === "playing" ? "playing" : phase === "reveal" ? "reveal" : "lobby");
+const ROOM_ERRORS = {
+  "class-not-found": "That class list no longer exists. Pick another class.",
+  offline: "Can't reach the WordShake server. Check your connection and try again.",
+  "token-expired": "Your sign-in has expired. Sign out and sign in again.",
+};
 
 /* ================= main app ================= */
 export default function WordShakeWorkbook() {
-  const [phase, setPhase] = useState("setup");
-  const [settings, setSettings] = useState({ seconds: 180, size: 4, minLen: 3, sound: true, showCount: true, phSound: null, phTicked: [], phBonus: false });
+  const [phase, setPhase] = useState(signInConfigured ? "loading" : "setup");
+  const [settings, setSettings] = useState({ seconds: 180, size: 4, minLen: 3, sound: true, showCount: true, phSound: null, phTicked: [], phBonus: false, mode: signInConfigured ? "online" : "workbook", classId: null });
   const [dict, setDict] = useState({ status: "loading", count: 0 });
   const [phStats, setPhStats] = useState({ words: 0, tags: 0 });
   const [busy, setBusy] = useState(false);
@@ -26,6 +36,13 @@ export default function WordShakeWorkbook() {
   const [accountsReady, setAccountsReady] = useState(false);
   const [account, setAccount] = useState(null);
   const [accountNote, setAccountNote] = useState("");
+  const [isNew, setIsNew] = useState(false);
+  const [classes, setClasses] = useState(null);
+  const [classPromptDismissed, setClassPromptDismissed] = useState(false);
+  const [room, setRoom] = useState(null);
+  const [roomNote, setRoomNote] = useState("");
+  const roomRef = useRef(null);
+  roomRef.current = room;
 
   const endsAtRef = useRef(0);
   const pauseLeftRef = useRef(0);
@@ -44,32 +61,116 @@ export default function WordShakeWorkbook() {
       .catch(() => setDict({ status: "fallback", count: 0 }));
   }, []);
 
-  /* ---- teacher sign-in: optional, only adds saved settings (workbook mode works signed out) ---- */
+  /* ---- teacher sign-in: needed for online rooms, class lists and saved settings (workbook mode works signed out) ---- */
   const loadAccount = async user => {
-    if (!user) return;
+    if (!user) return setPhase(p => (p === "loading" ? "home" : p));
     setAccountNote("");
     const res = await authFetch("/api/me").catch(() => null);
     if (!res) {
       await signOut();
-      return setAccountNote("Your sign-in has expired. Sign in again to use your saved settings.");
+      setPhase("home");
+      return setAccountNote("Your sign-in has expired. Please sign in again.");
     }
     setAccount(user);
     const body = await res.json();
     if (res.ok) {
       if (body.settings) setSettings(v => ({ ...v, ...body.settings }));
+      setIsNew(body.isNew);
     } else {
-      setAccountNote("You're signed in, but saved settings aren't available right now.");
+      setAccountNote("You're signed in, but your saved settings and classes aren't available right now.");
     }
+    setPhase(p => (p === "loading" || p === "home" ? "setup" : p));
+    authFetch("/api/classes").then(r => (r.ok ? r.json() : [])).then(setClasses).catch(() => setClasses([]));
+    resumeRoom();
   };
 
   useEffect(() => {
-    if (signInConfigured) initAuth().then(loadAccount).catch(() => setAccountNote("Google sign-in didn't finish. Please try again."));
+    if (!signInConfigured) return;
+    initAuth().then(loadAccount).catch(() => { setPhase("home"); setAccountNote("Google sign-in didn't finish. Please try again."); });
+    // If Google can't be reached (e.g. blocked on the school network), don't leave the teacher on a loading screen.
+    const t = setTimeout(() => setPhase(p => (p === "loading" ? "home" : p)), 8000);
+    return () => clearTimeout(t);
   }, []); // eslint-disable-line
 
   const signInHere = () => signIn().then(loadAccount).catch(e => {
     if (e.code !== "auth/popup-closed-by-user" && e.code !== "auth/cancelled-popup-request") setAccountNote("Google sign-in didn't finish. Please try again.");
   });
-  const signOutHere = async () => { await signOut(); setAccount(null); setAccountNote(""); };
+  const signOutHere = async () => {
+    if (roomRef.current) await call("host:close");
+    await signOut();
+    setAccount(null); setAccountNote(""); setClasses(null); setRoom(null); setIsNew(false);
+    setPhase("home");
+  };
+
+  /* ---- live room: the teacher's screen hosts it; students join on their own devices ---- */
+  // After a refresh or a dropped connection, get the open room back (rooms live on the server for the lesson).
+  const resumeRoom = async () => {
+    const res = await call("host:resume", { idToken: await getIdToken() });
+    if (res.ok) {
+      setRoom(res.room);
+      setPhase(p => (p === "setup" || p === "loading" || p === "home" ? "lobby" : p));
+    } else if (roomRef.current) {
+      setRoom(null);
+      setRoomNote("The room closed while you were away. Open a new one when you're ready.");
+      setPhase(p => (p === "lobby" ? "setup" : p));
+    }
+  };
+
+  useEffect(() => {
+    if (!account) return;
+    const s = getSocket();
+    const onUpdate = r => setRoom(r);
+    const onReplaced = () => {
+      setRoom(null);
+      setRoomNote("Your room is now open in another tab or window, so this one has stopped.");
+      setPhase(p => (p === "lobby" ? "setup" : p));
+    };
+    const onReconnect = () => { if (roomRef.current) resumeRoom(); };
+    s.on("room:update", onUpdate);
+    s.on("host:replaced", onReplaced);
+    s.io.on("reconnect", onReconnect);
+    return () => { s.off("room:update", onUpdate); s.off("host:replaced", onReplaced); s.io.off("reconnect", onReconnect); };
+  }, [account]); // eslint-disable-line
+
+  // Tell joined devices whether a round is on.
+  const sentPhaseRef = useRef(null);
+  useEffect(() => {
+    if (!room) { sentPhaseRef.current = null; return; }
+    const p = roomPhaseFor(phase);
+    if (p !== room.phase || sentPhaseRef.current !== p) {
+      sentPhaseRef.current = p;
+      call("host:phase", { phase: p });
+    }
+  }, [phase, room]);
+
+  const saveSettingsNow = () => {
+    if (account) {
+      authFetch("/api/me/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(settings) })
+        .catch(() => { /* saving settings must never block a round */ });
+    }
+  };
+
+  const openRoom = async () => {
+    setBusy(true);
+    setRoomNote("");
+    saveSettingsNow();
+    const classId = settings.classId && classes && classes.some(c => c.id === settings.classId) ? settings.classId : null;
+    const res = await call("host:open", { idToken: await getIdToken().catch(() => ""), classId });
+    setBusy(false);
+    if (!res.ok) return setRoomNote(ROOM_ERRORS[res.error] || "The room didn't open. Please try again.");
+    setRoom(res.room);
+    setPhase("lobby");
+  };
+
+  const closeRoom = async () => {
+    if (!window.confirm("Close the room? Everyone who joined will be sent back to the join screen.")) return;
+    await call("host:close");
+    setRoom(null);
+    setPhase("setup");
+  };
+
+  const kick = playerId => call("host:kick", { playerId });
+  const toSettings = () => setPhase(room ? "lobby" : "setup");
 
   const pickSound = id => setSettings(v => ({
     ...v, phSound: id,
@@ -105,10 +206,7 @@ export default function WordShakeWorkbook() {
   const start = async () => {
     setBusy(true);
     beep(660, 0.05, 0.001);
-    if (account) {
-      authFetch("/api/me/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(settings) })
-        .catch(() => { /* saving settings must never block a round */ });
-    }
+    saveSettingsNow();
     const res = await fetch("/api/game", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -194,24 +292,74 @@ export default function WordShakeWorkbook() {
       <header style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "baseline", justifyContent: "space-between", padding: "16px 26px 0" }}>
         <div className="ws-display" style={{ fontSize: 26, fontWeight: 700, letterSpacing: 0.5 }}>
           Word<span style={{ color: T.amber }}>Shake</span>
-          <span style={{ fontFamily: "'Atkinson Hyperlegible',sans-serif", fontWeight: 400, fontSize: 14, color: T.mist, marginLeft: 12 }}>workbook round</span>
+          {phase !== "home" && phase !== "loading" && (
+            <span style={{ fontFamily: "'Atkinson Hyperlegible',sans-serif", fontWeight: 400, fontSize: 14, color: T.mist, marginLeft: 12 }}>
+              {room ? `room ${room.code}${room.className ? ` · ${room.className}` : ""}` : settings.mode === "workbook" || !account ? "workbook round" : ""}
+            </span>
+          )}
         </div>
-        {phase !== "setup" && (
-          <button className="ws-btn" onClick={() => setPhase("setup")} style={{ background: "none", border: `1px solid ${T.faint}`, color: T.mist, borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 13 }}>
-            ✕ Quit to settings
+        {["countdown", "playing", "reveal"].includes(phase) && (
+          <button className="ws-btn" onClick={toSettings} style={{ background: "none", border: `1px solid ${T.faint}`, color: T.mist, borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 13 }}>
+            {room ? "✕ Back to lobby" : "✕ Quit to settings"}
           </button>
         )}
-        {phase === "setup" && signInConfigured && accountsReady && (account ? (
-          <div style={{ display: "flex", alignItems: "baseline", gap: 12, fontSize: 14, color: T.mist }}>
+        {(phase === "setup" || phase === "classes") && signInConfigured && accountsReady && (account ? (
+          <div style={{ display: "flex", alignItems: "baseline", gap: 14, fontSize: 14, color: T.mist, flexWrap: "wrap" }}>
+            {phase === "setup" && <button className="ws-btn" onClick={() => setPhase("classes")} style={{ background: "none", border: `1px solid ${T.faint}`, color: "#EFF4F9", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 13 }}>My classes</button>}
             <span>Signed in as <b style={{ color: "#EFF4F9" }}>{account.displayName || account.email}</b></span>
             <button className="ws-btn" onClick={signOutHere} style={{ background: "none", border: "none", color: T.mist, textDecoration: "underline", cursor: "pointer", fontSize: 14, padding: 0 }}>Sign out</button>
           </div>
         ) : (
-          <button className="ws-btn" onClick={signInHere} title="Sign in to have WordShake remember your settings" style={{ background: "none", border: `1px solid ${T.faint}`, color: "#EFF4F9", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 13 }}>
-            Sign in with Google
+          <button className="ws-btn" onClick={signInHere} style={{ background: "none", border: `1px solid ${T.faint}`, color: "#EFF4F9", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 13 }}>
+            Teacher sign in
           </button>
         ))}
       </header>
+
+      {phase === "loading" && <main style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: T.mist, fontSize: 18 }}>Loading…</main>}
+
+      {/* ---------- HOME (signed out) ---------- */}
+      {phase === "home" && (
+        <main className="ws-fade" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 28, padding: "30px 20px 40px" }}>
+          <div style={{ textAlign: "center", maxWidth: 680 }}>
+            <h1 className="ws-display" style={{ fontSize: "min(12vw, 64px)", fontWeight: 700, margin: 0 }}>Word<span style={{ color: T.amber }}>Shake</span></h1>
+            <p style={{ color: T.mist, fontSize: 19, marginTop: 6 }}>Shake the dice, then race the clock to find words. A word game for the whole class.</p>
+          </div>
+          {accountNote && <div role="status" style={{ maxWidth: 680, background: "rgba(255,176,32,.1)", border: "1px solid rgba(255,176,32,.4)", borderRadius: 12, padding: "10px 14px", fontSize: 14.5, color: T.mist }}>{accountNote}</div>}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 20, justifyContent: "center", width: "min(860px, 100%)" }}>
+            <section style={{ flex: "1 1 340px", border: `1px solid rgba(255,176,32,.4)`, background: "rgba(255,176,32,.06)", borderRadius: 20, padding: "22px 24px", display: "grid", gap: 14, alignContent: "start" }}>
+              <h2 className="ws-display" style={{ margin: 0, fontSize: 28 }}>Teachers</h2>
+              <p style={{ margin: 0, color: T.mist, fontSize: 16, lineHeight: 1.5 }}>Sign in to run online games, keep class lists and have your settings remembered.</p>
+              {signInConfigured ? (
+                <button className="ws-btn ws-display" onClick={signInHere} style={{ fontSize: 21, fontWeight: 700, background: T.amber, color: T.ink, border: "none", borderRadius: 14, padding: "14px 22px", cursor: "pointer", boxShadow: "0 5px 0 #B87A0A" }}>
+                  Sign in with Google
+                </button>
+              ) : <div style={{ color: T.amber, fontSize: 15 }}>Sign-in is unavailable right now.</div>}
+              <p style={{ margin: 0, color: "rgba(255,255,255,.5)", fontSize: 13.5, lineHeight: 1.5 }}>New here? Signing in for the first time creates your free account. Any Google account works, school or personal.</p>
+              <button className="ws-btn" onClick={() => { setSettings(v => ({ ...v, mode: "workbook" })); setPhase("setup"); }} style={{ background: "none", border: "none", color: T.mist, textDecoration: "underline", cursor: "pointer", fontSize: 15, padding: 0, justifySelf: "start" }}>
+                Or play a workbook round without signing in →
+              </button>
+            </section>
+            <section style={{ flex: "1 1 340px", border: `1px solid ${T.faint}`, background: "rgba(255,255,255,.04)", borderRadius: 20, padding: "22px 24px", display: "grid", gap: 14, alignContent: "start" }}>
+              <h2 className="ws-display" style={{ margin: 0, fontSize: 28 }}>Students</h2>
+              <p style={{ margin: 0, color: T.mist, fontSize: 16, lineHeight: 1.5 }}>Got a code from the big screen? Join your class's game here.</p>
+              <a href="/join" className="ws-btn ws-display" style={{ fontSize: 21, fontWeight: 700, background: T.green, color: T.ink, borderRadius: 14, padding: "14px 22px", textAlign: "center", textDecoration: "none" }}>Join a game</a>
+            </section>
+          </div>
+        </main>
+      )}
+
+      {/* ---------- CLASS LISTS ---------- */}
+      {phase === "classes" && (
+        <main style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", padding: "18px 20px 40px" }}>
+          <ClassLists classes={classes} setClasses={setClasses} onDone={() => setPhase("setup")} />
+        </main>
+      )}
+
+      {/* ---------- LOBBY ---------- */}
+      {phase === "lobby" && room && (
+        <Lobby room={room} busy={busy} onStart={start} onSettings={() => setPhase("setup")} onClose={closeRoom} onKick={kick} startLabel="Start the round →" />
+      )}
 
       {/* today's-sound banner on every game screen */}
       {phase === "reveal" && soundDef && (
@@ -232,6 +380,25 @@ export default function WordShakeWorkbook() {
               {accountNote}
             </div>
           )}
+          {account && classes && classes.length === 0 && !classPromptDismissed && (
+            <div role="status" style={{ width: "min(760px, 94vw)", boxSizing: "border-box", background: "rgba(87,199,133,.1)", border: "1px solid rgba(87,199,133,.45)", borderRadius: 14, padding: "14px 18px", display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+              <div style={{ flex: 1, minWidth: 240, fontSize: 15.5, lineHeight: 1.45 }}>
+                {isNew && <b style={{ display: "block", fontSize: 17, marginBottom: 2 }}>Welcome to WordShake, {(account.displayName || "").split(" ")[0] || "teacher"}! Your account is ready.</b>}
+                Add your class list so students can join a game by tapping their name.
+              </div>
+              <button className="ws-btn ws-display" onClick={() => setPhase("classes")} style={{ background: T.green, color: T.ink, border: "none", borderRadius: 10, padding: "9px 16px", cursor: "pointer", fontSize: 16, fontWeight: 700 }}>Add a class list</button>
+              <button className="ws-btn" onClick={() => setClassPromptDismissed(true)} style={{ background: "none", border: "none", color: T.mist, textDecoration: "underline", cursor: "pointer", fontSize: 14 }}>Later</button>
+            </div>
+          )}
+          {roomNote && (
+            <div role="alert" style={{ maxWidth: 680, background: "rgba(255,93,93,.1)", border: "1px solid rgba(255,93,93,.45)", borderRadius: 12, padding: "10px 14px", fontSize: 14.5 }}>{roomNote}</div>
+          )}
+          {room && (
+            <div style={{ width: "min(760px, 94vw)", boxSizing: "border-box", background: "rgba(255,176,32,.08)", border: "1px solid rgba(255,176,32,.4)", borderRadius: 14, padding: "12px 18px", display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", fontSize: 15.5 }}>
+              <span style={{ flex: 1 }}>Room <b className="ws-display" style={{ color: T.amber, letterSpacing: 2 }}>{room.code}</b> is open with {room.players.length} player{room.players.length === 1 ? "" : "s"}. New settings apply from the next round.</span>
+              <button className="ws-btn" onClick={() => setPhase("lobby")} style={{ background: T.amber, color: T.ink, border: "none", borderRadius: 10, padding: "8px 14px", cursor: "pointer", fontSize: 15, fontWeight: 700 }}>Back to the lobby</button>
+            </div>
+          )}
           <div style={{ textAlign: "center", maxWidth: 680 }}>
             <h1 className="ws-display" style={{ fontSize: 42, fontWeight: 700, margin: 0 }}>Ready to shake the dice?</h1>
             <p style={{ color: T.mist, fontSize: 17, marginTop: 8 }}>
@@ -241,6 +408,39 @@ export default function WordShakeWorkbook() {
           </div>
 
           <div style={{ display: "grid", gap: 20, width: "min(760px, 94vw)" }}>
+            <div>
+              <div style={{ color: T.mist, fontSize: 13, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1.2 }}>How students play</div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <Chip active={settings.mode === "online"} onClick={() => setSettings(v => ({ ...v, mode: "online" }))}>Online: students join on devices</Chip>
+                <Chip active={settings.mode === "workbook"} onClick={() => setSettings(v => ({ ...v, mode: "workbook" }))}>Workbook: paper only</Chip>
+              </div>
+              {settings.mode === "online" && !account && (
+                <div style={{ marginTop: 10, fontSize: 14.5, color: T.mist }}>
+                  Online games need a teacher account.{" "}
+                  {accountsReady && <button className="ws-btn" onClick={signInHere} style={{ background: "none", border: "none", color: T.amber, textDecoration: "underline", cursor: "pointer", fontSize: 14.5, padding: 0 }}>Sign in with Google</button>}
+                </div>
+              )}
+            </div>
+
+            {settings.mode === "online" && account && (
+              <div>
+                <div style={{ color: T.mist, fontSize: 13, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1.2 }}>Class</div>
+                {room ? (
+                  <div style={{ fontSize: 15, color: T.mist }}>{room.className || "Guests only"} — close the room in the lobby to switch class.</div>
+                ) : (
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                    {(classes || []).map(c => (
+                      <Chip key={c.id} active={settings.classId === c.id} onClick={() => setSettings(v => ({ ...v, classId: c.id }))}>{c.name}</Chip>
+                    ))}
+                    <Chip active={!classes || !classes.some(c => c.id === settings.classId)} onClick={() => setSettings(v => ({ ...v, classId: null }))}>Guests only</Chip>
+                    <button className="ws-btn" onClick={() => setPhase("classes")} style={{ background: "none", border: "none", color: T.mist, textDecoration: "underline", cursor: "pointer", fontSize: 14 }}>
+                      {classes && classes.length ? "Manage classes" : "Add a class list"}
+                    </button>
+                  </div>
+                )}
+                {!room && <div style={{ marginTop: 8, fontSize: 13, color: "rgba(255,255,255,.45)" }}>Students tap their name from the class list. Anyone not on it can join as a guest.</div>}
+              </div>
+            )}
             <div>
               <div style={{ color: T.mist, fontSize: 13, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1.2 }}>Round time</div>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -333,10 +533,19 @@ export default function WordShakeWorkbook() {
             </div>
           </div>
 
-          <button className="ws-btn ws-display" onClick={start} disabled={busy}
-            style={{ fontSize: 28, fontWeight: 700, background: T.amber, color: T.ink, border: "none", borderRadius: 16, padding: "18px 46px", cursor: "pointer", boxShadow: "0 6px 0 #B87A0A", opacity: busy ? 0.7 : 1 }}>
-            {busy ? "Shaking the dice…" : "Shake the dice →"}
-          </button>
+          {(() => {
+            const online = settings.mode === "online";
+            if (online && !account) return null;
+            const [label, action, busyLabel] = !online ? ["Shake the dice →", start, "Shaking the dice…"]
+              : room ? ["Back to the lobby →", () => { saveSettingsNow(); setPhase("lobby"); }, ""]
+              : ["Open the room →", openRoom, "Opening the room…"];
+            return (
+              <button className="ws-btn ws-display" onClick={action} disabled={busy}
+                style={{ fontSize: 28, fontWeight: 700, background: T.amber, color: T.ink, border: "none", borderRadius: 16, padding: "18px 46px", cursor: "pointer", boxShadow: "0 6px 0 #B87A0A", opacity: busy ? 0.7 : 1 }}>
+                {busy ? busyLabel : label}
+              </button>
+            );
+          })()}
 
           <div style={{ fontSize: 13, color: T.mist, display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ width: 8, height: 8, borderRadius: "50%", background: dict.status === "loading" ? T.mist : soundDef || dict.status === "full" ? T.green : T.amber }} />
@@ -530,6 +739,7 @@ export default function WordShakeWorkbook() {
                 </div>
                 <div style={{ display: "flex", gap: 14, justifyContent: "center", marginTop: 30 }}>
                   <button className="ws-btn ws-display" onClick={start} style={{ fontSize: 22, fontWeight: 700, background: T.amber, color: T.ink, border: "none", borderRadius: 14, padding: "14px 30px", cursor: "pointer", boxShadow: "0 5px 0 #B87A0A" }}>Play again ↻</button>
+                  {room && <button className="ws-btn ws-display" onClick={() => setPhase("lobby")} style={{ fontSize: 22, fontWeight: 600, background: "none", color: T.mist, border: `2px solid ${T.faint}`, borderRadius: 14, padding: "14px 30px", cursor: "pointer" }}>Back to the lobby</button>}
                   <button className="ws-btn ws-display" onClick={() => setPhase("setup")} style={{ fontSize: 22, fontWeight: 600, background: "none", color: T.mist, border: `2px solid ${T.faint}`, borderRadius: 14, padding: "14px 30px", cursor: "pointer" }}>Change settings</button>
                 </div>
               </div>
