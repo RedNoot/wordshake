@@ -39,6 +39,7 @@ export function Join({ initialCode }) {
   const [guestName, setGuestName] = useState("");
   const [me, setMe] = useState(null);               // { name, guest }
   const [cabinet, setCabinet] = useState(false);    // showing "My trophies"
+  const cabinetCache = useRef(null);                // the last trophies loaded, shown at once next time
   const [phase, setPhase] = useState("lobby");
   const [round, setRound] = useState(null);         // this device's view of the current round (letters only, never the answers)
   const [message, setMessage] = useState("");
@@ -52,6 +53,7 @@ export function Join({ initialCode }) {
     store.set(tokenKey(c), res.token);
     setMe({ name: res.name, guest: !!res.guest });
     setCabinet(false);
+    cabinetCache.current = null;
     setPhase(res.phase);
     setRound(res.round ? { ...res.round, clockAt: Date.now() } : null);
     setMessage("");
@@ -200,7 +202,7 @@ export function Join({ initialCode }) {
 
         {step === "joined" && me && round && <Play round={round} name={me.name} onRound={setRound} />}
 
-        {step === "joined" && me && !round && cabinet && <Cabinet name={me.name} onClose={() => setCabinet(false)} />}
+        {step === "joined" && me && !round && cabinet && <Cabinet name={me.name} cached={cabinetCache.current} onLoaded={s => { cabinetCache.current = s; }} onClose={() => setCabinet(false)} />}
 
         {step === "joined" && me && !round && !cabinet && (
           <div className="ws-fade" style={{ display: "grid", gap: 16, justifyItems: "center", textAlign: "center", marginTop: 30 }}>

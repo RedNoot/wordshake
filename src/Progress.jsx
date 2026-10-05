@@ -84,7 +84,7 @@ export function Progress({ classes, onDone }) {
   }, [data]);
 
   const removeGame = async g => {
-    if (!window.confirm(`Delete the round from ${when(g.endedAt)}? It will disappear from every student's progress. This can't be undone.`)) return;
+    if (!window.confirm(`Delete the round from ${when(g.endedAt)}? It will disappear from the round history and charts. Trophies and stickers already earned are kept. This can't be undone.`)) return;
     const res = await authFetch(`/api/classes/${classId}/games/${g.id}`, { method: "DELETE" }).catch(() => null);
     if (!res || !res.ok) return setError("That round wasn't deleted. Check your connection and try again.");
     setGameId(null);

@@ -89,12 +89,22 @@ export function StickerBook({ stickers, compact = false }) {
 }
 
 // The student's own cabinet, opened from the lobby while they wait.
-export function Cabinet({ name, onClose }) {
-  const [summary, setSummary] = useState(null);
+// The last summary is shown straight away while a fresh one loads; the server allows one look every 2 seconds,
+// so a quick close-and-reopen waits briefly and tries again instead of showing an error.
+export function Cabinet({ name, cached, onLoaded, onClose }) {
+  const [summary, setSummary] = useState(cached || null);
   const [error, setError] = useState("");
   useEffect(() => {
-    call("player:trophies").then(res => (res.ok ? setSummary(res.summary) : setError("Your trophies didn't load. Try again in a moment.")));
-  }, []);
+    let alive = true, timer = null;
+    const load = retry => call("player:trophies").then(res => {
+      if (!alive) return;
+      if (res.ok) { setSummary(res.summary); setError(""); if (onLoaded) onLoaded(res.summary); }
+      else if (res.error === "slow-down" && retry) timer = setTimeout(() => load(false), 2100);
+      else if (!cached) setError("Your trophies didn't load. Try again in a moment.");
+    });
+    load(true);
+    return () => { alive = false; clearTimeout(timer); };
+  }, []); // eslint-disable-line
   const count = summary ? Object.keys(summary.trophies || {}).length : 0;
   return (
     <div className="ws-fade" style={{ width: "100%", display: "grid", gap: 18 }}>
