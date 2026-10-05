@@ -50,6 +50,29 @@ export async function updateClass(teacherId, classId, cls) {
   return { id: classId, ...cls };
 }
 
+// Deleting a class also deletes its saved rounds (Firestore doesn't remove subcollections on its own).
 export async function deleteClass(teacherId, classId) {
-  await classesOf(teacherId).doc(classId).delete();
+  await db.recursiveDelete(classesOf(teacherId).doc(classId));
+}
+
+/* ---- progress: teachers/{uid}/classes/{classId}/games/{gameId} = one finished round (see roundRecord in round.js) ---- */
+const gamesOf = (teacherId, classId) => classesOf(teacherId).doc(classId).collection("games");
+export const GAMES_SHOWN = 150;
+
+export async function saveRound(teacherId, classId, record) {
+  const cls = await classesOf(teacherId).doc(classId).get();
+  if (!cls.exists) return;  // the class was deleted mid-lesson: don't leave orphaned history behind
+  await gamesOf(teacherId, classId).add({ ...record, endedAt: FieldValue.serverTimestamp() });
+}
+
+export async function listGames(teacherId, classId) {
+  const snap = await gamesOf(teacherId, classId).orderBy("endedAt", "desc").limit(GAMES_SHOWN).get();
+  return snap.docs.map(d => {
+    const g = d.data();
+    return { ...g, id: d.id, endedAt: g.endedAt ? g.endedAt.toMillis() : null };
+  });
+}
+
+export async function deleteGame(teacherId, classId, gameId) {
+  await gamesOf(teacherId, classId).doc(gameId).delete();
 }

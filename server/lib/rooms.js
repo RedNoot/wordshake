@@ -1,7 +1,7 @@
 import { randomBytes, randomInt } from "crypto";
 import { cleanGuestName, uniqueName } from "./names.js";
 import { pickRoundSettings } from "./settings.js";
-import { newRound, setClock, remainingMs, playerView, checkWord } from "./round.js";
+import { newRound, setClock, remainingMs, playerView, checkWord, roundRecord, GRACE_MS } from "./round.js";
 
 // No vowels, so a code can't spell a word; no 0/O or 1/I to confuse.
 const CODE_CHARS = "BCDFGHJKLMNPQRSTVWXZ23456789";
@@ -19,12 +19,12 @@ const obj = d => (d && typeof d === "object" ? d : {});
 
 /*
  * Live rooms, held in server memory only (a restart closes every room).
- * room = { code, teacherId, hostSocket, className, roster: [{ id, name }] | null,
+ * room = { code, teacherId, hostSocket, classId, className, roster: [{ id, name }] | null,
  *          players: Map<playerId, { id, name, studentId, token, socketId }>, phase, createdAt, hostSeenAt,
  *          round: see round.js | null, roundNo }
  * Socket.IO rooms: host:CODE (the big screen), players:CODE (joined devices), lookup:CODE (devices on the name grid).
  */
-export function attachRooms(io, { verifyTeacher, getClass, makeGame, isRealWord, now = Date.now }) {
+export function attachRooms(io, { verifyTeacher, getClass, makeGame, isRealWord, saveRound = null, now = Date.now, later = (fn, ms) => setTimeout(fn, ms) }) {
   const rooms = new Map();
   const byTeacher = new Map();
   const lookupFails = new Map();
@@ -46,7 +46,29 @@ export function attachRooms(io, { verifyTeacher, getClass, makeGame, isRealWord,
     io.to(`lookup:${room.code}`).emit("room:roster", lookupView(room));
   };
 
+  /*
+   * Progress tracking: a finished round (time up or End now, so the big screen shows the answers) is saved for
+   * class-list rooms. The save waits out the grace window so a word swiped at zero is included.
+   * A round abandoned mid-way (back to the lobby, quit) is never saved.
+   */
+  function finishRound(room) {
+    const round = room.round;
+    if (!round || round.aborted || round.save || !room.classId || !saveRound) return;
+    round.save = "pending";
+    later(() => flushRound(room, round), GRACE_MS + 100);
+  }
+  function flushRound(room, round) {
+    if (round.save !== "pending") return;
+    round.save = "done";
+    const record = roundRecord(round);
+    if (!Object.keys(record.players).length) return;
+    Promise.resolve()
+      .then(() => saveRound(room.teacherId, room.classId, record))
+      .catch(err => console.error("Saving a round failed:", err.message));
+  }
+
   function closeRoom(room, reason = "closed") {
+    if (room.round && room.round.save === "pending") flushRound(room, room.round);
     io.to(`players:${room.code}`).to(`lookup:${room.code}`).emit("room:closed", reason);
     for (const r of ["host", "players", "lookup"]) io.socketsLeave(`${r}:${room.code}`);
     for (const p of players(room)) { const s = p.socketId && io.sockets.sockets.get(p.socketId); if (s) s.data.player = null; }
@@ -153,7 +175,7 @@ export function attachRooms(io, { verifyTeacher, getClass, makeGame, isRealWord,
       let code;
       do code = newCode(); while (rooms.has(code));
       const room = {
-        code, teacherId: teacher.id, hostSocket: null, className: cls ? cls.name : null,
+        code, teacherId: teacher.id, hostSocket: null, classId: cls ? classId : null, className: cls ? cls.name : null,
         roster: cls ? cls.students.map(s => ({ id: s.id, name: s.name })) : null,
         players: new Map(), phase: "lobby", createdAt: now(), hostSeenAt: now(), round: null, roundNo: 0,
       };
@@ -181,6 +203,8 @@ export function attachRooms(io, { verifyTeacher, getClass, makeGame, isRealWord,
       const game = await makeGame(picked);
       if (game.error) return ack({ error: game.error });
       room.round = newRound(++room.roundNo, picked, game, [...room.players.keys()]);
+      // Who played, captured now so the saved record doesn't depend on who is still in the room later.
+      room.round.who = new Map(players(room).map(p => [p.id, { studentId: p.studentId, name: p.name }]));
       room.phase = "playing";
       sendRound(room);
       notify(room);
@@ -202,7 +226,11 @@ export function attachRooms(io, { verifyTeacher, getClass, makeGame, isRealWord,
       if (!room) return ack({ error: "no-room" });
       if (!PHASES.includes(phase)) return ack({ error: "invalid phase" });
       // Leaving a round early (back to the lobby) ends it for every device.
-      if (phase !== "playing" && room.round && room.round.state !== "over") setClock(room.round, "over", 0, now());
+      if (phase !== "playing" && room.round && room.round.state !== "over") {
+        setClock(room.round, "over", 0, now());
+        if (phase !== "reveal") room.round.aborted = true;
+      }
+      if (phase === "reveal") finishRound(room);
       const changed = room.phase !== phase;
       room.phase = phase;
       io.to(`players:${room.code}`).emit("room:phase", phase);
@@ -217,7 +245,7 @@ export function attachRooms(io, { verifyTeacher, getClass, makeGame, isRealWord,
       const p = room.players.get(playerId);
       if (!p) return ack({ error: "no-player" });
       room.players.delete(p.id);
-      if (room.round) { room.round.found.delete(p.id); room.round.eligible.delete(p.id); }
+      if (room.round) { room.round.found.delete(p.id); room.round.eligible.delete(p.id); room.round.who && room.round.who.delete(p.id); }
       const s = p.socketId && io.sockets.sockets.get(p.socketId);
       if (s) { s.emit("room:kicked"); s.leave(`players:${room.code}`); s.data.player = null; }
       notify(room);
@@ -274,7 +302,8 @@ export function attachRooms(io, { verifyTeacher, getClass, makeGame, isRealWord,
       const ref = socket.data.player;
       const room = ref && rooms.get(ref.code);
       if (!room || !room.players.has(ref.id)) return ack({ error: "not-joined" });
-      if (!room.round || room.round.n !== n || room.phase !== "playing") return ack({ result: "late" });
+      // Still allowed just after the answers appear: checkWord's grace window decides whether it counts.
+      if (!room.round || room.round.n !== n || room.phase === "lobby") return ack({ result: "late" });
       ack(await checkWord(room.round, ref.id, word, now(), isRealWord));
     });
 

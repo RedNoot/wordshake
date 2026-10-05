@@ -8,7 +8,7 @@ import { generateGame } from "./lib/generate.js";
 import { loadDictionary } from "./lib/dictionary.js";
 import { PH_STATS, SW_WORDS, resolveSound } from "./lib/phonics.js";
 import { AUTH, AuthError, verifyTeacher } from "./lib/auth.js";
-import { storeReady, loadTeacher, saveSettings, listClasses, getClass, countClasses, createClass, updateClass, deleteClass } from "./lib/store.js";
+import { storeReady, loadTeacher, saveSettings, listClasses, getClass, countClasses, createClass, updateClass, deleteClass, saveRound, listGames, deleteGame, GAMES_SHOWN } from "./lib/store.js";
 import { pickSettings } from "./lib/settings.js";
 import { pickClass, LIMITS } from "./lib/classes.js";
 import { attachRooms } from "./lib/rooms.js";
@@ -120,6 +120,20 @@ app.delete("/api/classes/:id", teacherRoute(async (req, res, teacher) => {
   res.json({ ok: true });
 }));
 
+/* ---- progress (teacher only): finished rounds for one class ---- */
+app.get("/api/classes/:id/games", teacherRoute(async (req, res, teacher) => {
+  const cls = validClassId(req.params.id) && await getClass(teacher.id, req.params.id);
+  if (!cls) return res.status(404).json({ error: "class-not-found" });
+  const games = await listGames(teacher.id, cls.id);
+  res.json({ class: cls, games, limit: GAMES_SHOWN });
+}));
+
+app.delete("/api/classes/:id/games/:gameId", teacherRoute(async (req, res, teacher) => {
+  if (!validClassId(req.params.id) || !validClassId(req.params.gameId)) return res.status(404).json({ error: "not-found" });
+  await deleteGame(teacher.id, req.params.id, req.params.gameId);
+  res.json({ ok: true });
+}));
+
 app.get("/check", (req, res) => res.sendFile(path.join(__dirname, "check.html")));
 
 if (process.env.NODE_ENV === "production") {
@@ -141,6 +155,11 @@ attachRooms(io, {
   getClass,
   makeGame,
   isRealWord,
+  // Progress tracking must never get in the way of a lesson: no database, no save; a failed save is only logged.
+  saveRound: async (teacherId, classId, record) => {
+    if (!storeReady) return;
+    try { await saveRound(teacherId, classId, record); } catch (err) { console.error("Saving a round failed:", err.message); }
+  },
 });
 
 const PORT = process.env.PORT || 3001;

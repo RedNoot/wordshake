@@ -116,7 +116,7 @@ export function ClassLists({ classes, setClasses, onDone }) {
   const [error, setError] = useState("");
 
   const remove = async cls => {
-    if (!window.confirm(`Delete ${cls.name} and its ${cls.students.length} student names? This can't be undone.`)) return;
+    if (!window.confirm(`Delete ${cls.name}, its ${cls.students.length} student names and all its saved progress? This can't be undone.`)) return;
     const res = await authFetch(`/api/classes/${cls.id}`, { method: "DELETE" }).catch(() => null);
     if (!res || !res.ok) return setError("That didn't delete. Check your connection and try again.");
     setClasses(cs => cs.filter(c => c.id !== cls.id));

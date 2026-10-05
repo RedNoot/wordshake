@@ -10,12 +10,13 @@ const CLASS = { id: "class1", name: "3/4B", students: [{ id: "s1", name: "Ava" }
 // C A T S on the top row, X everywhere else: "cat" and "cats" are the only answers.
 const GAME = size => ({
   tiles: ["C", "A", "T", "S", ...Array(size * size - 4).fill("X")], rots: Array(size * size).fill("0"),
-  solution: { list: ["cat", "cats"], phonics: { tagMap: { cat: [[1, 2]] } } },
+  solution: { list: ["cat", "cats"], longest: [{ word: "cats" }], phonics: { tagMap: { cat: [[1, 2]] }, bySpelling: { a: [{ word: "cat" }, { word: "cats" }] } } },
 });
 const ROUND = { seconds: 60, size: 4, minLen: 3, phSound: null, phTicked: [], phBonus: false };
 const TEACHERS = { "tok-a": { id: "teacherA", name: "A" }, "tok-b": { id: "teacherB", name: "B" } };
 
 let server, url, roomsApi, clock = 1_000_000;
+let saved = [], pending = [];   // rounds saved for progress tracking, and saves waiting out the grace window
 const sockets = [];
 
 before(async () => {
@@ -26,7 +27,9 @@ before(async () => {
     getClass: async (tid, cid) => (tid === "teacherA" && cid === "class1" ? CLASS : null),
     makeGame: async ({ size }) => GAME(size),
     isRealWord: async w => ["tac", "cat", "cats"].includes(w),
+    saveRound: async (teacherId, classId, record) => { saved.push({ teacherId, classId, record }); },
     now: () => clock,
+    later: fn => pending.push(fn),
   });
   await new Promise(r => server.listen(0, r));
   url = `http://localhost:${server.address().port}`;
@@ -272,6 +275,72 @@ test("device play: letters only, word checks, scoring, clock and late joiners", 
 });
 
 // Runs last: it locks this machine's address out of joining.
+test("progress: finished class-list rounds are saved once, after the grace window", async () => {
+  saved = []; pending = [];
+  const host = await client();
+  const { room } = await call(host, "host:open", { idToken: "tok-a", classId: "class1" });
+  const ava = await client(), ben = await client(), guest = await client();
+  await call(ava, "player:join", { code: room.code, studentId: "s1" });
+  await call(ben, "player:join", { code: room.code, studentId: "s2" });
+  await call(guest, "player:join", { code: room.code, guestName: "Max" });
+
+  const r = await call(host, "host:start", { settings: { ...ROUND, phSound: "a", phTicked: ["a"], phBonus: true } });
+  await call(host, "host:clock", { n: r.n, state: "playing", remainingMs: 60000 });
+  const chloe = await client();
+  await call(chloe, "player:join", { code: room.code, studentId: "s3" });   // late: waits for the next round
+  assert.equal((await call(ava, "player:word", { n: r.n, word: "cat" })).result, "ok");
+  assert.equal((await call(guest, "player:word", { n: r.n, word: "cat" })).result, "ok");
+
+  await call(host, "host:phase", { phase: "reveal" });
+  assert.equal(pending.length, 1, "save scheduled");
+  assert.equal(saved.length, 0, "not before the grace window ends");
+  clock += 1000;
+  assert.equal((await call(ava, "player:word", { n: r.n, word: "cats" })).result, "ok", "word inside the grace");
+  pending.shift()();
+  await new Promise(res => setImmediate(res));
+  assert.equal(saved.length, 1);
+  const { teacherId, classId, record } = saved[0];
+  assert.deepEqual([teacherId, classId], ["teacherA", "class1"]);
+  assert.deepEqual(Object.keys(record.players).sort(), ["s1", "s2"], "no guests, no late joiners");
+  assert.deepEqual(record.players.s1, { name: "Ava", words: ["cat", "cats"], score: 4, bonusCount: 1, bySpelling: { a: ["cat", "cats"] } });
+  assert.deepEqual(record.players.s2, { name: "Ben", words: [], score: 0, bonusCount: 0, bySpelling: {} }, "a zero still counts");
+  assert.deepEqual(record.available, { a: 2 });
+  assert.equal(record.settings.phSound, "a");
+  assert.equal(record.boardWords, 2);
+
+  // The teacher refreshes during the answers: no second save.
+  await call(host, "host:phase", { phase: "reveal" });
+  assert.equal(pending.length, 0);
+
+  // An abandoned round (back to the lobby mid-round) is never saved.
+  const r2 = await call(host, "host:start", { settings: ROUND });
+  await call(host, "host:clock", { n: r2.n, state: "playing", remainingMs: 60000 });
+  await call(host, "host:phase", { phase: "lobby" });
+  await call(host, "host:phase", { phase: "reveal" });
+  assert.equal(pending.length, 0);
+
+  // Closing the room straight after a round still saves it.
+  const r3 = await call(host, "host:start", { settings: ROUND });
+  await call(host, "host:clock", { n: r3.n, state: "playing", remainingMs: 60000 });
+  await call(host, "host:phase", { phase: "reveal" });
+  await call(host, "host:close");
+  await new Promise(res => setImmediate(res));
+  assert.equal(saved.length, 2);
+  assert.deepEqual(Object.keys(saved[1].record.players).sort(), ["s1", "s2", "s3"], "Chloe plays from the next round");
+  pending.length = 0;
+
+  // Guests-only rooms save nothing.
+  const host2 = await client();
+  const g = await call(host2, "host:open", { idToken: "tok-b" });
+  const kid = await client();
+  await call(kid, "player:join", { code: g.room.code, guestName: "Zed" });
+  const r4 = await call(host2, "host:start", { settings: ROUND });
+  await call(host2, "host:clock", { n: r4.n, state: "playing", remainingMs: 60000 });
+  await call(host2, "host:phase", { phase: "reveal" });
+  assert.equal(pending.length, 0);
+  await call(host2, "host:close");
+});
+
 test("guessing room codes gets throttled, whichever message is used", async () => {
   const kid = await client();
   const guesses = [

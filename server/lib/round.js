@@ -3,7 +3,7 @@ import { findPath } from "./solver.js";
 // Same table as the workbook round: 1/2/3/5/11 by length.
 export const wordPoints = L => (L <= 4 ? 1 : L === 5 ? 2 : L === 6 ? 3 : L === 7 ? 5 : 11);
 export const BONUS = 2;
-const GRACE_MS = 1500;         // a word swiped in the final second still counts if it arrives just after zero
+export const GRACE_MS = 1500;         // a word swiped in the final second still counts if it arrives just after zero
 const MAX_SUBMITS = 1000;      // per player per round; stops a script hammering the server
 
 /*
@@ -90,4 +90,44 @@ export async function checkWord(round, playerId, raw, t, isRealWord) {
   if (!findPath(round.game.tiles, round.settings.size, word)) return { result: "board", word };
   if (round.settings.phSound && await isRealWord(word)) return { result: "notlist", word };
   return { result: "notword", word };
+}
+
+/*
+ * What gets saved for the teacher's progress view once a round has finished: class-list students only
+ * (guests and late joiners are left out), including anyone who found nothing.
+ * For a Sounds-Write round, each ticked spelling records how many board words used it ("available")
+ * and which of those each student found ("bySpelling": spelling -> words), so the teacher can see "found 3 of 7 ay words".
+ */
+export function roundRecord(round) {
+  const { settings, game } = round;
+  const S = game.solution, ph = S.phonics;
+  const spellingsOf = new Map(), available = {};
+  if (ph && settings.phSound) {
+    for (const g of settings.phTicked) {
+      const items = ph.bySpelling[g] || [];
+      available[g] = items.length;
+      for (const { word } of items) spellingsOf.set(word, [...(spellingsOf.get(word) || []), g]);
+    }
+  }
+  const players = {};
+  for (const [playerId, who] of round.who || []) {
+    if (!who.studentId || !round.eligible.has(playerId)) continue;
+    const found = round.found.get(playerId) || new Map();
+    const words = [...found.keys()];
+    const prev = players[who.studentId];
+    if (prev && prev.words.length > words.length) continue;
+    const bySpelling = {};
+    for (const w of words) for (const g of spellingsOf.get(w) || []) (bySpelling[g] ||= []).push(w);
+    players[who.studentId] = {
+      name: who.name, words, score: playerTotal(round, playerId),
+      bonusCount: [...found.values()].filter(f => f.bonus).length, bySpelling,
+    };
+  }
+  return {
+    roundNo: round.n,
+    settings: { seconds: settings.seconds, size: settings.size, minLen: settings.minLen, phSound: settings.phSound, phTicked: [...settings.phTicked], phBonus: settings.phBonus },
+    tiles: game.tiles, boardWords: S.list.length,
+    longest: (S.longest || []).map(x => x.word).slice(0, 3),
+    available, players,
+  };
 }

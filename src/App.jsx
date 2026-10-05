@@ -10,6 +10,7 @@ import { signInConfigured, initAuth, signIn, signOut, authFetch, getIdToken } fr
 import { getSocket, call } from "./net.js";
 import { ClassLists } from "./ClassLists.jsx";
 import { Lobby } from "./Lobby.jsx";
+import { Progress } from "./Progress.jsx";
 
 const pts = L => (L <= 4 ? 1 : L === 5 ? 2 : L === 6 ? 3 : L === 7 ? 5 : 11);
 // What joined devices are told about the big screen: in a round (countdown or playing), showing answers, or in the lobby.
@@ -360,9 +361,10 @@ export default function WordShakeWorkbook() {
             {room ? "✕ Back to lobby" : "✕ Quit to settings"}
           </button>
         )}
-        {(phase === "setup" || phase === "classes") && signInConfigured && accountsReady && (account ? (
+        {["setup", "classes", "progress"].includes(phase) && signInConfigured && accountsReady && (account ? (
           <div style={{ display: "flex", alignItems: "baseline", gap: 14, fontSize: 14, color: T.mist, flexWrap: "wrap" }}>
-            {phase === "setup" && <button className="ws-btn" onClick={() => setPhase("classes")} style={{ background: "none", border: `1px solid ${T.faint}`, color: "#EFF4F9", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 13 }}>My classes</button>}
+            {phase !== "classes" && <button className="ws-btn" onClick={() => setPhase("classes")} style={{ background: "none", border: `1px solid ${T.faint}`, color: "#EFF4F9", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 13 }}>My classes</button>}
+            {phase !== "progress" && <button className="ws-btn" onClick={() => setPhase("progress")} style={{ background: "none", border: `1px solid ${T.faint}`, color: "#EFF4F9", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 13 }}>Progress</button>}
             <span>Signed in as <b style={{ color: "#EFF4F9" }}>{account.displayName || account.email}</b></span>
             <button className="ws-btn" onClick={signOutHere} style={{ background: "none", border: "none", color: T.mist, textDecoration: "underline", cursor: "pointer", fontSize: 14, padding: 0 }}>Sign out</button>
           </div>
@@ -412,6 +414,8 @@ export default function WordShakeWorkbook() {
           <ClassLists classes={classes} setClasses={setClasses} onDone={() => setPhase("setup")} />
         </main>
       )}
+
+      {phase === "progress" && <Progress classes={classes} onDone={() => setPhase("setup")} />}
 
       {/* ---------- LOBBY ---------- */}
       {phase === "lobby" && room && (
