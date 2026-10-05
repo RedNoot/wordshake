@@ -57,6 +57,7 @@ export function playerView(round, playerId, t) {
     state: round.state, remainingMs: remainingMs(round, t), eligible: round.eligible.has(playerId),
     words: [...(round.found.get(playerId) || new Map())].map(([word, s]) => ({ word, ...s })),
     total: playerTotal(round, playerId),
+    rewards: (round.rewards && round.rewards.get(playerId)) || null,
   };
 }
 

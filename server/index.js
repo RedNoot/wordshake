@@ -8,7 +8,10 @@ import { generateGame } from "./lib/generate.js";
 import { loadDictionary } from "./lib/dictionary.js";
 import { PH_STATS, SW_WORDS, resolveSound } from "./lib/phonics.js";
 import { AUTH, AuthError, verifyTeacher } from "./lib/auth.js";
-import { storeReady, loadTeacher, saveSettings, listClasses, getClass, countClasses, createClass, updateClass, deleteClass, saveRound, listGames, deleteGame, GAMES_SHOWN } from "./lib/store.js";
+import { storeReady, loadTeacher, saveSettings, listClasses, getClass, countClasses, createClass, updateClass, deleteClass, saveRound, listGames, deleteGame, GAMES_SHOWN,
+  loadSummaries, getStudent, listSummaries, addAward, removeAward } from "./lib/store.js";
+import { AWARD_PRESETS, CUSTOM_AWARD_EMOJI, AWARD_LABEL_MAX, AWARDS_MAX } from "../shared/rewards.js";
+import { randomBytes } from "crypto";
 import { pickSettings } from "./lib/settings.js";
 import { pickClass, LIMITS } from "./lib/classes.js";
 import { attachRooms } from "./lib/rooms.js";
@@ -124,13 +127,40 @@ app.delete("/api/classes/:id", teacherRoute(async (req, res, teacher) => {
 app.get("/api/classes/:id/games", teacherRoute(async (req, res, teacher) => {
   const cls = validClassId(req.params.id) && await getClass(teacher.id, req.params.id);
   if (!cls) return res.status(404).json({ error: "class-not-found" });
-  const games = await listGames(teacher.id, cls.id);
-  res.json({ class: cls, games, limit: GAMES_SHOWN });
+  const [games, summaries] = await Promise.all([listGames(teacher.id, cls.id), listSummaries(teacher.id, cls.id)]);
+  res.json({ class: cls, games, summaries, limit: GAMES_SHOWN });
 }));
 
 app.delete("/api/classes/:id/games/:gameId", teacherRoute(async (req, res, teacher) => {
   if (!validClassId(req.params.id) || !validClassId(req.params.gameId)) return res.status(404).json({ error: "not-found" });
   await deleteGame(teacher.id, req.params.id, req.params.gameId);
+  res.json({ ok: true });
+}));
+
+/* ---- teacher awards: given by hand from the Progress page, shown in the student's trophy cabinet ---- */
+app.post("/api/classes/:id/students/:sid/awards", teacherRoute(async (req, res, teacher) => {
+  const cls = validClassId(req.params.id) && await getClass(teacher.id, req.params.id);
+  if (!cls || !cls.students.some(s => s.id === req.params.sid)) return res.status(404).json({ error: "student-not-found" });
+  const { preset, label } = req.body || {};
+  let award;
+  if (preset === "custom") {
+    const text = typeof label === "string" ? label.normalize("NFC").replace(/\s+/g, " ").trim() : "";
+    if (!text || text.length > AWARD_LABEL_MAX) return res.status(400).json({ error: "award-label" });
+    award = { emoji: CUSTOM_AWARD_EMOJI, label: text };
+  } else {
+    const p = AWARD_PRESETS.find(a => a.id === preset);
+    if (!p) return res.status(400).json({ error: "award-label" });
+    award = { emoji: p.emoji, label: p.label };
+  }
+  const out = await addAward(teacher.id, cls.id, req.params.sid, { id: randomBytes(6).toString("base64url"), ...award, at: Date.now() }, AWARDS_MAX);
+  if (out.error) return res.status(400).json(out);
+  res.json(out);
+}));
+
+app.delete("/api/classes/:id/students/:sid/awards/:awardId", teacherRoute(async (req, res, teacher) => {
+  const { id, sid, awardId } = req.params;
+  if (![id, sid].every(validClassId) || !/^[A-Za-z0-9_-]{1,20}$/.test(awardId)) return res.status(404).json({ error: "not-found" });
+  await removeAward(teacher.id, id, sid, awardId);
   res.json({ ok: true });
 }));
 
@@ -156,10 +186,16 @@ attachRooms(io, {
   makeGame,
   isRealWord,
   // Progress tracking must never get in the way of a lesson: no database, no save; a failed save is only logged.
-  saveRound: async (teacherId, classId, record) => {
+  saveRound: async (teacherId, classId, record, summaries) => {
     if (!storeReady) return;
-    try { await saveRound(teacherId, classId, record); } catch (err) { console.error("Saving a round failed:", err.message); }
+    try { await saveRound(teacherId, classId, record, summaries); } catch (err) { console.error("Saving a round failed:", err.message); }
   },
+  // Without a database there are no rewards (rooms skip them when this fails), but the game carries on.
+  loadSummaries: async (teacherId, classId) => {
+    if (!storeReady) throw new Error("accounts-not-configured");
+    return loadSummaries(teacherId, classId);
+  },
+  getStudent: async (teacherId, classId, studentId) => (storeReady ? getStudent(teacherId, classId, studentId) : null),
 });
 
 const PORT = process.env.PORT || 3001;

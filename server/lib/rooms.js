@@ -2,6 +2,7 @@ import { randomBytes, randomInt } from "crypto";
 import { cleanGuestName, uniqueName } from "./names.js";
 import { pickRoundSettings } from "./settings.js";
 import { newRound, setClock, remainingMs, playerView, checkWord, roundRecord, GRACE_MS } from "./round.js";
+import { applyRound, emptySummary } from "../../shared/rewards.js";
 
 // No vowels, so a code can't spell a word; no 0/O or 1/I to confuse.
 const CODE_CHARS = "BCDFGHJKLMNPQRSTVWXZ23456789";
@@ -24,7 +25,11 @@ const obj = d => (d && typeof d === "object" ? d : {});
  *          round: see round.js | null, roundNo }
  * Socket.IO rooms: host:CODE (the big screen), players:CODE (joined devices), lookup:CODE (devices on the name grid).
  */
-export function attachRooms(io, { verifyTeacher, getClass, makeGame, isRealWord, saveRound = null, now = Date.now, later = (fn, ms) => setTimeout(fn, ms) }) {
+export function attachRooms(io, {
+  verifyTeacher, getClass, makeGame, isRealWord,
+  saveRound = null, loadSummaries = null, getStudent = null,
+  now = Date.now, later = (fn, ms) => setTimeout(fn, ms),
+}) {
   const rooms = new Map();
   const byTeacher = new Map();
   const lookupFails = new Map();
@@ -57,14 +62,50 @@ export function attachRooms(io, { verifyTeacher, getClass, makeGame, isRealWord,
     round.save = "pending";
     later(() => flushRound(room, round), GRACE_MS + 100);
   }
-  function flushRound(room, round) {
+  async function flushRound(room, round) {
     if (round.save !== "pending") return;
     round.save = "done";
     const record = roundRecord(round);
-    if (!Object.keys(record.players).length) return;
-    Promise.resolve()
-      .then(() => saveRound(room.teacherId, room.classId, record))
+    const sids = Object.keys(record.players);
+    if (!sids.length) return;
+    if (room.loadingSummaries) await room.loadingSummaries;
+    // Rewards: only when the students' saved summaries loaded, so nothing is awarded twice or overwritten.
+    let updates = null;
+    if (room.summaries) {
+      updates = {};
+      const bySid = {}, tally = { trophies: 0, stickers: 0, bests: 0 }, t = now();
+      for (const sid of sids) {
+        const { summary, earned } = applyRound(room.summaries.get(sid), record.players[sid], record, t);
+        room.summaries.set(sid, summary);
+        updates[sid] = { ...summary, name: record.players[sid].name };
+        bySid[sid] = earned;
+        tally.trophies += earned.trophies.length;
+        tally.stickers += earned.stickers.length;
+        tally.bests += earned.best.length ? 1 : 0;
+      }
+      round.rewards = new Map();
+      for (const [playerId, who] of round.who || []) {
+        if (!who.studentId || !bySid[who.studentId] || !round.eligible.has(playerId)) continue;
+        round.rewards.set(playerId, bySid[who.studentId]);
+        const p = room.players.get(playerId), s = p && p.socketId && io.sockets.sockets.get(p.socketId);
+        if (s) s.emit("round:rewards", { n: round.n, ...bySid[who.studentId] });
+      }
+      // The big screen only ever gets totals, never who earned what.
+      io.to(`host:${room.code}`).emit("round:rewards-summary", { n: round.n, ...tally });
+    }
+    // Saves run one after another, so an older round's summaries can never land after a newer one's.
+    room.saveChain = (room.saveChain || Promise.resolve())
+      .then(() => saveRound(room.teacherId, room.classId, record, updates))
       .catch(err => console.error("Saving a round failed:", err.message));
+  }
+
+  function loadRoomSummaries(room) {
+    if (!loadSummaries || !room.classId || room.summaries || room.loadingSummaries) return;
+    room.loadingSummaries = Promise.resolve()
+      .then(() => loadSummaries(room.teacherId, room.classId))
+      .then(m => { room.summaries = m; })
+      .catch(err => console.error("Loading student rewards failed:", err.message))
+      .finally(() => { room.loadingSummaries = null; });
   }
 
   function closeRoom(room, reason = "closed") {
@@ -104,7 +145,7 @@ export function attachRooms(io, { verifyTeacher, getClass, makeGame, isRealWord,
     socket.leave(`lookup:${room.code}`);
     socket.join(`players:${room.code}`);
     notify(room);
-    return { ok: true, token: p.token, name: p.name, phase: room.phase, className: room.className, round: roundFor(room, p.id) };
+    return { ok: true, token: p.token, name: p.name, guest: !p.studentId || !room.classId, phase: room.phase, className: room.className, round: roundFor(room, p.id) };
   }
 
   // The round a device should see: none in the lobby, otherwise its own view of the current round.
@@ -181,6 +222,7 @@ export function attachRooms(io, { verifyTeacher, getClass, makeGame, isRealWord,
       };
       rooms.set(code, room);
       byTeacher.set(teacher.id, code);
+      loadRoomSummaries(room);
       attachHost(socket, room);
       ack({ ok: true, room: hostView(room) });
     });
@@ -200,6 +242,7 @@ export function attachRooms(io, { verifyTeacher, getClass, makeGame, isRealWord,
       if (!room) return ack({ error: "no-room" });
       const picked = pickRoundSettings(settings);
       if (!picked) return ack({ error: "invalid settings" });
+      loadRoomSummaries(room);   // retry if it failed when the room opened
       const game = await makeGame(picked);
       if (game.error) return ack({ error: game.error });
       room.round = newRound(++room.roundNo, picked, game, [...room.players.keys()]);
@@ -305,6 +348,21 @@ export function attachRooms(io, { verifyTeacher, getClass, makeGame, isRealWord,
       // Still allowed just after the answers appear: checkWord's grace window decides whether it counts.
       if (!room.round || room.round.n !== n || room.phase === "lobby") return ack({ result: "late" });
       ack(await checkWord(room.round, ref.id, word, now(), isRealWord));
+    });
+
+    // A student's own trophies, stickers and teacher awards (never anyone else's).
+    on("player:trophies", async (_, ack) => {
+      const ref = socket.data.player;
+      const room = ref && rooms.get(ref.code);
+      const p = room && room.players.get(ref.id);
+      if (!p) return ack({ error: "not-joined" });
+      if (!p.studentId || !room.classId) return ack({ error: "guest" });
+      if (socket.data.trophiesAt && now() - socket.data.trophiesAt < 2000) return ack({ error: "slow-down" });
+      socket.data.trophiesAt = now();
+      const saved = getStudent ? await Promise.resolve().then(() => getStudent(room.teacherId, room.classId, p.studentId)).catch(() => null) : null;
+      const live = room.summaries && room.summaries.get(p.studentId);
+      // Game progress from memory is newest (its save may still be on the way); awards only live in the database.
+      ack({ ok: true, summary: { ...emptySummary(), ...(saved || {}), ...(live || {}), awards: (saved && saved.awards) || [] } });
     });
 
     // "That's not me": frees the name for its owner.

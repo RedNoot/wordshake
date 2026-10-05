@@ -17,6 +17,7 @@ const TEACHERS = { "tok-a": { id: "teacherA", name: "A" }, "tok-b": { id: "teach
 
 let server, url, roomsApi, clock = 1_000_000;
 let saved = [], pending = [];   // rounds saved for progress tracking, and saves waiting out the grace window
+const summaries = new Map();     // class1 students' saved reward summaries
 const sockets = [];
 
 before(async () => {
@@ -27,7 +28,12 @@ before(async () => {
     getClass: async (tid, cid) => (tid === "teacherA" && cid === "class1" ? CLASS : null),
     makeGame: async ({ size }) => GAME(size),
     isRealWord: async w => ["tac", "cat", "cats"].includes(w),
-    saveRound: async (teacherId, classId, record) => { saved.push({ teacherId, classId, record }); },
+    saveRound: async (teacherId, classId, record, updates) => {
+      saved.push({ teacherId, classId, record, updates });
+      for (const [sid, sum] of Object.entries(updates || {})) summaries.set(sid, sum);
+    },
+    loadSummaries: async (tid, cid) => new Map(tid === "teacherA" && cid === "class1" ? summaries : []),
+    getStudent: async (tid, cid, sid) => ({ ...(summaries.get(sid) || {}), awards: [{ id: "x", emoji: "💪", label: "Great effort" }] }),
     now: () => clock,
     later: fn => pending.push(fn),
   });
@@ -280,7 +286,7 @@ test("progress: finished class-list rounds are saved once, after the grace windo
   const host = await client();
   const { room } = await call(host, "host:open", { idToken: "tok-a", classId: "class1" });
   const ava = await client(), ben = await client(), guest = await client();
-  await call(ava, "player:join", { code: room.code, studentId: "s1" });
+  const avaJoin = await call(ava, "player:join", { code: room.code, studentId: "s1" });
   await call(ben, "player:join", { code: room.code, studentId: "s2" });
   await call(guest, "player:join", { code: room.code, guestName: "Max" });
 
@@ -296,9 +302,34 @@ test("progress: finished class-list rounds are saved once, after the grace windo
   assert.equal(saved.length, 0, "not before the grace window ends");
   clock += 1000;
   assert.equal((await call(ava, "player:word", { n: r.n, word: "cats" })).result, "ok", "word inside the grace");
+  const avaRewards = next(ava, "round:rewards"), hostRewards = next(host, "round:rewards-summary");
+  let guestGotRewards = false;
+  guest.once("round:rewards", () => { guestGotRewards = true; });
   pending.shift()();
+  const mine = await avaRewards, totals = await hostRewards;
   await new Promise(res => setImmediate(res));
   assert.equal(saved.length, 1);
+  assert.equal(mine.n, r.n);
+  assert.deepEqual(mine.trophies.sort(), ["first-round", "first-word", "sound-spotter"].sort());
+  assert.deepEqual(mine.stickers, [{ sound: "a", g: "a", tier: 1 }]);
+  assert.deepEqual(mine.best, [], "no personal best in a first round");
+  assert.deepEqual(totals, { n: r.n, trophies: 4, stickers: 1, bests: 0 }, "big screen: totals only (Ava 3, Ben 1)");
+  assert.equal(guestGotRewards, false, "guests get no rewards");
+  assert.equal(saved[0].updates.s1.rounds, 1);
+  assert.equal(saved[0].updates.s1.name, "Ava");
+  assert.deepEqual(Object.keys(saved[0].updates).sort(), ["s1", "s2"]);
+
+  // A refresh during the answers brings the rewards back.
+  const ava2 = await client();
+  const back = await call(ava2, "player:rejoin", { code: room.code, token: avaJoin.token });
+  assert.deepEqual(back.round.rewards.trophies.sort(), mine.trophies);
+  assert.deepEqual(back.round.rewards.stickers, mine.stickers);
+  // Trophy cabinet: the student's own summary plus teacher awards; guests have none.
+  const cab = await call(ava2, "player:trophies");
+  assert.equal(cab.summary.rounds, 1);
+  assert.ok(cab.summary.trophies["first-word"]);
+  assert.equal(cab.summary.awards[0].label, "Great effort");
+  assert.deepEqual(await call(guest, "player:trophies"), { error: "guest" });
   const { teacherId, classId, record } = saved[0];
   assert.deepEqual([teacherId, classId], ["teacherA", "class1"]);
   assert.deepEqual(Object.keys(record.players).sort(), ["s1", "s2"], "no guests, no late joiners");

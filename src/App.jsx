@@ -47,6 +47,7 @@ export default function WordShakeWorkbook() {
   const [liveRound, setLiveRound] = useState(null);  // the room's round number while students play on devices; null for a workbook round
   const liveRef = useRef(null);
   liveRef.current = liveRound;
+  const [rewardsTally, setRewardsTally] = useState(null);  // this round's class totals for the big screen (never who earned what)
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
   const pausedRef = useRef(false);
@@ -159,10 +160,12 @@ export default function WordShakeWorkbook() {
       setPhase(p => (p === "lobby" ? "setup" : p));
     };
     const onReconnect = () => { if (roomRef.current) resumeRoom(); };
+    const onTally = t => { if (t.n === liveRef.current) setRewardsTally(t); };
     s.on("room:update", onUpdate);
+    s.on("round:rewards-summary", onTally);
     s.on("host:replaced", onReplaced);
     s.io.on("reconnect", onReconnect);
-    return () => { s.off("room:update", onUpdate); s.off("host:replaced", onReplaced); s.io.off("reconnect", onReconnect); };
+    return () => { s.off("room:update", onUpdate); s.off("host:replaced", onReplaced); s.off("round:rewards-summary", onTally); s.io.off("reconnect", onReconnect); };
   }, [account]); // eslint-disable-line
 
   // Tell joined devices whether a round is on.
@@ -252,6 +255,7 @@ export default function WordShakeWorkbook() {
         return setRoomNote(res.error === "offline" ? "We can't reach the game server. Check the wifi, then try again." : "The round didn't start. Please try again.");
       }
       g = res.game;
+      setRewardsTally(null);
       setLiveRound(res.n);
       setRoomNote("");
     } else {
@@ -806,6 +810,16 @@ export default function WordShakeWorkbook() {
               </div>
             )}
           </div>
+
+          {liveRound && rewardsTally && rewardsTally.n === liveRound && (rewardsTally.trophies + rewardsTally.stickers + rewardsTally.bests > 0) && (
+            <div role="status" className="ws-display" style={{ alignSelf: "center", marginTop: 8, background: "rgba(255,176,32,.12)", border: "1px solid rgba(255,176,32,.45)", borderRadius: 999, padding: "8px 22px", fontSize: 19, fontWeight: 600, animation: "ws-pop .5s ease both" }}>
+              🎉 This round: {[
+                rewardsTally.trophies && `${rewardsTally.trophies} new ${rewardsTally.trophies === 1 ? "trophy" : "trophies"}`,
+                rewardsTally.stickers && `${rewardsTally.stickers} new ${rewardsTally.stickers === 1 ? "sticker" : "stickers"}`,
+                rewardsTally.bests && `${rewardsTally.bests} personal ${rewardsTally.bests === 1 ? "best" : "bests"}`,
+              ].filter(Boolean).join(" · ")}
+            </div>
+          )}
 
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 18, paddingTop: 10 }}>
             <button className="ws-btn" onClick={back} disabled={step === 0} style={{ background: "none", border: `1px solid ${T.faint}`, color: step === 0 ? "rgba(255,255,255,.25)" : T.mist, borderRadius: 10, padding: "10px 18px", cursor: step === 0 ? "default" : "pointer", fontSize: 16 }}>← Back</button>

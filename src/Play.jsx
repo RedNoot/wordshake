@@ -3,6 +3,7 @@ import { T } from "./theme.js";
 import { call } from "./net.js";
 import { SOUND_BY_ID } from "./sounds.js";
 import { PlayBoard } from "./components/PlayBoard.jsx";
+import { RoundRewards } from "./Trophies.jsx";
 
 const UP = w => w.toUpperCase();
 // Every result gets an icon and words as well as a colour, so it reads without relying on red/green.
@@ -122,6 +123,7 @@ export function Play({ round, name, onRound }) {
         <div className="ws-display" style={{ fontSize: 46, fontWeight: 700, color: T.red }}>⏰ Time's up!</div>
         <div style={{ fontSize: 22, color: T.mist }}>Look at the big screen.</div>
         <div className="ws-display" style={{ fontSize: 28, fontWeight: 700 }}>{name}: {round.words.length} {round.words.length === 1 ? "word" : "words"}, {round.total} {round.total === 1 ? "point" : "points"}</div>
+        <RoundRewards rewards={round.rewards} />
         {wordList}
       </div>
     );

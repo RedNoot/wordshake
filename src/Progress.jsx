@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { T } from "./theme.js";
 import { authFetch } from "./auth.js";
 import { SOUND_BY_ID } from "./sounds.js";
+import { TrophyGrid, StickerBook } from "./Trophies.jsx";
+import { TROPHIES, AWARD_PRESETS, AWARD_LABEL_MAX } from "../shared/rewards.js";
 
 /*
  * Teacher-only progress for one class, built from the rounds saved at the end of each class-list game.
@@ -49,7 +51,7 @@ function Bar({ found, available }) {
 
 export function Progress({ classes, onDone }) {
   const [classId, setClassId] = useState(classes && classes.length ? classes[0].id : null);
-  const [data, setData] = useState(null);       // { class, games, limit }
+  const [data, setData] = useState(null);       // { class, games, summaries, limit }
   const [error, setError] = useState("");
   const [view, setView] = useState("students");  // students | rounds
   const [studentId, setStudentId] = useState(null);
@@ -87,6 +89,33 @@ export function Progress({ classes, onDone }) {
     if (!res || !res.ok) return setError("That round wasn't deleted. Check your connection and try again.");
     setGameId(null);
     setData(d => ({ ...d, games: d.games.filter(x => x.id !== g.id) }));
+  };
+
+  const summaryOf = sid => (data && data.summaries && data.summaries[sid]) || null;
+  const trophyCount = sid => Object.keys((summaryOf(sid) || {}).trophies || {}).length;
+  const awardCount = sid => ((summaryOf(sid) || {}).awards || []).length;
+
+  // Teacher awards: kept beside the student's game rewards and shown in their trophy cabinet.
+  const setAwards = (sid, fn) => setData(d => {
+    const cur = (d.summaries && d.summaries[sid]) || {};
+    return { ...d, summaries: { ...d.summaries, [sid]: { ...cur, awards: fn(cur.awards || []) } } };
+  });
+  const giveAward = async (sid, payload) => {
+    const res = await authFetch(`/api/classes/${classId}/students/${sid}/awards`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).catch(() => null);
+    const body = res ? await res.json().catch(() => ({})) : {};
+    if (!res || !res.ok) {
+      setError(body.error === "too-many-awards" ? "That student has the most awards they can hold. Remove an old one first." : "The award wasn't given. Check your connection and try again.");
+      return false;
+    }
+    setError("");
+    setAwards(sid, a => [...a, body.award]);
+    return true;
+  };
+  const removeAward = async (sid, award) => {
+    if (!window.confirm(`Take away "${award.label}"?`)) return;
+    const res = await authFetch(`/api/classes/${classId}/students/${sid}/awards/${award.id}`, { method: "DELETE" }).catch(() => null);
+    if (!res || !res.ok) return setError("The award wasn't removed. Check your connection and try again.");
+    setAwards(sid, a => a.filter(x => x.id !== award.id));
   };
 
   const student = studentId && students.find(s => s.id === studentId);
@@ -138,18 +167,22 @@ export function Progress({ classes, onDone }) {
                 {view === "students" && (
                   <div style={{ overflowX: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                      <thead><tr><th style={th}>Name</th><th style={th}>Rounds</th><th style={th}>Avg score</th><th style={th}>Avg words</th><th style={th}>Recent scores</th></tr></thead>
+                      <thead><tr><th style={th}>Name</th><th style={th}>Rounds</th><th style={th}>Avg score</th><th style={th}>Avg words</th><th style={th}>Recent scores</th><th style={th}>Rewards</th></tr></thead>
                       <tbody>
                         {students.map(s => (
-                          <tr key={s.id} onClick={() => s.rounds.length && setStudentId(s.id)} style={s.rounds.length ? rowBtn : undefined}>
+                          <tr key={s.id} onClick={() => setStudentId(s.id)} style={rowBtn}>
                             <td style={td}>
-                              {s.rounds.length ? <button className="ws-btn" onClick={() => setStudentId(s.id)} style={{ background: "none", border: "none", color: "#EFF4F9", fontSize: 16, fontWeight: 700, padding: 0, cursor: "pointer", textAlign: "left" }}>{s.name}</button> : <span style={{ fontWeight: 700 }}>{s.name}</span>}
+                              <button className="ws-btn" onClick={e => { e.stopPropagation(); setStudentId(s.id); }} style={{ background: "none", border: "none", color: "#EFF4F9", fontSize: 16, fontWeight: 700, padding: 0, cursor: "pointer", textAlign: "left" }}>{s.name}</button>
                               {!s.current && <span style={{ color: T.mist, fontSize: 13 }}> · no longer in class</span>}
                             </td>
                             <td style={td}>{s.rounds.length || <span style={{ color: T.mist }}>not played yet</span>}</td>
                             <td style={td}>{s.rounds.length ? avg(s.rounds.map(r => r.p.score)) : ""}</td>
                             <td style={td}>{s.rounds.length ? avg(s.rounds.map(r => r.p.words.length)) : ""}</td>
                             <td style={td}><Trend points={s.rounds.map(r => ({ v: r.p.score, t: r.game.endedAt }))} /></td>
+                            <td style={{ ...td, whiteSpace: "nowrap" }}>
+                              {trophyCount(s.id) > 0 && <span title="Trophies">🏆 {trophyCount(s.id)}</span>}
+                              {awardCount(s.id) > 0 && <span title="Awards from you" style={{ marginLeft: 10 }}>🏅 {awardCount(s.id)}</span>}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -182,7 +215,7 @@ export function Progress({ classes, onDone }) {
               </>
             )}
 
-            {student && <StudentDetail s={student} onBack={() => setStudentId(null)} onRound={id => { setStudentId(null); setGameId(id); }} />}
+            {student && <StudentDetail s={student} summary={summaryOf(student.id)} onGive={p => giveAward(student.id, p)} onRemove={a => removeAward(student.id, a)} onBack={() => setStudentId(null)} onRound={id => { setStudentId(null); setGameId(id); }} />}
             {game && <RoundDetail g={game} students={students} onBack={() => setGameId(null)} onDelete={() => removeGame(game)} onStudent={id => { setGameId(null); setStudentId(id); }} />}
           </>
         )}
@@ -191,7 +224,7 @@ export function Progress({ classes, onDone }) {
   );
 }
 
-function StudentDetail({ s, onBack, onRound }) {
+function StudentDetail({ s, summary, onGive, onRemove, onBack, onRound }) {
   const rounds = s.rounds;   // oldest first
   const allWords = rounds.flatMap(r => r.p.words);
   const longest = allWords.reduce((best, w) => (w.length > best.length ? w : best), "");
@@ -225,15 +258,28 @@ function StudentDetail({ s, onBack, onRound }) {
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
-        {[["Rounds played", rounds.length], ["Average score", avg(rounds.map(r => r.p.score))], ["Average words", avg(rounds.map(r => r.p.words.length))], ["Longest word", longest ? UP(longest) : "—"]].map(([k, v]) => (
+        {[["Rounds played", rounds.length], ["Average score", rounds.length ? avg(rounds.map(r => r.p.score)) : "—"], ["Average words", rounds.length ? avg(rounds.map(r => r.p.words.length)) : "—"], ["Longest word", longest ? UP(longest) : "—"]].map(([k, v]) => (
           <div key={k} style={card}><div style={{ color: T.mist, fontSize: 13, textTransform: "uppercase", letterSpacing: 1 }}>{k}</div><div className="ws-display" style={{ fontSize: 28, fontWeight: 700, color: T.amber, wordBreak: "break-word" }}>{v}</div></div>
         ))}
       </div>
 
-      <div style={card}>
+      {s.current && <Awards name={s.name} awards={(summary && summary.awards) || []} onGive={onGive} onRemove={onRemove} />}
+
+      {rounds.length > 0 && <div style={card}>
         <div style={{ color: T.mist, fontSize: 13, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Score each round (oldest → newest)</div>
         <Trend points={rounds.map(r => ({ v: r.p.score, t: r.game.endedAt }))} height={70} width={Math.min(560, 46 * Math.min(12, rounds.length))} />
-      </div>
+      </div>}
+
+      <section style={{ display: "grid", gap: 12 }}>
+        <h3 className="ws-display" style={{ margin: 0, fontSize: 22 }}>Trophies <span style={{ color: T.mist, fontWeight: 500, fontSize: 16 }}>· {Object.keys((summary && summary.trophies) || {}).length} of {TROPHIES.length}</span></h3>
+        <TrophyGrid trophies={summary && summary.trophies} compact />
+      </section>
+
+      <section style={{ display: "grid", gap: 12 }}>
+        <h3 className="ws-display" style={{ margin: 0, fontSize: 22 }}>Sticker book</h3>
+        <StickerBook stickers={summary && summary.stickers} compact />
+        <div style={{ fontSize: 13, color: T.mist }}>A spelling's sticker comes with the first word found, turns silver at 5 words and gold at 15. This is what {s.name} sees on their device.</div>
+      </section>
 
       <section style={{ display: "grid", gap: 12 }}>
         <h3 className="ws-display" style={{ margin: 0, fontSize: 22 }}>Sounds practised</h3>
@@ -259,7 +305,7 @@ function StudentDetail({ s, onBack, onRound }) {
         {sounds.length > 0 && <div style={{ fontSize: 13, color: T.mist }}>"3 of 7" means the boards in those rounds held 7 words with that spelling and {s.name} found 3.</div>}
       </section>
 
-      <section style={{ display: "grid", gap: 8 }}>
+      {rounds.length > 0 && <section style={{ display: "grid", gap: 8 }}>
         <h3 className="ws-display" style={{ margin: 0, fontSize: 22 }}>Rounds</h3>
         {[...rounds].reverse().map(({ game, p }) => (
           <div key={game.id} style={{ ...card, display: "grid", gap: 6 }}>
@@ -270,7 +316,7 @@ function StudentDetail({ s, onBack, onRound }) {
             <div style={{ fontSize: 15, color: p.words.length ? "#EFF4F9" : T.mist }}>{p.words.length ? p.words.map(UP).join(", ") : "No words this round"}</div>
           </div>
         ))}
-      </section>
+      </section>}
     </div>
   );
 }
@@ -322,5 +368,46 @@ function RoundDetail({ g, students, onBack, onDelete, onStudent }) {
         </table>
       </div>
     </div>
+  );
+}
+
+function Awards({ name, awards, onGive, onRemove }) {
+  const [custom, setCustom] = useState("");
+  const [busy, setBusy] = useState(false);
+  const give = async payload => {
+    setBusy(true);
+    const ok = await onGive(payload);
+    setBusy(false);
+    if (ok && payload.preset === "custom") setCustom("");
+  };
+  const chip = { display: "inline-flex", alignItems: "center", gap: 6, borderRadius: 999, padding: "6px 12px", fontSize: 15, fontWeight: 600 };
+  return (
+    <section style={{ ...card, display: "grid", gap: 12 }}>
+      <h3 className="ws-display" style={{ margin: 0, fontSize: 22 }}>Awards from you</h3>
+      {awards.length ? (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {[...awards].reverse().map(a => (
+            <span key={a.id} style={{ ...chip, background: "rgba(87,199,133,.14)", border: "1px solid rgba(87,199,133,.45)" }}>
+              <span aria-hidden="true">{a.emoji}</span>{a.label}
+              <span style={{ color: T.mist, fontWeight: 400, fontSize: 13 }}>{day(a.at)}</span>
+              <button className="ws-btn" onClick={() => onRemove(a)} aria-label={`Remove ${a.label}`} title="Remove" style={{ background: "none", border: "none", color: T.mist, cursor: "pointer", fontSize: 15, padding: "0 2px" }}>✕</button>
+            </span>
+          ))}
+        </div>
+      ) : <div style={{ color: T.mist, fontSize: 15 }}>None yet. Awards are for things the game can't see, and {name} will find them in their trophy cabinet.</div>}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        {AWARD_PRESETS.map(p => (
+          <button key={p.id} className="ws-btn" disabled={busy} onClick={() => give({ preset: p.id })}
+            style={{ ...chip, cursor: busy ? "default" : "pointer", background: "rgba(255,255,255,.06)", border: `1px solid ${T.faint}`, color: "#EFF4F9" }}>
+            <span aria-hidden="true">{p.emoji}</span>{p.label}
+          </button>
+        ))}
+      </div>
+      <form onSubmit={e => { e.preventDefault(); if (custom.trim()) give({ preset: "custom", label: custom }); }} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <input value={custom} onChange={e => setCustom(e.target.value)} maxLength={AWARD_LABEL_MAX} placeholder="Or write your own…" aria-label="Your own award"
+          style={{ flex: "1 1 220px", background: "rgba(255,255,255,.06)", border: `1px solid ${T.faint}`, borderRadius: 10, color: "#EFF4F9", fontSize: 15, padding: "8px 12px" }} />
+        <button type="submit" className="ws-btn" disabled={busy || !custom.trim()} style={{ ...btn, color: custom.trim() ? T.ink : T.mist, background: custom.trim() ? T.amber : "none", fontWeight: 700 }}>Give 🏅</button>
+      </form>
+    </section>
   );
 }

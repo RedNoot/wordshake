@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { T, CSS } from "./theme.js";
 import { getSocket, call } from "./net.js";
 import { Play } from "./Play.jsx";
+import { Cabinet } from "./Trophies.jsx";
 
 const CODE_LEN = 4;
 const ERRORS = {
@@ -36,7 +37,8 @@ export function Join({ initialCode }) {
   const [room, setRoom] = useState(null);           // { code, className, roster, phase }
   const [chosen, setChosen] = useState(null);
   const [guestName, setGuestName] = useState("");
-  const [me, setMe] = useState(null);               // { name }
+  const [me, setMe] = useState(null);               // { name, guest }
+  const [cabinet, setCabinet] = useState(false);    // showing "My trophies"
   const [phase, setPhase] = useState("lobby");
   const [round, setRound] = useState(null);         // this device's view of the current round (letters only, never the answers)
   const [message, setMessage] = useState("");
@@ -48,7 +50,8 @@ export function Join({ initialCode }) {
 
   const joined = (c, res) => {
     store.set(tokenKey(c), res.token);
-    setMe({ name: res.name });
+    setMe({ name: res.name, guest: !!res.guest });
+    setCabinet(false);
     setPhase(res.phase);
     setRound(res.round ? { ...res.round, clockAt: Date.now() } : null);
     setMessage("");
@@ -81,8 +84,10 @@ export function Join({ initialCode }) {
   useEffect(() => {
     const s = getSocket();
     const onRoster = r => setRoom(r);
-    const onPhase = p => setPhase(p);
-    const onRoundState = r => setRound(r ? { ...r, clockAt: Date.now() } : null);
+    const onPhase = p => { setPhase(p); if (p !== "lobby") setCabinet(false); };
+    const onRoundState = r => { setRound(r ? { ...r, clockAt: Date.now() } : null); if (r) setCabinet(false); };
+    // Arrives just after the answers start, once the round is saved.
+    const onRewards = ({ n, ...rewards }) => setRound(cur => cur && cur.n === n ? { ...cur, rewards } : cur);
     const onClock = c => setRound(cur => cur && cur.n === c.n ? { ...cur, state: c.state, remainingMs: c.remainingMs, clockAt: Date.now() } : cur);
     const end = reason => () => {
       store.del(tokenKey(codeRef.current));
@@ -100,6 +105,7 @@ export function Join({ initialCode }) {
     s.on("room:phase", onPhase);
     s.on("round:state", onRoundState);
     s.on("round:clock", onClock);
+    s.on("round:rewards", onRewards);
     s.on("room:closed", onClosed);
     s.on("room:kicked", onKicked);
     s.on("room:replaced", onReplaced);
@@ -107,7 +113,7 @@ export function Join({ initialCode }) {
     if (initialCode) enter(cleanCode(initialCode));
     return () => {
       s.off("room:roster", onRoster); s.off("room:phase", onPhase); s.off("room:closed", onClosed);
-      s.off("round:state", onRoundState); s.off("round:clock", onClock);
+      s.off("round:state", onRoundState); s.off("round:clock", onClock); s.off("round:rewards", onRewards);
       s.off("room:kicked", onKicked); s.off("room:replaced", onReplaced); s.io.off("reconnect", onReconnect);
     };
   }, []); // eslint-disable-line
@@ -194,13 +200,18 @@ export function Join({ initialCode }) {
 
         {step === "joined" && me && round && <Play round={round} name={me.name} onRound={setRound} />}
 
-        {step === "joined" && me && !round && (
+        {step === "joined" && me && !round && cabinet && <Cabinet name={me.name} onClose={() => setCabinet(false)} />}
+
+        {step === "joined" && me && !round && !cabinet && (
           <div className="ws-fade" style={{ display: "grid", gap: 16, justifyItems: "center", textAlign: "center", marginTop: 30 }}>
             <div className="ws-display" style={{ fontSize: 44, fontWeight: 700 }}>{phase === "lobby" ? <>You're in, <span style={{ color: T.amber }}>{me.name}</span>!</> : me.name}</div>
             <div aria-live="polite" style={{ fontSize: 24, color: T.mist, maxWidth: 520, lineHeight: 1.4 }}>
               {phase === "lobby" && "Wait for your teacher to start the game."}
               {phase !== "lobby" && "Look at the big screen."}
             </div>
+            {phase === "lobby" && !me.guest && (
+              <button onClick={() => setCabinet(true)} className="ws-btn ws-display" style={{ ...big, fontSize: 21, padding: "12px 24px", marginTop: 10, background: "rgba(255,176,32,.14)", color: "#EFF4F9", border: `2px solid ${T.amber}` }}>My trophies 🏆</button>
+            )}
             {phase === "lobby" && <button onClick={notMe} style={{ ...link, marginTop: 20 }}>Not {me.name}? Tap here</button>}
           </div>
         )}
