@@ -3,7 +3,11 @@ import { T } from "./theme.js";
 import { call } from "./net.js";
 import { SOUND_BY_ID } from "./sounds.js";
 import { PlayBoard } from "./components/PlayBoard.jsx";
-import { RoundRewards } from "./Trophies.jsx";
+import { RoundRewards, RewardsPopup, hasRewards } from "./Trophies.jsx";
+
+// Which round's pop-up this device has already shown, so a refresh doesn't play it again.
+const SEEN_KEY = "wordshake-rewards-seen";
+const readSeen = () => { try { return sessionStorage.getItem(SEEN_KEY) || ""; } catch { return ""; } };
 
 const UP = w => w.toUpperCase();
 // Every result gets an icon and words as well as a colour, so it reads without relying on red/green.
@@ -50,6 +54,9 @@ export function Play({ round, name, onRound }) {
 
   const playing = round.state === "playing" && left > 0 && round.eligible;
   const timeUp = round.state === "over" || (round.state === "playing" && left <= 0);
+  const rewardSig = hasRewards(round.rewards) ? `${round.n}|${JSON.stringify(round.rewards)}` : "";
+  const [seen, setSeen] = useState(readSeen);
+  const closePopup = () => { setSeen(rewardSig); try { sessionStorage.setItem(SEEN_KEY, rewardSig); } catch { /* private mode */ } };
 
   const send = async (word, path) => {
     const res = await call("player:word", { n: round.n, word });
@@ -125,6 +132,7 @@ export function Play({ round, name, onRound }) {
         <div className="ws-display" style={{ fontSize: 28, fontWeight: 700 }}>{name}: {round.words.length} {round.words.length === 1 ? "word" : "words"}, {round.total} {round.total === 1 ? "point" : "points"}</div>
         <RoundRewards rewards={round.rewards} />
         {wordList}
+        {rewardSig && seen !== rewardSig && <RewardsPopup rewards={round.rewards} onDone={closePopup} />}
       </div>
     );
   }
