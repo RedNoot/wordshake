@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { T } from "./theme.js";
 import { call } from "./net.js";
 import { SOUND_BY_ID } from "./sounds.js";
@@ -91,20 +91,23 @@ export function StickerBook({ stickers, compact = false }) {
 // The student's own cabinet, opened from the lobby while they wait.
 // The last summary is shown straight away while a fresh one loads; the server allows one look every 2 seconds,
 // so a quick close-and-reopen waits briefly and tries again instead of showing an error.
-export function Cabinet({ name, cached, onLoaded, onClose }) {
+export function Cabinet({ name, cached, refresh, onLoaded, onClose }) {
   const [summary, setSummary] = useState(cached || null);
   const [error, setError] = useState("");
+  const [stale, setStale] = useState(false);   // showing the last copy because a fresh one didn't load
+  const shown = useRef(!!cached);
   useEffect(() => {
     let alive = true, timer = null;
     const load = retry => call("player:trophies").then(res => {
       if (!alive) return;
-      if (res.ok) { setSummary(res.summary); setError(""); if (onLoaded) onLoaded(res.summary); }
+      if (res.ok) { shown.current = true; setSummary(res.summary); setError(""); setStale(false); if (onLoaded) onLoaded(res.summary); }
       else if (res.error === "slow-down" && retry) timer = setTimeout(() => load(false), 2100);
-      else if (!cached) setError("Your trophies didn't load. Try again in a moment.");
+      else if (shown.current) setStale(true);
+      else setError("Your trophies didn't load. Try again in a moment.");
     });
     load(true);
     return () => { alive = false; clearTimeout(timer); };
-  }, []); // eslint-disable-line
+  }, [refresh]); // eslint-disable-line
   const count = summary ? Object.keys(summary.trophies || {}).length : 0;
   return (
     <div className="ws-fade" style={{ width: "100%", display: "grid", gap: 18 }}>
@@ -113,6 +116,7 @@ export function Cabinet({ name, cached, onLoaded, onClose }) {
         <button className="ws-btn ws-display" onClick={onClose} style={{ fontSize: 18, fontWeight: 600, background: "rgba(255,255,255,.1)", color: "#EFF4F9", border: "none", borderRadius: 12, padding: "10px 18px", cursor: "pointer" }}>← Back</button>
       </div>
       {error && <div role="alert" style={{ color: T.red }}>{error}</div>}
+      {stale && <div role="status" style={{ color: T.mist, fontSize: 15 }}>These might not be up to date. Close this and open it again in a moment.</div>}
       {!summary && !error && <div style={{ color: T.mist, fontSize: 20 }}>Opening the cabinet…</div>}
       {summary && (
         <>

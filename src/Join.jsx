@@ -40,6 +40,7 @@ export function Join({ initialCode }) {
   const [me, setMe] = useState(null);               // { name, guest }
   const [cabinet, setCabinet] = useState(false);    // showing "My trophies"
   const cabinetCache = useRef(null);                // the last trophies loaded, shown at once next time
+  const [cabinetFresh, setCabinetFresh] = useState(0); // bumped when the student's rewards change, so an open cabinet reloads
   const [phase, setPhase] = useState("lobby");
   const [round, setRound] = useState(null);         // this device's view of the current round (letters only, never the answers)
   const [message, setMessage] = useState("");
@@ -89,7 +90,8 @@ export function Join({ initialCode }) {
     const onPhase = p => { setPhase(p); if (p !== "lobby") setCabinet(false); };
     const onRoundState = r => { setRound(r ? { ...r, clockAt: Date.now() } : null); if (r) setCabinet(false); };
     // Arrives just after the answers start, once the round is saved.
-    const onRewards = ({ n, ...rewards }) => setRound(cur => cur && cur.n === n ? { ...cur, rewards } : cur);
+    const onRewards = ({ n, ...rewards }) => { cabinetCache.current = null; setRound(cur => cur && cur.n === n ? { ...cur, rewards } : cur); };
+    const onRewardsChanged = () => { cabinetCache.current = null; setCabinetFresh(k => k + 1); };
     const onClock = c => setRound(cur => cur && cur.n === c.n ? { ...cur, state: c.state, remainingMs: c.remainingMs, clockAt: Date.now() } : cur);
     const end = reason => () => {
       store.del(tokenKey(codeRef.current));
@@ -108,6 +110,7 @@ export function Join({ initialCode }) {
     s.on("round:state", onRoundState);
     s.on("round:clock", onClock);
     s.on("round:rewards", onRewards);
+    s.on("player:rewards-changed", onRewardsChanged);
     s.on("room:closed", onClosed);
     s.on("room:kicked", onKicked);
     s.on("room:replaced", onReplaced);
@@ -115,7 +118,7 @@ export function Join({ initialCode }) {
     if (initialCode) enter(cleanCode(initialCode));
     return () => {
       s.off("room:roster", onRoster); s.off("room:phase", onPhase); s.off("room:closed", onClosed);
-      s.off("round:state", onRoundState); s.off("round:clock", onClock); s.off("round:rewards", onRewards);
+      s.off("round:state", onRoundState); s.off("round:clock", onClock); s.off("round:rewards", onRewards); s.off("player:rewards-changed", onRewardsChanged);
       s.off("room:kicked", onKicked); s.off("room:replaced", onReplaced); s.io.off("reconnect", onReconnect);
     };
   }, []); // eslint-disable-line
@@ -202,7 +205,7 @@ export function Join({ initialCode }) {
 
         {step === "joined" && me && round && <Play round={round} name={me.name} onRound={setRound} />}
 
-        {step === "joined" && me && !round && cabinet && <Cabinet name={me.name} cached={cabinetCache.current} onLoaded={s => { cabinetCache.current = s; }} onClose={() => setCabinet(false)} />}
+        {step === "joined" && me && !round && cabinet && <Cabinet name={me.name} cached={cabinetCache.current} refresh={cabinetFresh} onLoaded={s => { cabinetCache.current = s; }} onClose={() => setCabinet(false)} />}
 
         {step === "joined" && me && !round && !cabinet && (
           <div className="ws-fade" style={{ display: "grid", gap: 16, justifyItems: "center", textAlign: "center", marginTop: 30 }}>

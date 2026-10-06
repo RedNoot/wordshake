@@ -154,6 +154,7 @@ app.post("/api/classes/:id/students/:sid/awards", teacherRoute(async (req, res, 
   }
   const out = await addAward(teacher.id, cls.id, req.params.sid, { id: randomBytes(6).toString("base64url"), ...award, at: Date.now() }, AWARDS_MAX);
   if (out.error) return res.status(400).json(out);
+  roomsApi.rewardsChanged(teacher.id, cls.id, req.params.sid);
   res.json(out);
 }));
 
@@ -161,6 +162,7 @@ app.delete("/api/classes/:id/students/:sid/awards/:awardId", teacherRoute(async 
   const { id, sid, awardId } = req.params;
   if (![id, sid].every(validClassId) || !/^[A-Za-z0-9_-]{1,20}$/.test(awardId)) return res.status(404).json({ error: "not-found" });
   await removeAward(teacher.id, id, sid, awardId);
+  roomsApi.rewardsChanged(teacher.id, id, sid);
   res.json({ ok: true });
 }));
 
@@ -177,7 +179,7 @@ const io = new Server(server);
 io.on("connection", socket => {
   socket.on("check:ping", (sentAt, ack) => { if (typeof ack === "function") ack(sentAt); });
 });
-attachRooms(io, {
+const roomsApi = attachRooms(io, {
   verifyTeacher: async token => {
     if (!storeReady) throw new AuthError(503, "accounts-not-configured");
     return verifyTeacher(token);

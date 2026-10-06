@@ -392,5 +392,15 @@ export function attachRooms(io, {
   const timer = setInterval(sweep, 10 * 60 * 1000);
   timer.unref();
 
-  return { rooms, sweep };
+  // A teacher gave or took away an award: tell that student's device, so an open trophy cabinet refreshes.
+  function rewardsChanged(teacherId, classId, studentId) {
+    const room = rooms.get(byTeacher.get(teacherId));
+    if (!room || room.classId !== classId) return;
+    for (const p of room.players.values()) {
+      const s = p.studentId === studentId && p.socketId && io.sockets.sockets.get(p.socketId);
+      if (s) s.emit("player:rewards-changed");
+    }
+  }
+
+  return { rooms, sweep, rewardsChanged };
 }

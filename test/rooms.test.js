@@ -330,6 +330,15 @@ test("progress: finished class-list rounds are saved once, after the grace windo
   assert.ok(cab.summary.trophies["first-word"]);
   assert.equal(cab.summary.awards[0].label, "Great effort");
   assert.deepEqual(await call(guest, "player:trophies"), { error: "guest" });
+  // An award given from the Progress page reaches that student's device only, so an open cabinet refreshes.
+  let guestPings = 0, avaPings = 0;
+  guest.on("player:rewards-changed", () => { guestPings++; });
+  ava2.on("player:rewards-changed", () => { avaPings++; });
+  roomsApi.rewardsChanged("teacherB", "class1", "s1");   // another teacher's class: nobody here
+  roomsApi.rewardsChanged("teacherA", "class1", "s1");
+  await new Promise(res => setTimeout(res, 100));
+  assert.equal(avaPings, 1);
+  assert.equal(guestPings, 0);
   const { teacherId, classId, record } = saved[0];
   assert.deepEqual([teacherId, classId], ["teacherA", "class1"]);
   assert.deepEqual(Object.keys(record.players).sort(), ["s1", "s2"], "no guests, no late joiners");
