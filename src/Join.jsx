@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { T, CSS } from "./theme.js";
+import { T, CSS, applyTheme } from "./theme.js";
 import { getSocket, call } from "./net.js";
 import { Play } from "./Play.jsx";
 import { Cabinet } from "./Trophies.jsx";
@@ -53,6 +53,7 @@ export function Join({ initialCode }) {
   const joined = (c, res) => {
     store.set(tokenKey(c), res.token);
     setMe({ name: res.name, guest: !!res.guest });
+    applyTheme(res.theme);
     setCabinet(false);
     cabinetCache.current = null;
     setPhase(res.phase);
@@ -68,6 +69,7 @@ export function Join({ initialCode }) {
     if (res.error) { setMessage(ERRORS[res.error] || ERRORS.offline); setStep("code"); return; }
     window.history.replaceState(null, "", `/join/${c}`);
     setRoom(res.room);
+    applyTheme(res.room.theme);
     if (!keepMessage) setMessage("");
     setStep(res.room.roster ? "names" : "guest");
   };
@@ -86,7 +88,9 @@ export function Join({ initialCode }) {
 
   useEffect(() => {
     const s = getSocket();
-    const onRoster = r => setRoom(r);
+    const onRoster = r => { setRoom(r); applyTheme(r.theme); };
+    // The teacher changed the look: follow it straight away.
+    const onTheme = t => applyTheme(t);
     const onPhase = p => { setPhase(p); if (p !== "lobby") setCabinet(false); };
     const onRoundState = r => { setRound(r ? { ...r, clockAt: Date.now() } : null); if (r) setCabinet(false); };
     // Arrives just after the answers start, once the round is saved.
@@ -106,6 +110,7 @@ export function Join({ initialCode }) {
     // After the wifi drops or the iPad sleeps, quietly pick up where we were.
     const onReconnect = () => { if (stepRef.current === "joined") enter(codeRef.current); else if (["names", "confirm", "guest"].includes(stepRef.current)) call("player:lookup", { code: codeRef.current }).then(r => r.ok && setRoom(r.room)); };
     s.on("room:roster", onRoster);
+    s.on("room:theme", onTheme);
     s.on("room:phase", onPhase);
     s.on("round:state", onRoundState);
     s.on("round:clock", onClock);
@@ -117,7 +122,7 @@ export function Join({ initialCode }) {
     s.io.on("reconnect", onReconnect);
     if (initialCode) enter(cleanCode(initialCode));
     return () => {
-      s.off("room:roster", onRoster); s.off("room:phase", onPhase); s.off("room:closed", onClosed);
+      s.off("room:roster", onRoster); s.off("room:theme", onTheme); s.off("room:phase", onPhase); s.off("room:closed", onClosed);
       s.off("round:state", onRoundState); s.off("round:clock", onClock); s.off("round:rewards", onRewards); s.off("player:rewards-changed", onRewardsChanged);
       s.off("room:kicked", onKicked); s.off("room:replaced", onReplaced); s.io.off("reconnect", onReconnect);
     };
@@ -143,11 +148,11 @@ export function Join({ initialCode }) {
   };
 
   return (
-    <div className="ws-root" style={{ minHeight: "100vh", background: `radial-gradient(900px 600px at 50% -10%, #16283f 0%, ${T.ink} 60%)`, color: "#EFF4F9", display: "flex", flexDirection: "column", alignItems: "center" }}>
+    <div className="ws-root" style={{ minHeight: "100vh", background: `radial-gradient(900px 600px at 50% -10%, var(--ws-glow) 0%, ${T.ink} 60%)`, color: "var(--ws-text)", display: "flex", flexDirection: "column", alignItems: "center" }}>
       <style>{CSS}</style>
       <header className="ws-display" style={{ fontSize: 26, fontWeight: 700, padding: "16px 0 4px" }}>Word<span style={{ color: T.amber }}>Shake</span></header>
       <main style={{ flex: 1, width: "min(900px, 100%)", padding: "16px 16px 40px", display: "flex", flexDirection: "column", alignItems: "center", gap: 18, boxSizing: "border-box" }}>
-        {message && <div role="alert" style={{ background: "rgba(255,93,93,.12)", border: "1px solid rgba(255,93,93,.45)", borderRadius: 14, padding: "12px 18px", fontSize: 19, textAlign: "center", maxWidth: 560 }}>{message}</div>}
+        {message && <div role="alert" style={{ background: "rgb(var(--ws-red-rgb) / .12)", border: "1px solid rgb(var(--ws-red-rgb) / .45)", borderRadius: 14, padding: "12px 18px", fontSize: 19, textAlign: "center", maxWidth: 560 }}>{message}</div>}
 
         {step === "loading" && <div style={{ color: T.mist, fontSize: 22, marginTop: 40 }}>Finding your game…</div>}
 
@@ -156,9 +161,9 @@ export function Join({ initialCode }) {
             <label htmlFor="code" className="ws-display" style={{ fontSize: 32, fontWeight: 700, textAlign: "center" }}>Type the code from the big screen</label>
             <input id="code" value={code} onChange={e => setCode(cleanCode(e.target.value))} autoFocus autoComplete="off" autoCorrect="off" autoCapitalize="characters" spellCheck={false}
               inputMode="text" maxLength={CODE_LEN} aria-describedby="code-help"
-              className="ws-display" style={{ width: "5.2em", textAlign: "center", fontSize: 64, fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", background: "rgba(255,255,255,.08)", color: T.amber, border: `3px solid ${code.length === CODE_LEN ? T.amber : "rgba(255,255,255,.25)"}`, borderRadius: 18, padding: "8px 0" }} />
+              className="ws-display" style={{ width: "5.2em", textAlign: "center", fontSize: 64, fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", background: "rgb(var(--ws-fg) / .08)", color: T.amber, border: `3px solid ${code.length === CODE_LEN ? T.amber : "rgb(var(--ws-fg) / .25)"}`, borderRadius: 18, padding: "8px 0" }} />
             <div id="code-help" style={{ color: T.mist, fontSize: 16 }}>{CODE_LEN} letters and numbers</div>
-            <button type="submit" disabled={code.length !== CODE_LEN || busy} className="ws-btn ws-display" style={{ ...big, background: code.length === CODE_LEN ? T.amber : "rgba(255,255,255,.12)", color: code.length === CODE_LEN ? T.ink : "rgba(255,255,255,.4)" }}>
+            <button type="submit" disabled={code.length !== CODE_LEN || busy} className="ws-btn ws-display" style={{ ...big, background: code.length === CODE_LEN ? T.amber : "rgb(var(--ws-fg) / .12)", color: code.length === CODE_LEN ? T.ink : "rgb(var(--ws-fg) / .4)" }}>
               {busy ? "Looking…" : "Go →"}
             </button>
           </form>
@@ -172,7 +177,7 @@ export function Join({ initialCode }) {
               {room.roster.map(s => (
                 <button key={s.id} disabled={s.taken} onClick={() => { setChosen(s); setMessage(""); setStep("confirm"); }} className="ws-btn ws-display"
                   aria-label={s.taken ? `${s.name}, already in the game` : s.name}
-                  style={{ fontSize: 23, fontWeight: 600, padding: "18px 10px", borderRadius: 16, cursor: s.taken ? "default" : "pointer", border: `2px solid ${s.taken ? "transparent" : "rgba(255,255,255,.18)"}`, background: s.taken ? "rgba(255,255,255,.03)" : "rgba(255,255,255,.08)", color: s.taken ? "rgba(255,255,255,.3)" : "#EFF4F9" }}>
+                  style={{ fontSize: 23, fontWeight: 600, padding: "18px 10px", borderRadius: 16, cursor: s.taken ? "default" : "pointer", border: `2px solid ${s.taken ? "transparent" : "rgb(var(--ws-fg) / .18)"}`, background: s.taken ? "rgb(var(--ws-fg) / .03)" : "rgb(var(--ws-fg) / .08)", color: s.taken ? "rgb(var(--ws-fg) / .3)" : "var(--ws-text)" }}>
                   {s.name}{s.taken && <span style={{ display: "block", fontSize: 13, fontWeight: 400 }}>✓ already in</span>}
                 </button>
               ))}
@@ -186,7 +191,7 @@ export function Join({ initialCode }) {
             <div className="ws-display" style={{ fontSize: 40, fontWeight: 700, textAlign: "center" }}>Are you <span style={{ color: T.amber }}>{chosen.name}</span>?</div>
             <div style={{ display: "flex", gap: 16, flexWrap: "wrap", justifyContent: "center" }}>
               <button onClick={() => joinAs({ studentId: chosen.id })} disabled={busy} className="ws-btn ws-display" style={{ ...big, background: T.green, color: T.ink, minWidth: 160 }}>{busy ? "Joining…" : "Yes, that's me"}</button>
-              <button onClick={() => setStep("names")} className="ws-btn ws-display" style={{ ...big, background: "rgba(255,255,255,.1)", color: "#EFF4F9", minWidth: 160 }}>No, go back</button>
+              <button onClick={() => setStep("names")} className="ws-btn ws-display" style={{ ...big, background: "rgb(var(--ws-fg) / .1)", color: "var(--ws-text)", minWidth: 160 }}>No, go back</button>
             </div>
           </div>
         )}
@@ -195,8 +200,8 @@ export function Join({ initialCode }) {
           <form onSubmit={e => { e.preventDefault(); if (guestName.trim().length >= 2) joinAs({ guestName }); }} className="ws-fade" style={{ display: "grid", gap: 18, justifyItems: "center", marginTop: 20 }}>
             <label htmlFor="guest" className="ws-display" style={{ fontSize: 32, fontWeight: 700, textAlign: "center" }}>Type your first name</label>
             <input id="guest" value={guestName} onChange={e => setGuestName(e.target.value)} maxLength={12} autoFocus autoComplete="off" autoCorrect="off" spellCheck={false}
-              className="ws-display" style={{ width: "min(320px, 80vw)", textAlign: "center", fontSize: 34, fontWeight: 600, background: "rgba(255,255,255,.08)", color: "#EFF4F9", border: "3px solid rgba(255,255,255,.25)", borderRadius: 16, padding: "10px 12px" }} />
-            <button type="submit" disabled={guestName.trim().length < 2 || busy} className="ws-btn ws-display" style={{ ...big, background: guestName.trim().length >= 2 ? T.amber : "rgba(255,255,255,.12)", color: guestName.trim().length >= 2 ? T.ink : "rgba(255,255,255,.4)" }}>
+              className="ws-display" style={{ width: "min(320px, 80vw)", textAlign: "center", fontSize: 34, fontWeight: 600, background: "rgb(var(--ws-fg) / .08)", color: "var(--ws-text)", border: "3px solid rgb(var(--ws-fg) / .25)", borderRadius: 16, padding: "10px 12px" }} />
+            <button type="submit" disabled={guestName.trim().length < 2 || busy} className="ws-btn ws-display" style={{ ...big, background: guestName.trim().length >= 2 ? T.amber : "rgb(var(--ws-fg) / .12)", color: guestName.trim().length >= 2 ? T.ink : "rgb(var(--ws-fg) / .4)" }}>
               {busy ? "Joining…" : "Join →"}
             </button>
             {room.roster && <button type="button" onClick={() => { setMessage(""); setStep("names"); }} style={link}>Back to the name list</button>}
@@ -215,7 +220,7 @@ export function Join({ initialCode }) {
               {phase !== "lobby" && "Look at the big screen."}
             </div>
             {phase === "lobby" && !me.guest && (
-              <button onClick={() => setCabinet(true)} className="ws-btn ws-display" style={{ ...big, fontSize: 21, padding: "12px 24px", marginTop: 10, background: "rgba(255,176,32,.14)", color: "#EFF4F9", border: `2px solid ${T.amber}` }}>My trophies 🏆</button>
+              <button onClick={() => setCabinet(true)} className="ws-btn ws-display" style={{ ...big, fontSize: 21, padding: "12px 24px", marginTop: 10, background: "rgb(var(--ws-amber-rgb) / .14)", color: "var(--ws-text)", border: `2px solid ${T.amber}` }}>My trophies 🏆</button>
             )}
             {phase === "lobby" && <button onClick={notMe} style={{ ...link, marginTop: 20 }}>Not {me.name}? Tap here</button>}
           </div>

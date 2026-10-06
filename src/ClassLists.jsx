@@ -6,7 +6,7 @@ const MAX_STUDENTS = 60;
 
 const btn = { background: "none", border: `1px solid ${T.faint}`, color: T.mist, borderRadius: 10, padding: "8px 14px", cursor: "pointer", fontSize: 15 };
 const primary = { background: T.amber, color: T.ink, border: "none", borderRadius: 12, padding: "10px 22px", cursor: "pointer", fontSize: 17, fontWeight: 700 };
-const input = { background: "rgba(255,255,255,.06)", border: `1px solid rgba(255,255,255,.18)`, color: "#EFF4F9", borderRadius: 10, padding: "9px 12px", fontSize: 16, fontFamily: "inherit" };
+const input = { background: "rgb(var(--ws-fg) / .06)", border: `1px solid rgb(var(--ws-fg) / .18)`, color: "var(--ws-text)", borderRadius: 10, padding: "9px 12px", fontSize: 16, fontFamily: "inherit" };
 
 const ERRORS = {
   "class-name": "Give the class a name (up to 40 characters).",
@@ -98,7 +98,7 @@ function Editor({ cls, onSaved, onCancel }) {
         </label>
         {added.length > 0 && <span>{added.length} name{added.length > 1 ? "s" : ""} to add: {added.slice(0, 6).join(", ")}{added.length > 6 ? "…" : ""}</span>}
       </div>
-      <p style={{ margin: 0, fontSize: 13.5, color: "rgba(255,255,255,.5)", lineHeight: 1.5 }}>
+      <p style={{ margin: 0, fontSize: 13.5, color: "rgb(var(--ws-fg) / .5)", lineHeight: 1.5 }}>
         Use first names only. If two students share a name, add an initial (Chloe R, Chloe T). Students see this list when they join your game,
         so check it before class. Names are saved in your WordShake account and you can delete them at any time.
       </p>
@@ -140,10 +140,10 @@ export function ClassLists({ classes, setClasses, onDone }) {
       </p>
       {classes === null && <div style={{ color: T.mist }}>Loading your classes…</div>}
       {classes && classes.length === 0 && (
-        <div style={{ border: `1px dashed rgba(255,255,255,.2)`, borderRadius: 14, padding: 20, color: T.mist, textAlign: "center" }}>No classes yet.</div>
+        <div style={{ border: `1px dashed rgb(var(--ws-fg) / .2)`, borderRadius: 14, padding: 20, color: T.mist, textAlign: "center" }}>No classes yet.</div>
       )}
       {classes && classes.map(c => (
-        <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 12, border: `1px solid ${T.faint}`, background: "rgba(255,255,255,.04)", borderRadius: 14, padding: "12px 16px", flexWrap: "wrap" }}>
+        <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 12, border: `1px solid ${T.faint}`, background: "rgb(var(--ws-fg) / .04)", borderRadius: 14, padding: "12px 16px", flexWrap: "wrap" }}>
           <div style={{ flex: 1, minWidth: 160 }}>
             <div className="ws-display" style={{ fontSize: 22, fontWeight: 700 }}>{c.name}</div>
             <div style={{ color: T.mist, fontSize: 14 }}>{c.students.length} student{c.students.length === 1 ? "" : "s"}{c.students.length ? `: ${c.students.slice(0, 5).map(s => s.name).join(", ")}${c.students.length > 5 ? "…" : ""}` : ""}</div>

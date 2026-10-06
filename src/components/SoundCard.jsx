@@ -5,7 +5,7 @@ export function SoundCard({ soundDef, ticked, bonus }) {
     <div className="ws-display" style={{
       position: "relative", zIndex: 5, transform: "rotate(-1.2deg)",
       background: T.amber, color: T.ink, borderRadius: 14, padding: "9px 24px 11px",
-      boxShadow: "0 5px 0 #B87A0A, 0 10px 22px rgba(0,0,0,.4)", textAlign: "center",
+      boxShadow: "0 5px 0 var(--ws-amber-edge), 0 10px 22px rgba(0,0,0,.4)", textAlign: "center",
       maxWidth: "min(92vw, 680px)", margin: "0 auto",
     }}>
       <div style={{ fontSize: "clamp(20px, 3.2vh, 30px)", fontWeight: 700, lineHeight: 1.05 }}>

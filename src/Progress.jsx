@@ -10,7 +10,7 @@ import { TROPHIES, AWARD_PRESETS, AWARD_LABEL_MAX } from "../shared/rewards.js";
  * Everything is listed by name, never ranked: this screen is often the one on the projector.
  */
 const btn = { background: "none", border: `1px solid ${T.faint}`, color: T.mist, borderRadius: 10, padding: "8px 14px", cursor: "pointer", fontSize: 15 };
-const card = { background: "rgba(255,255,255,.04)", border: `1px solid ${T.faint}`, borderRadius: 14, padding: "14px 16px" };
+const card = { background: "rgb(var(--ws-fg) / .04)", border: `1px solid ${T.faint}`, borderRadius: 14, padding: "14px 16px" };
 const th = { textAlign: "left", fontWeight: 600, color: T.mist, fontSize: 13, textTransform: "uppercase", letterSpacing: 1, padding: "8px 10px", borderBottom: `1px solid ${T.faint}`, whiteSpace: "nowrap" };
 const td = { padding: "10px", borderBottom: `1px solid ${T.faint}`, fontSize: 16, verticalAlign: "top" };
 const rowBtn = { cursor: "pointer" };
@@ -31,7 +31,7 @@ function Trend({ points, height = 34, width = 150 }) {
     <svg width={width} height={height} role="img" aria-label={`Scores, oldest to newest: ${pts.map(p => p.v).join(", ")}`}>
       {pts.map((p, i) => {
         const h = Math.max(2, (p.v / max) * (height - 2));
-        return <rect key={i} x={i * w + 1} y={height - h} width={Math.max(2, w - 3)} height={h} rx="2" fill={T.amber} opacity={0.45 + 0.55 * ((i + 1) / pts.length)}><title>{`${day(p.t)}: ${p.v}`}</title></rect>;
+        return <rect key={i} x={i * w + 1} y={height - h} width={Math.max(2, w - 3)} height={h} rx="2" style={{ fill: T.amber }} opacity={0.45 + 0.55 * ((i + 1) / pts.length)}><title>{`${day(p.t)}: ${p.v}`}</title></rect>;
       })}
     </svg>
   );
@@ -41,7 +41,7 @@ function Bar({ found, available }) {
   const pct = available ? Math.min(100, (found / available) * 100) : 0;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-      <div style={{ flex: 1, height: 10, borderRadius: 999, background: "rgba(255,255,255,.08)", overflow: "hidden", minWidth: 60 }}>
+      <div style={{ flex: 1, height: 10, borderRadius: 999, background: "rgb(var(--ws-fg) / .08)", overflow: "hidden", minWidth: 60 }}>
         <div style={{ width: `${pct}%`, height: "100%", background: T.green }} />
       </div>
       <span style={{ fontSize: 14, color: T.mist, whiteSpace: "nowrap" }}>{found} of {available}</span>
@@ -138,14 +138,14 @@ export function Progress({ classes, onDone }) {
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }} role="group" aria-label="Class">
                 {classes.map(c => (
                   <button key={c.id} className="ws-btn" onClick={() => setClassId(c.id)} aria-pressed={c.id === classId}
-                    style={{ padding: "7px 14px", borderRadius: 999, fontSize: 15, fontWeight: 600, cursor: "pointer", border: `2px solid ${c.id === classId ? T.amber : "rgba(255,255,255,.14)"}`, background: c.id === classId ? T.amber : "transparent", color: c.id === classId ? T.ink : T.mist }}>
+                    style={{ padding: "7px 14px", borderRadius: 999, fontSize: 15, fontWeight: 600, cursor: "pointer", border: `2px solid ${c.id === classId ? T.amber : "rgb(var(--ws-fg) / .14)"}`, background: c.id === classId ? T.amber : "transparent", color: c.id === classId ? T.ink : T.mist }}>
                     {c.name}
                   </button>
                 ))}
               </div>
             )}
 
-            {error && <div role="alert" style={{ ...card, borderColor: "rgba(255,93,93,.45)", background: "rgba(255,93,93,.1)" }}>{error} <button className="ws-btn" onClick={() => load(classId)} style={{ ...btn, marginLeft: 8 }}>Try again</button></div>}
+            {error && <div role="alert" style={{ ...card, borderColor: "rgb(var(--ws-red-rgb) / .45)", background: "rgb(var(--ws-red-rgb) / .1)" }}>{error} <button className="ws-btn" onClick={() => load(classId)} style={{ ...btn, marginLeft: 8 }}>Try again</button></div>}
             {!data && !error && <div style={{ color: T.mist }}>Loading…</div>}
 
             {data && !data.games.length && (
@@ -157,7 +157,7 @@ export function Progress({ classes, onDone }) {
                 <div style={{ display: "flex", gap: 8 }} role="tablist">
                   {[["students", `Students (${students.length})`], ["rounds", `Rounds (${data.games.length})`]].map(([k, label]) => (
                     <button key={k} role="tab" aria-selected={view === k} className="ws-btn ws-display" onClick={() => setView(k)}
-                      style={{ fontSize: 17, fontWeight: 600, padding: "8px 18px", borderRadius: 10, cursor: "pointer", border: "none", background: view === k ? "rgba(255,255,255,.14)" : "transparent", color: view === k ? "#EFF4F9" : T.mist }}>
+                      style={{ fontSize: 17, fontWeight: 600, padding: "8px 18px", borderRadius: 10, cursor: "pointer", border: "none", background: view === k ? "rgb(var(--ws-fg) / .14)" : "transparent", color: view === k ? "var(--ws-text)" : T.mist }}>
                       {label}
                     </button>
                   ))}
@@ -172,7 +172,7 @@ export function Progress({ classes, onDone }) {
                         {students.map(s => (
                           <tr key={s.id} onClick={() => setStudentId(s.id)} style={rowBtn}>
                             <td style={td}>
-                              <button className="ws-btn" onClick={e => { e.stopPropagation(); setStudentId(s.id); }} style={{ background: "none", border: "none", color: "#EFF4F9", fontSize: 16, fontWeight: 700, padding: 0, cursor: "pointer", textAlign: "left" }}>{s.name}</button>
+                              <button className="ws-btn" onClick={e => { e.stopPropagation(); setStudentId(s.id); }} style={{ background: "none", border: "none", color: "var(--ws-text)", fontSize: 16, fontWeight: 700, padding: 0, cursor: "pointer", textAlign: "left" }}>{s.name}</button>
                               {!s.current && <span style={{ color: T.mist, fontSize: 13 }}> · no longer in class</span>}
                             </td>
                             <td style={td}>{s.rounds.length || <span style={{ color: T.mist }}>not played yet</span>}</td>
@@ -199,7 +199,7 @@ export function Progress({ classes, onDone }) {
                           const ps = Object.values(g.players || {});
                           return (
                             <tr key={g.id} onClick={() => setGameId(g.id)} style={rowBtn}>
-                              <td style={td}><button className="ws-btn" onClick={() => setGameId(g.id)} style={{ background: "none", border: "none", color: "#EFF4F9", fontSize: 16, fontWeight: 700, padding: 0, cursor: "pointer", textAlign: "left" }}>{when(g.endedAt)}</button></td>
+                              <td style={td}><button className="ws-btn" onClick={() => setGameId(g.id)} style={{ background: "none", border: "none", color: "var(--ws-text)", fontSize: 16, fontWeight: 700, padding: 0, cursor: "pointer", textAlign: "left" }}>{when(g.endedAt)}</button></td>
                               <td style={td}>{soundName(g.settings.phSound)}</td>
                               <td style={td}>{g.settings.size}×{g.settings.size} · {g.settings.seconds / 60} min</td>
                               <td style={td}>{ps.length}</td>
@@ -310,10 +310,10 @@ function StudentDetail({ s, summary, onGive, onRemove, onBack, onRound }) {
         {[...rounds].reverse().map(({ game, p }) => (
           <div key={game.id} style={{ ...card, display: "grid", gap: 6 }}>
             <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-              <button className="ws-btn" onClick={() => onRound(game.id)} style={{ background: "none", border: "none", color: "#EFF4F9", fontWeight: 700, fontSize: 16, padding: 0, cursor: "pointer" }}>{when(game.endedAt)} · {soundName(game.settings.phSound)}</button>
+              <button className="ws-btn" onClick={() => onRound(game.id)} style={{ background: "none", border: "none", color: "var(--ws-text)", fontWeight: 700, fontSize: 16, padding: 0, cursor: "pointer" }}>{when(game.endedAt)} · {soundName(game.settings.phSound)}</button>
               <span><b style={{ color: T.amber }}>{p.score}</b> pts · {plural(p.words.length, "word")}</span>
             </div>
-            <div style={{ fontSize: 15, color: p.words.length ? "#EFF4F9" : T.mist }}>{p.words.length ? p.words.map(UP).join(", ") : "No words this round"}</div>
+            <div style={{ fontSize: 15, color: p.words.length ? "var(--ws-text)" : T.mist }}>{p.words.length ? p.words.map(UP).join(", ") : "No words this round"}</div>
           </div>
         ))}
       </section>}
@@ -344,7 +344,7 @@ function RoundDetail({ g, students, onBack, onDelete, onStudent }) {
           {(g.tiles || []).map((t, i) => <div key={i} className="ws-display" style={{ width: 30, height: 30, borderRadius: 5, background: T.dice, color: T.letter, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: t.length > 1 ? 12 : 16 }}>{t[0] + t.slice(1).toLowerCase()}</div>)}
         </div>
         <div style={{ display: "grid", gap: 4, fontSize: 15, color: T.mist }}>
-          <div><b style={{ color: "#EFF4F9" }}>{soundName(g.settings.phSound)}</b>{g.settings.phBonus ? " · +2 bonus on" : ""}</div>
+          <div><b style={{ color: "var(--ws-text)" }}>{soundName(g.settings.phSound)}</b>{g.settings.phBonus ? " · +2 bonus on" : ""}</div>
           <div>{size}×{size} board · {g.settings.seconds / 60} min · words of {g.settings.minLen}+ letters</div>
           <div>{g.boardWords} words on the board{g.longest && g.longest.length ? ` · longest: ${g.longest.map(UP).join(", ")}` : ""}</div>
           {spellings.length > 0 && <div>On the board: {spellings.map(sp => `${sp} ×${g.available[sp]}`).join(" · ")}</div>}
@@ -357,7 +357,7 @@ function RoundDetail({ g, students, onBack, onDelete, onStudent }) {
           <tbody>
             {rows.map(r => (
               <tr key={r.sid}>
-                <td style={td}><button className="ws-btn" onClick={() => onStudent(r.sid)} style={{ background: "none", border: "none", color: "#EFF4F9", fontSize: 16, fontWeight: 700, padding: 0, cursor: "pointer", textAlign: "left" }}>{r.name}</button></td>
+                <td style={td}><button className="ws-btn" onClick={() => onStudent(r.sid)} style={{ background: "none", border: "none", color: "var(--ws-text)", fontSize: 16, fontWeight: 700, padding: 0, cursor: "pointer", textAlign: "left" }}>{r.name}</button></td>
                 <td style={td}>{r.score}</td>
                 <td style={td}>{r.words.length}</td>
                 {spellings.map(sp => <td key={sp} style={td}>{((r.bySpelling || {})[sp] || []).length} / {g.available[sp]}</td>)}
@@ -387,7 +387,7 @@ function Awards({ name, awards, onGive, onRemove }) {
       {awards.length ? (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
           {[...awards].reverse().map(a => (
-            <span key={a.id} style={{ ...chip, background: "rgba(87,199,133,.14)", border: "1px solid rgba(87,199,133,.45)" }}>
+            <span key={a.id} style={{ ...chip, background: "rgb(var(--ws-green-rgb) / .14)", border: "1px solid rgb(var(--ws-green-rgb) / .45)" }}>
               <span aria-hidden="true">{a.emoji}</span>{a.label}
               <span style={{ color: T.mist, fontWeight: 400, fontSize: 13 }}>{day(a.at)}</span>
               <button className="ws-btn" onClick={() => onRemove(a)} aria-label={`Remove ${a.label}`} title="Remove" style={{ background: "none", border: "none", color: T.mist, cursor: "pointer", fontSize: 15, padding: "0 2px" }}>✕</button>
@@ -398,14 +398,14 @@ function Awards({ name, awards, onGive, onRemove }) {
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
         {AWARD_PRESETS.map(p => (
           <button key={p.id} className="ws-btn" disabled={busy} onClick={() => give({ preset: p.id })}
-            style={{ ...chip, cursor: busy ? "default" : "pointer", background: "rgba(255,255,255,.06)", border: `1px solid ${T.faint}`, color: "#EFF4F9" }}>
+            style={{ ...chip, cursor: busy ? "default" : "pointer", background: "rgb(var(--ws-fg) / .06)", border: `1px solid ${T.faint}`, color: "var(--ws-text)" }}>
             <span aria-hidden="true">{p.emoji}</span>{p.label}
           </button>
         ))}
       </div>
       <form onSubmit={e => { e.preventDefault(); if (custom.trim()) give({ preset: "custom", label: custom }); }} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <input value={custom} onChange={e => setCustom(e.target.value)} maxLength={AWARD_LABEL_MAX} placeholder="Or write your own…" aria-label="Your own award"
-          style={{ flex: "1 1 220px", background: "rgba(255,255,255,.06)", border: `1px solid ${T.faint}`, borderRadius: 10, color: "#EFF4F9", fontSize: 15, padding: "8px 12px" }} />
+          style={{ flex: "1 1 220px", background: "rgb(var(--ws-fg) / .06)", border: `1px solid ${T.faint}`, borderRadius: 10, color: "var(--ws-text)", fontSize: 15, padding: "8px 12px" }} />
         <button type="submit" className="ws-btn" disabled={busy || !custom.trim()} style={{ ...btn, color: custom.trim() ? T.ink : T.mist, background: custom.trim() ? T.amber : "none", fontWeight: 700 }}>Give 🏅</button>
       </form>
     </section>

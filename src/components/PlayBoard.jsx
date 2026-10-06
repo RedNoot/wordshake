@@ -79,7 +79,7 @@ export function PlayBoard({ tiles, size, dim, disabled, onWord, onTrace, flash }
   };
 
   const shown = path.length ? path : (flash && flash.path) || [];
-  const colour = path.length ? T.amber : flash && flash.ok ? T.green : flash ? "rgba(255,255,255,.55)" : T.amber;
+  const colour = path.length ? T.amber : flash && flash.ok ? T.green : flash ? "rgb(var(--ws-fg) / .55)" : T.amber;
   const centres = shown.map(i => ({ x: ((i % size) + 0.5) / size * 100, y: (Math.floor(i / size) + 0.5) / size * 100 }));
 
   return (
@@ -90,7 +90,7 @@ export function PlayBoard({ tiles, size, dim, disabled, onWord, onTrace, flash }
         {tiles.map((t, i) => {
           const on = shown.includes(i);
           return (
-            <div key={i} ref={el => { tileRefs.current[i] = el; }} role="gridcell" aria-label={tileText(t)} className="ws-display"
+            <div key={i} ref={el => { tileRefs.current[i] = el; }} role="gridcell" aria-label={tileText(t)} className="ws-display ws-die"
               style={{ display: "flex", alignItems: "center", justifyContent: "center", borderRadius: `calc(${dim} * 0.02)`, fontWeight: 700,
                 fontSize: `calc(${dim} / ${size} * ${t.length > 2 ? 0.26 : t.length > 1 ? 0.34 : 0.5})`,
                 background: on ? colour : T.dice, color: T.letter, transform: on ? "scale(1.05)" : "none", transition: "transform .08s, background .08s",
@@ -103,7 +103,7 @@ export function PlayBoard({ tiles, size, dim, disabled, onWord, onTrace, flash }
       {centres.length > 1 && (
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"
           style={{ position: "absolute", inset: `calc(${dim} * 0.028)`, width: `calc(100% - ${dim} * 0.056)`, height: `calc(100% - ${dim} * 0.056)`, pointerEvents: "none" }}>
-          <polyline points={centres.map(p => `${p.x},${p.y}`).join(" ")} fill="none" stroke={colour} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" opacity="0.75" />
+          <polyline points={centres.map(p => `${p.x},${p.y}`).join(" ")} fill="none" style={{ stroke: colour }} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" opacity="0.75" />
         </svg>
       )}
     </div>

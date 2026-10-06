@@ -91,7 +91,7 @@ export function Play({ round, name, onRound }) {
       <div style={{ color: T.mist, fontSize: 16 }}>{round.words.length ? `Your words (${round.words.length})` : "Your words will appear here"}</div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
         {words.map(w => (
-          <span key={w.word} className="ws-display" style={{ background: "rgba(87,199,133,.14)", border: "1px solid rgba(87,199,133,.45)", borderRadius: 999, padding: "4px 12px", fontSize: 19, fontWeight: 600, animation: "ws-pop .3s ease both" }}>
+          <span key={w.word} className="ws-display" style={{ background: "rgb(var(--ws-green-rgb) / .14)", border: "1px solid rgb(var(--ws-green-rgb) / .45)", borderRadius: 999, padding: "4px 12px", fontSize: 19, fontWeight: 600, animation: "ws-pop .3s ease both" }}>
             {UP(w.word)} <span style={{ color: T.mist, fontSize: 15 }}>+{w.pts}{w.bonus ? ` ⭐+${w.bonus}` : ""}</span>
           </span>
         ))}
@@ -133,7 +133,7 @@ export function Play({ round, name, onRound }) {
     <div style={{ width: "100%", display: "grid", gap: 12, justifyItems: "center", position: "relative", userSelect: "none", WebkitUserSelect: "none" }}>
       {/* slim timer bar */}
       <div role="timer" aria-label={`${mins} minutes ${secs} seconds left`} style={{ width: dim, display: "flex", alignItems: "center", gap: 10 }}>
-        <div style={{ flex: 1, height: 10, borderRadius: 999, background: "rgba(255,255,255,.1)", overflow: "hidden" }}>
+        <div style={{ flex: 1, height: 10, borderRadius: 999, background: "rgb(var(--ws-fg) / .1)", overflow: "hidden" }}>
           <div style={{ width: `${frac * 100}%`, height: "100%", background: low ? T.red : T.amber, transition: "width .2s linear" }} />
         </div>
         <span className="ws-display" style={{ fontSize: 18, fontWeight: 600, color: low ? T.red : T.mist, minWidth: 44, textAlign: "right" }}>{mins}:{String(secs).padStart(2, "0")}</span>
@@ -172,8 +172,8 @@ export function Play({ round, name, onRound }) {
         <label htmlFor="typed" style={{ position: "absolute", left: -9999 }}>Type a word</label>
         <input id="typed" ref={typeRef} value={typed} onChange={e => setTyped(e.target.value.replace(/[^A-Za-z]/g, "").slice(0, 20))} placeholder="…or type a word"
           autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} enterKeyHint="send" disabled={!playing}
-          className="ws-display" style={{ flex: 1, minWidth: 0, fontSize: 22, fontWeight: 600, background: "rgba(255,255,255,.08)", color: "#EFF4F9", border: "2px solid rgba(255,255,255,.2)", borderRadius: 12, padding: "8px 12px", textTransform: "uppercase", userSelect: "text", WebkitUserSelect: "text" }} />
-        <button type="submit" disabled={!playing || !typed} className="ws-btn ws-display" style={{ fontSize: 20, fontWeight: 700, border: "none", borderRadius: 12, padding: "0 18px", cursor: "pointer", background: typed && playing ? T.amber : "rgba(255,255,255,.12)", color: typed && playing ? T.ink : "rgba(255,255,255,.4)" }}>Send</button>
+          className="ws-display" style={{ flex: 1, minWidth: 0, fontSize: 22, fontWeight: 600, background: "rgb(var(--ws-fg) / .08)", color: "var(--ws-text)", border: "2px solid rgb(var(--ws-fg) / .2)", borderRadius: 12, padding: "8px 12px", textTransform: "uppercase", userSelect: "text", WebkitUserSelect: "text" }} />
+        <button type="submit" disabled={!playing || !typed} className="ws-btn ws-display" style={{ fontSize: 20, fontWeight: 700, border: "none", borderRadius: 12, padding: "0 18px", cursor: "pointer", background: typed && playing ? T.amber : "rgb(var(--ws-fg) / .12)", color: typed && playing ? T.ink : "rgb(var(--ws-fg) / .4)" }}>Send</button>
       </form>
 
       {wordList}

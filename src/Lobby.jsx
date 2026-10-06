@@ -25,7 +25,7 @@ export function Lobby({ room, onStart, onSettings, onClose, onKick, busy, startL
       <div style={{ display: "flex", flexWrap: "wrap", gap: "28px 48px", justifyContent: "center", alignItems: "flex-start", width: "100%", maxWidth: 1200 }}>
         {/* how to join */}
         <section aria-label="How to join" style={{ textAlign: "center", display: "grid", gap: 10, justifyItems: "center" }}>
-          <div style={{ color: T.mist, fontSize: 20 }}>Go to <b style={{ color: "#EFF4F9" }}>{joinHost}/join</b> and type</div>
+          <div style={{ color: T.mist, fontSize: 20 }}>Go to <b style={{ color: "var(--ws-text)" }}>{joinHost}/join</b> and type</div>
           <div className="ws-display" aria-label={`Room code ${room.code.split("").join(" ")}`} style={{ fontSize: "min(15vw, 120px)", fontWeight: 700, letterSpacing: "0.12em", color: T.amber, lineHeight: 1 }}>{room.code}</div>
           <div style={{ color: T.mist, fontSize: 16 }}>or scan with the camera</div>
           {qr ? <img src={qr} alt={`QR code for ${joinUrl}`} style={{ width: "min(36vh, 260px)", height: "min(36vh, 260px)", borderRadius: 14, background: "#fff", padding: 8 }} />
@@ -44,11 +44,11 @@ export function Lobby({ room, onStart, onSettings, onClose, onKick, busy, startL
           {room.players.length === 0 && <div style={{ color: T.mist, fontSize: 20, padding: "30px 0" }}>Waiting for players…</div>}
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
             {room.players.map(p => (
-              <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 4, animation: "ws-pop .45s ease both", opacity: p.connected ? 1 : 0.45, background: p.guest ? "rgba(255,255,255,.06)" : "rgba(255,176,32,.12)", border: `1px solid ${p.guest ? T.faint : "rgba(255,176,32,.4)"}`, borderRadius: 999, padding: "6px 6px 6px 16px" }}>
+              <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 4, animation: "ws-pop .45s ease both", opacity: p.connected ? 1 : 0.45, background: p.guest ? "rgb(var(--ws-fg) / .06)" : "rgb(var(--ws-amber-rgb) / .12)", border: `1px solid ${p.guest ? T.faint : "rgb(var(--ws-amber-rgb) / .4)"}`, borderRadius: 999, padding: "6px 6px 6px 16px" }}>
                 <span className="ws-display" style={{ fontSize: 22, fontWeight: 600 }}>{p.name}</span>
                 {p.guest && <span style={{ fontSize: 12, color: T.mist }}>guest</span>}
                 {!p.connected && <span style={{ fontSize: 12, color: T.mist }}>reconnecting</span>}
-                <button className="ws-btn" onClick={() => kick(p)} aria-label={`Remove ${p.name}`} title="Remove from game" style={{ background: "none", border: "none", color: "rgba(255,255,255,.35)", cursor: "pointer", fontSize: 15, padding: "2px 8px" }}>✕</button>
+                <button className="ws-btn" onClick={() => kick(p)} aria-label={`Remove ${p.name}`} title="Remove from game" style={{ background: "none", border: "none", color: "rgb(var(--ws-fg) / .35)", cursor: "pointer", fontSize: 15, padding: "2px 8px" }}>✕</button>
               </div>
             ))}
           </div>
@@ -60,20 +60,20 @@ export function Lobby({ room, onStart, onSettings, onClose, onKick, busy, startL
               {showMissing && <div style={{ color: T.mist, marginTop: 8, fontSize: 16, lineHeight: 1.6 }}>{missing.map(s => s.name).join(" · ")}</div>}
             </div>
           )}
-          {room.players.length > 0 && <p style={{ color: "rgba(255,255,255,.45)", fontSize: 13.5, marginTop: 16 }}>Wrong name? Press ✕ to remove it, and the student can join again.</p>}
+          {room.players.length > 0 && <p style={{ color: "rgb(var(--ws-fg) / .45)", fontSize: 13.5, marginTop: 16 }}>Wrong name? Press ✕ to remove it, and the student can join again.</p>}
         </section>
       </div>
 
-      {note && <div role="alert" style={{ background: "rgba(255,93,93,.12)", border: "1px solid rgba(255,93,93,.45)", borderRadius: 12, padding: "10px 16px", fontSize: 16 }}>{note}</div>}
+      {note && <div role="alert" style={{ background: "rgb(var(--ws-red-rgb) / .12)", border: "1px solid rgb(var(--ws-red-rgb) / .45)", borderRadius: 12, padding: "10px 16px", fontSize: 16 }}>{note}</div>}
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap", justifyContent: "center", alignItems: "center", marginTop: 6 }}>
         <button className="ws-btn ws-display" onClick={onStart} disabled={busy}
-          style={{ fontSize: 28, fontWeight: 700, background: T.amber, color: T.ink, border: "none", borderRadius: 16, padding: "16px 42px", cursor: "pointer", boxShadow: "0 6px 0 #B87A0A", opacity: busy ? 0.7 : 1 }}>
+          style={{ fontSize: 28, fontWeight: 700, background: T.amber, color: T.ink, border: "none", borderRadius: 16, padding: "16px 42px", cursor: "pointer", boxShadow: "0 6px 0 var(--ws-amber-edge)", opacity: busy ? 0.7 : 1 }}>
           {busy ? "Shaking the dice…" : startLabel}
         </button>
         <button className="ws-btn" onClick={onSettings} style={btn}>Change settings</button>
         <button className="ws-btn" onClick={onClose} style={btn}>Close room</button>
       </div>
-      <p style={{ color: "rgba(255,255,255,.45)", fontSize: 13.5, margin: 0, textAlign: "center", maxWidth: 640 }}>
+      <p style={{ color: "rgb(var(--ws-fg) / .45)", fontSize: 13.5, margin: 0, textAlign: "center", maxWidth: 640 }}>
         Students swipe words on their own device and see only their own words and score. Anyone who joins after the start plays from the next round.
       </p>
     </main>

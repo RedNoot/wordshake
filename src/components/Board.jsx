@@ -10,10 +10,10 @@ export function Board({ tiles, rots, size, dim, hidden, tumble, path, pathKey, t
         {tiles.map((t, i) => {
           const isTarget = !hidden && targetSet && targetSet.has(t.toLowerCase());
           return (
-            <div key={i} className="ws-display" style={{
+            <div key={i} className={hidden ? "ws-display" : "ws-display ws-die"} style={{
               "--rt": `${rots[i]}deg`,
               display: "flex", alignItems: "center", justifyContent: "center",
-              background: hidden ? "rgba(255,255,255,0.05)"
+              background: hidden ? "rgb(var(--ws-fg) / 0.05)"
                 : isTarget ? `linear-gradient(to top, ${T.amber} 0%, ${T.amber} 9%, ${T.dice} 9%)` : T.dice,
               color: T.letter, borderRadius: `calc(${dim} * 0.018)`,
               transform: `rotate(${rots[i]}deg)`,
@@ -29,11 +29,11 @@ export function Board({ tiles, rots, size, dim, hidden, tumble, path, pathKey, t
       {centers.length > 1 && (
         <svg key={pathKey} viewBox="0 0 100 100" preserveAspectRatio="none"
           style={{ position: "absolute", inset: `calc(${dim} * 0.028)`, width: `calc(100% - ${dim} * 0.056)`, height: `calc(100% - ${dim} * 0.056)`, pointerEvents: "none", overflow: "visible" }}>
-          <polyline points={centers.map(p => `${p.x},${p.y}`).join(" ")} fill="none" stroke={T.amber} strokeWidth="3.2"
+          <polyline points={centers.map(p => `${p.x},${p.y}`).join(" ")} fill="none" strokeWidth="3.2"
             strokeLinecap="round" strokeLinejoin="round" opacity="0.9" pathLength="100"
-            style={{ strokeDasharray: 100, animation: "ws-draw 1.4s .2s ease both" }} />
+            style={{ stroke: T.amber, strokeDasharray: 100, animation: "ws-draw 1.4s .2s ease both" }} />
           {centers.map((p, i) => (
-            <circle key={i} cx={p.x} cy={p.y} r={i === 0 ? 3.4 : 2.2} fill={i === 0 ? T.amber : "rgba(255,176,32,.85)"} stroke={i === 0 ? T.ink : "none"} strokeWidth={i === 0 ? 1 : 0} />
+            <circle key={i} cx={p.x} cy={p.y} r={i === 0 ? 3.4 : 2.2} strokeWidth={i === 0 ? 1 : 0} style={{ fill: i === 0 ? T.amber : "rgb(var(--ws-amber-rgb) / .85)", stroke: i === 0 ? T.ink : "none" }} />
           ))}
         </svg>
       )}

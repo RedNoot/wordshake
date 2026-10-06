@@ -3,6 +3,7 @@ import { cleanGuestName, uniqueName } from "./names.js";
 import { pickRoundSettings } from "./settings.js";
 import { newRound, setClock, remainingMs, playerView, checkWord, roundRecord, GRACE_MS } from "./round.js";
 import { applyRound, emptySummary } from "../../shared/rewards.js";
+import { pickTheme } from "./settings.js";
 
 // No vowels, so a code can't spell a word; no 0/O or 1/I to confuse.
 const CODE_CHARS = "BCDFGHJKLMNPQRSTVWXZ23456789";
@@ -36,12 +37,12 @@ export function attachRooms(io, {
 
   const players = room => [...room.players.values()];
   const hostView = room => ({
-    code: room.code, className: room.className, phase: room.phase,
+    code: room.code, className: room.className, phase: room.phase, theme: room.theme,
     roster: room.roster && room.roster.map(s => ({ id: s.id, name: s.name })),
     players: players(room).map(p => ({ id: p.id, name: p.name, studentId: p.studentId, guest: !p.studentId, connected: !!p.socketId })),
   });
   const lookupView = room => ({
-    code: room.code, className: room.className, phase: room.phase,
+    code: room.code, className: room.className, phase: room.phase, theme: room.theme,
     roster: room.roster && room.roster.map(s => ({
       id: s.id, name: s.name, taken: players(room).some(p => p.studentId === s.id && p.socketId),
     })),
@@ -145,7 +146,7 @@ export function attachRooms(io, {
     socket.leave(`lookup:${room.code}`);
     socket.join(`players:${room.code}`);
     notify(room);
-    return { ok: true, token: p.token, name: p.name, guest: !p.studentId || !room.classId, phase: room.phase, className: room.className, round: roundFor(room, p.id) };
+    return { ok: true, token: p.token, name: p.name, guest: !p.studentId || !room.classId, phase: room.phase, theme: room.theme, className: room.className, round: roundFor(room, p.id) };
   }
 
   // The round a device should see: none in the lobby, otherwise its own view of the current round.
@@ -203,7 +204,7 @@ export function attachRooms(io, {
     });
 
     /* ---- the teacher's big screen ---- */
-    on("host:open", async ({ idToken, classId }, ack) => {
+    on("host:open", async ({ idToken, classId, theme }, ack) => {
       const teacher = await verifyTeacher(String(idToken || ""));
       let cls = null;
       if (classId != null) {
@@ -219,6 +220,7 @@ export function attachRooms(io, {
         code, teacherId: teacher.id, hostSocket: null, classId: cls ? classId : null, className: cls ? cls.name : null,
         roster: cls ? cls.students.map(s => ({ id: s.id, name: s.name })) : null,
         players: new Map(), phase: "lobby", createdAt: now(), hostSeenAt: now(), round: null, roundNo: 0,
+        theme: pickTheme(theme),
       };
       rooms.set(code, room);
       byTeacher.set(teacher.id, code);
@@ -278,6 +280,16 @@ export function attachRooms(io, {
       room.phase = phase;
       io.to(`players:${room.code}`).emit("room:phase", phase);
       if (changed) sendRound(room);
+      notify(room);
+      ack({ ok: true });
+    });
+
+    // The teacher switched the look in Settings: every device in the room follows.
+    on("host:theme", async ({ theme }, ack) => {
+      const room = hostRoom(socket);
+      if (!room) return ack({ error: "no-room" });
+      room.theme = pickTheme(theme);
+      io.to(`players:${room.code}`).to(`lookup:${room.code}`).emit("room:theme", room.theme);
       notify(room);
       ack({ ok: true });
     });

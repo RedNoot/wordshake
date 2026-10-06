@@ -391,3 +391,21 @@ test("guessing room codes gets throttled, whichever message is used", async () =
   for (let i = 0; i < 100; i++) assert.deepEqual(await guesses[i % 3](), { error: "no-room" });
   for (const g of guesses) assert.deepEqual(await g(), { error: "too-many" });
 });
+
+test("theme: the teacher's look reaches the room and every device", async () => {
+  clock += 60 * 60 * 1000; roomsApi.sweep();   // let the code-guessing throttle from the test before run out
+  const host = await client();
+  const open = await call(host, "host:open", { idToken: "tok-a", classId: "class1", theme: "rednut" });
+  assert.equal(open.room.theme, "rednut");
+  const kid = await client();
+  assert.equal((await call(kid, "player:lookup", { code: open.room.code })).room.theme, "rednut");
+  const joined = await call(kid, "player:join", { code: open.room.code, studentId: "s1" });
+  assert.equal(joined.theme, "rednut");
+  const pushed = next(kid, "room:theme"), hostSees = next(host, "room:update");
+  assert.deepEqual(await call(host, "host:theme", { theme: "classic" }), { ok: true });
+  assert.equal(await pushed, "classic");
+  assert.equal((await hostSees).theme, "classic");
+  await call(host, "host:theme", { theme: "<script>" });
+  assert.equal((await call(host, "host:resume", { idToken: "tok-a" })).room.theme, "classic", "unknown looks fall back to classic");
+  await call(host, "host:close");
+});
