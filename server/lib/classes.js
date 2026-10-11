@@ -3,6 +3,8 @@ import { randomBytes } from "crypto";
 export const LIMITS = { classes: 30, students: 60, className: 40, studentName: 30 };
 
 const newId = () => randomBytes(6).toString("base64url");
+// Student ids are base64url, so they can contain "-" and "_" (about 1 in 5 do). Class and game ids are Firestore ids.
+export const validStudentId = id => typeof id === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(id);
 const tidy = s => (typeof s === "string" ? s.normalize("NFC").replace(/\s+/g, " ").trim() : "");
 
 // Validates a class sent by the teacher. Students keep their id when it already belongs to this class,

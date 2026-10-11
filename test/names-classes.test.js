@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { cleanGuestName, uniqueName } from "../server/lib/names.js";
-import { pickClass, LIMITS } from "../server/lib/classes.js";
+import { pickClass, LIMITS, validStudentId } from "../server/lib/classes.js";
 
 test("real children's names pass the guest filter", () => {
   for (const n of ["Ava", "Mia-Rose", "O'Neill", "Zoë", "Siobhán", "Cassie", "Dave", "Vanessa", "Bo", "Al", "Mohammed", "Nguyen", "Jo Jo", "Alexander", "Hitchcock"]) {
@@ -40,4 +40,18 @@ test("students keep their id when edited, and can't borrow ids from elsewhere", 
   const c = pickClass({ name: "x", students: [{ id: "keepme01", name: "Ava L" }, { id: "stolen01", name: "Ben" }] }, existing);
   assert.equal(c.students[0].id, "keepme01");
   assert.notEqual(c.students[1].id, "stolen01");
+});
+
+test("every generated student id passes the id check the award routes use", () => {
+  // Ids are base64url, so "-" and "_" turn up in about 1 in 5; the routes must accept them.
+  let withPunct = 0;
+  for (let i = 0; i < 200; i++) {
+    const { students } = pickClass({ name: "c", students: Array.from({ length: 50 }, (_, k) => ({ name: `Kid ${k}` })) });
+    for (const s of students) {
+      assert.ok(validStudentId(s.id), s.id);
+      if (/[-_]/.test(s.id)) withPunct++;
+    }
+  }
+  assert.ok(withPunct > 0, "the sample included ids with - or _");
+  for (const bad of ["", "../x", "a/b", "a b", "x".repeat(41), null, 7]) assert.equal(validStudentId(bad), false, String(bad));
 });
