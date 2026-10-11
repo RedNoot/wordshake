@@ -409,3 +409,37 @@ test("theme: the teacher's look reaches the room and every device", async () => 
   assert.equal((await call(host, "host:resume", { idToken: "tok-a" })).room.theme, "classic", "unknown looks fall back to classic");
   await call(host, "host:close");
 });
+
+test("lock: nobody new can join, but students already in the game can come back", async () => {
+  const host = await client();
+  const { room } = await call(host, "host:open", { idToken: "tok-a", classId: "class1" });
+  const ava = await client(), max = await client();
+  await call(ava, "player:join", { code: room.code, studentId: "s1" });
+  await call(max, "player:join", { code: room.code, guestName: "Max" });
+
+  const outsider = await client();
+  assert.deepEqual(await call(outsider, "host:lock", { locked: true }), { error: "no-room" }, "only the big screen can lock");
+  assert.deepEqual(await call(host, "host:lock", { locked: "yes" }), { error: "invalid lock" });
+  const hostSees = next(host, "room:update");
+  assert.deepEqual(await call(host, "host:lock", { locked: true }), { ok: true, locked: true });
+  assert.equal((await hostSees).locked, true);
+
+  const ben = await client();
+  const look = await call(ben, "player:lookup", { code: room.code });
+  assert.equal(look.room.locked, true);
+  assert.deepEqual(look.room.roster.map(s => s.inGame), [true, false, false]);
+  assert.deepEqual(await call(ben, "player:join", { code: room.code, studentId: "s2" }), { error: "locked" });
+  assert.deepEqual(await call(ben, "player:join", { code: room.code, guestName: "Zed" }), { error: "locked" });
+
+  // Ava's iPad drops out; she picks her name again on another device, then that device comes back by token.
+  ava.close();
+  await new Promise(r => setTimeout(r, 50));
+  const ava2 = await client();
+  const again = await call(ava2, "player:join", { code: room.code, studentId: "s1" });
+  assert.equal(again.ok, true, "a student already in the game can take their name back");
+  const ava3 = await client();
+  assert.equal((await call(ava3, "player:rejoin", { code: room.code, token: again.token })).ok, true, "rejoin by token still works");
+
+  await call(host, "host:lock", { locked: false });
+  assert.equal((await call(ben, "player:join", { code: room.code, studentId: "s2" })).ok, true, "unlocked: new names can join again");
+});

@@ -220,6 +220,7 @@ export default function WordShakeWorkbook() {
   };
 
   const kick = playerId => call("host:kick", { playerId });
+  const lock = locked => call("host:lock", { locked });
   const toSettings = () => setPhase(room ? "lobby" : "setup");
 
   const pickSound = id => setSettings(v => ({
@@ -436,7 +437,7 @@ export default function WordShakeWorkbook() {
 
       {/* ---------- LOBBY ---------- */}
       {phase === "lobby" && room && (
-        <Lobby room={room} busy={busy} onStart={start} onSettings={() => setPhase("setup")} onClose={closeRoom} onKick={kick} startLabel="Start the round →" note={roomNote} />
+        <Lobby room={room} busy={busy} onStart={start} onSettings={() => setPhase("setup")} onClose={closeRoom} onKick={kick} onLock={lock} startLabel="Start the round →" note={roomNote} />
       )}
 
       {/* today's-sound banner on every game screen */}

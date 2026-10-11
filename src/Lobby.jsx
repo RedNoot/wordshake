@@ -4,7 +4,7 @@ import { T } from "./theme.js";
 
 const btn = { background: "none", border: `1px solid ${T.faint}`, color: T.mist, borderRadius: 10, padding: "9px 16px", cursor: "pointer", fontSize: 15 };
 
-export function Lobby({ room, onStart, onSettings, onClose, onKick, busy, startLabel, note }) {
+export function Lobby({ room, onStart, onSettings, onClose, onKick, onLock, busy, startLabel, note }) {
   const joinHost = window.location.host;
   const joinUrl = `${window.location.origin}/join/${room.code}`;
   const [qr, setQr] = useState("");
@@ -25,7 +25,8 @@ export function Lobby({ room, onStart, onSettings, onClose, onKick, busy, startL
       <div style={{ display: "flex", flexWrap: "wrap", gap: "28px 48px", justifyContent: "center", alignItems: "flex-start", width: "100%", maxWidth: 1200 }}>
         {/* how to join */}
         <section aria-label="How to join" style={{ textAlign: "center", display: "grid", gap: 10, justifyItems: "center" }}>
-          <div style={{ color: T.mist, fontSize: 20 }}>Go to <b style={{ color: "var(--ws-text)" }}>{joinHost}/join</b> and type</div>
+          {room.locked && <div role="status" className="ws-display" style={{ fontSize: 20, fontWeight: 700, color: T.amber }}>🔒 Room locked: no new players</div>}
+          <div style={{ color: T.mist, fontSize: 20, opacity: room.locked ? 0.5 : 1 }}>Go to <b style={{ color: "var(--ws-text)" }}>{joinHost}/join</b> and type</div>
           <div className="ws-display" aria-label={`Room code ${room.code.split("").join(" ")}`} style={{ fontSize: "min(15vw, 120px)", fontWeight: 700, letterSpacing: "0.12em", color: T.amber, lineHeight: 1 }}>{room.code}</div>
           <div style={{ color: T.mist, fontSize: 16 }}>or scan with the camera</div>
           {qr ? <img src={qr} alt={`QR code for ${joinUrl}`} style={{ width: "min(36vh, 260px)", height: "min(36vh, 260px)", borderRadius: 14, background: "#fff", padding: 8 }} />
@@ -71,6 +72,12 @@ export function Lobby({ room, onStart, onSettings, onClose, onKick, busy, startL
           {busy ? "Shaking the dice…" : startLabel}
         </button>
         <button className="ws-btn" onClick={onSettings} style={btn}>Change settings</button>
+        {onLock && (
+          <button className="ws-btn" onClick={() => onLock(!room.locked)} aria-pressed={!!room.locked} style={btn}
+            title={room.locked ? "Let new students and guests join again" : "Stop new students and guests joining. Anyone already in can still rejoin."}>
+            {room.locked ? "🔓 Unlock room" : "🔒 Lock room"}
+          </button>
+        )}
         <button className="ws-btn" onClick={onClose} style={btn}>Close room</button>
       </div>
       <p style={{ color: "rgb(var(--ws-fg) / .45)", fontSize: 13.5, margin: 0, textAlign: "center", maxWidth: 640 }}>
