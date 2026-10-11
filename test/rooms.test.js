@@ -432,8 +432,9 @@ test("lock: nobody new can join, but students already in the game can come back"
   assert.deepEqual(await call(ben, "player:join", { code: room.code, guestName: "Zed" }), { error: "locked" });
 
   // Ava's iPad drops out; she picks her name again on another device, then that device comes back by token.
+  const dropped = new Promise(r => { const h = v => { if (v.players.some(p => p.studentId === "s1" && !p.connected)) { host.off("room:update", h); r(); } }; host.on("room:update", h); });
   ava.close();
-  await new Promise(r => setTimeout(r, 50));
+  await dropped;
   const ava2 = await client();
   const again = await call(ava2, "player:join", { code: room.code, studentId: "s1" });
   assert.equal(again.ok, true, "a student already in the game can take their name back");
