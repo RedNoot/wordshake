@@ -221,7 +221,7 @@ test("device play: letters only, word checks, scoring, clock and late joiners", 
   assert.equal((await word("dog")).result, "board");
   assert.equal((await word("tac")).result, "notword", "full dictionary round: a word that isn't on the list isn't a word");
   assert.equal((await word("<b>")).result, "notword");
-  assert.equal((await word("cats")).total, 2);
+  assert.equal((await word("cats")).total, 3, "cats: 1 + 1 extra letter");
   assert.equal((await call(kid, "player:word", { n: started.n - 1, word: "cat" })).result, "late", "old round");
 
   // A late joiner waits for the next round.
@@ -235,7 +235,7 @@ test("device play: letters only, word checks, scoring, clock and late joiners", 
   const kid2 = await client();
   const back = await call(kid2, "player:rejoin", { code: room.code, token: joined.token });
   assert.deepEqual(back.round.words.map(w => w.word), ["cat", "cats"]);
-  assert.equal(back.round.total, 2);
+  assert.equal(back.round.total, 3);
 
   // Paused: nothing counts. Time runs out: nothing counts after a short grace.
   await call(host, "host:clock", { n: started.n, state: "paused" });
@@ -335,7 +335,7 @@ test("teams: shared out evenly, late joiners balance, scores added up, devices s
   pending.shift()();
   const result = await hostResult;
   assert.equal(result.n, r.n);
-  assert.deepEqual(result.teams.map(t => t.score), [1, 2]);
+  assert.deepEqual(result.teams.map(t => t.score), [1, 3]);
   assert.deepEqual(result.winners, [1]);
   assert.equal(result.teams.reduce((a, t) => a + t.players, 0), 6);
   await new Promise(res => setTimeout(res, 30));
@@ -422,7 +422,7 @@ test("progress: finished class-list rounds are saved once, after the grace windo
   const { teacherId, classId, record } = saved[0];
   assert.deepEqual([teacherId, classId], ["teacherA", "class1"]);
   assert.deepEqual(Object.keys(record.players).sort(), ["s1", "s2"], "no guests, no late joiners");
-  assert.deepEqual(record.players.s1, { name: "Ava", words: ["cat", "cats"], score: 4, bonusCount: 1, bySpelling: { a: ["cat", "cats"] } });
+  assert.deepEqual(record.players.s1, { name: "Ava", words: ["cat", "cats"], score: 5, bonusCount: 1, bySpelling: { a: ["cat", "cats"] } });
   assert.deepEqual(record.players.s2, { name: "Ben", words: [], score: 0, bonusCount: 0, bySpelling: {} }, "a zero still counts");
   assert.deepEqual(record.available, { a: 2 });
   assert.equal(record.settings.phSound, "a");

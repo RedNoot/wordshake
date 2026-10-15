@@ -32,7 +32,7 @@ A few items below are marked **(assumption)** — reasonable defaults filled in 
 ### Scoring
 | Decision | Chosen option | Reason |
 |---|---|---|
-| Points by word length | Unchanged (1/2/3/5/11 as today) | Already tuned |
+| Points by word length | 1 point at the minimum length, +1 per extra letter (changed 2026-10-16) | Simpler for Year 3–4 to add up |
 | Duplicate words (found by 2+ *teams*) | Score normally for every team that found them | Not classic strike-to-zero — feels harsh for this age group |
 | Unique words (found by only one team) | Score **double** | Rewards spreading out rather than overlap |
 | "Unique" is scoped | Across teams, not across individuals within a team | Keeps team strategy meaningful |

@@ -13,7 +13,7 @@ import { Lobby } from "./Lobby.jsx";
 import { TeamResults, winnerLine } from "./Teams.jsx";
 import { Progress } from "./Progress.jsx";
 
-const pts = L => (L <= 4 ? 1 : L === 5 ? 2 : L === 6 ? 3 : L === 7 ? 5 : 11);
+import { wordPoints, BONUS } from "../shared/scoring.js";
 // What joined devices are told about the big screen: in a round (countdown or playing), showing answers, or in the lobby.
 const roomPhaseFor = phase => (phase === "countdown" || phase === "playing" ? "playing" : phase === "reveal" ? "reveal" : "lobby");
 const ROOM_ERRORS = {
@@ -780,7 +780,7 @@ export default function WordShakeWorkbook() {
               return (
                 <div style={{ width: "min(1000px,96vw)", display: "flex", flexDirection: "column", alignItems: "center", gap: 14, height: "100%", justifyContent: "center", minHeight: 0 }}>
                   <div className="ws-display" style={{ fontSize: 34, fontWeight: 700 }}>
-                    {L}-letter words <span style={{ color: T.amber }}>· {pts(L)} pt{pts(L) > 1 ? "s" : ""} each</span>
+                    {L}-letter words <span style={{ color: T.amber }}>· {wordPoints(L, settings.minLen)} pt{wordPoints(L, settings.minLen) > 1 ? "s" : ""} each</span>
                     <span style={{ color: T.mist, fontWeight: 400, fontSize: 22 }}> · {group.length} found by the board</span>
                   </div>
                   <p style={{ color: T.mist, margin: 0 }}>
@@ -809,7 +809,7 @@ export default function WordShakeWorkbook() {
                   <div className="ws-display" style={{ fontSize: "min(11vw,72px)", fontWeight: 700, color: T.amber, lineHeight: 1.1, wordBreak: "break-word" }}>
                     {S.longest[pathWord] ? S.longest[pathWord].word.toUpperCase() : "—"}
                   </div>
-                  <div style={{ color: T.mist, marginTop: 6, fontSize: 18 }}>{S.maxLen} letters · worth {pts(S.maxLen)} points</div>
+                  <div style={{ color: T.mist, marginTop: 6, fontSize: 18 }}>{S.maxLen} letters · worth {wordPoints(S.maxLen, settings.minLen)} {wordPoints(S.maxLen, settings.minLen) === 1 ? "point" : "points"}</div>
                   {S.longest.length > 1 && (
                     <div style={{ marginTop: 18 }}>
                       <div style={{ color: T.mist, fontSize: 14, marginBottom: 8 }}>Also {S.maxLen} letters — tap to trace:</div>
@@ -832,16 +832,16 @@ export default function WordShakeWorkbook() {
                 <div className="ws-display" style={{ fontSize: 40, fontWeight: 700 }}>{liveRound ? "How did you score?" : "Add up your score"}</div>
                 <p style={{ color: T.mist, fontSize: 17, marginTop: 6 }}>{liveRound ? "Your device has added up your points. Here's how words score:" : "Only ticked words count. Teacher's call on anything unusual!"}</p>
                 <div style={{ marginTop: 20, display: "grid", gap: 8 }}>
-                  {[[`${settings.minLen}–4 letters`, 1], ["5 letters", 2], ["6 letters", 3], ["7 letters", 5], ["8+ letters", 11]]
-                    .filter(([label]) => !(settings.minLen > 4 && label.includes("–4")))
+                  {[0, 1, 2, 3].map(extra => [`${settings.minLen + extra} letters`, wordPoints(settings.minLen + extra, settings.minLen)])
+                    .concat([["Every extra letter", "+1"]])
                     .map(([label, p]) => (
                       <div key={label} style={{ display: "flex", justifyContent: "space-between", background: "rgb(var(--ws-fg) / .06)", border: `1px solid ${T.faint}`, borderRadius: 12, padding: "12px 20px", fontSize: 20 }}>
-                        <span>{label}</span><b className="ws-display" style={{ color: T.amber }}>{p} pt{p > 1 ? "s" : ""} each</b>
+                        <span>{label}</span><b className="ws-display" style={{ color: T.amber }}>{typeof p === "string" ? `${p} pt` : `${p} pt${p > 1 ? "s" : ""} each`}</b>
                       </div>
                     ))}
                   {PH && settings.phBonus && (
                     <div style={{ display: "flex", justifyContent: "space-between", background: "rgb(var(--ws-amber-rgb) / .1)", border: `1px solid rgb(var(--ws-amber-rgb) / .45)`, borderRadius: 12, padding: "12px 20px", fontSize: 20 }}>
-                      <span>Words with today's sound {soundDef && soundDef.lab}</span><b className="ws-display" style={{ color: T.green }}>+2 bonus each</b>
+                      <span>Words with today's sound {soundDef && soundDef.lab}</span><b className="ws-display" style={{ color: T.green }}>+{BONUS} bonus each</b>
                     </div>
                   )}
                 </div>

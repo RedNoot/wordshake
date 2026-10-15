@@ -1,8 +1,8 @@
 import { findPath } from "./solver.js";
 
-// Same table as the workbook round: 1/2/3/5/11 by length.
-export const wordPoints = L => (L <= 4 ? 1 : L === 5 ? 2 : L === 6 ? 3 : L === 7 ? 5 : 11);
-export const BONUS = 2;
+import { wordPoints, BONUS } from "../../shared/scoring.js";
+
+export { wordPoints, BONUS };
 export const GRACE_MS = 1500;         // a word swiped in the final second still counts if it arrives just after zero
 const MAX_SUBMITS = 1000;      // per player per round; stops a script hammering the server
 
@@ -102,7 +102,7 @@ export async function checkWord(round, playerId, raw, t, isRealWord) {
   if (mine.has(word)) return { result: "dupe", word };
   if (word.length < round.settings.minLen) return { result: "short", word };
   if (round.words.has(word)) {
-    const pts = wordPoints(word.length);
+    const pts = wordPoints(word.length, round.settings.minLen);
     const bonus = round.settings.phBonus && round.tagged.has(word) ? BONUS : 0;
     mine.set(word, { pts, bonus });
     round.found.set(playerId, mine);
