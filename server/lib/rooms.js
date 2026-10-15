@@ -1,7 +1,7 @@
 import { randomBytes, randomInt } from "crypto";
 import { cleanGuestName, uniqueName } from "./names.js";
 import { pickRoundSettings } from "./settings.js";
-import { newRound, setClock, remainingMs, playerView, checkWord, roundRecord, teamResults, GRACE_MS } from "./round.js";
+import { newRound, setClock, remainingMs, playerView, checkWord, giveHint, roundRecord, teamResults, GRACE_MS } from "./round.js";
 import { emptySummary } from "../../shared/rewards.js";
 import { pickTheme } from "./settings.js";
 import { MIN_TEAMS, MAX_TEAMS } from "../../shared/teams.js";
@@ -477,6 +477,15 @@ export function attachRooms(io, {
       // Still allowed just after the answers appear: checkWord's grace window decides whether it counts.
       if (!room.round || room.round.n !== n || room.phase === "lobby") return ack({ result: "late" });
       ack(await checkWord(room.round, ref.id, word, now(), isRealWord));
+    });
+
+    // A stuck student's device asks for a hint; the server decides whether it's due and which word to show.
+    on("player:hint", async ({ n }, ack) => {
+      const ref = socket.data.player;
+      const room = ref && rooms.get(ref.code);
+      if (!room || !room.players.has(ref.id)) return ack({ error: "not-joined" });
+      if (!room.round || room.round.n !== n || room.phase !== "playing") return ack({ result: "late" });
+      ack(giveHint(room.round, ref.id, now()));
     });
 
     // A student's own trophies, stickers and teacher awards (never anyone else's).
