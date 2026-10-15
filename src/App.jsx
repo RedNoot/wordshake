@@ -55,6 +55,7 @@ export default function WordShakeWorkbook() {
   const [rewardsTally, setRewardsTally] = useState(null);  // this round's class totals for the big screen (never who earned what)
   const [roundTeams, setRoundTeams] = useState(0);         // how many teams played this round (0: no teams)
   const [teamResult, setTeamResult] = useState(null);      // the team scores, once the server has added them up
+  const [saveStatus, setSaveStatus] = useState(null);  // { n, ok, retrying }: whether this round reached the class's progress
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
   const pausedRef = useRef(false);
@@ -144,6 +145,9 @@ export default function WordShakeWorkbook() {
           if (r.state === "countdown") call("host:clock", { n: r.n, state: "playing", remainingMs: ms });
           setPhase("playing");
         }
+      } else if (r && liveRef.current === r.n && phaseRef.current === "playing" && r.state === "over") {
+        // The server's clock ran out while we were away, so it has ended (and saved) the round: show the answers.
+        setStep(0); setPhase("reveal");
       } else if (r && liveRef.current === r.n && phaseRef.current === "playing") {
         // Reconnected during our own round: the big screen's clock is the one that counts.
         call("host:clock", pausedRef.current
@@ -154,8 +158,9 @@ export default function WordShakeWorkbook() {
       }
     } else if (roomRef.current) {
       setRoom(null);
-      setRoomNote("The room closed while you were away. Open a new one when you're ready.");
-      setPhase(p => (p === "lobby" ? "setup" : p));
+      setLiveRound(null);
+      setRoomNote("The room closed while you were away (the game server restarted or lost its connection). Rounds that had finished were saved. Open a new room when you're ready.");
+      setPhase(p => (["lobby", "countdown", "playing", "reveal"].includes(p) ? "setup" : p));
     }
   };
 
@@ -172,11 +177,18 @@ export default function WordShakeWorkbook() {
     const onTally = t => { if (t.n === liveRef.current) setRewardsTally(t); };
     const onTeams = r => { if (r.n === liveRef.current) setTeamResult(r); };
     s.on("round:teams", onTeams);
+    // A warning stays up until that round is saved, even if the next round has started.
+    const onSaved = st => setSaveStatus(prev => (st.n === liveRef.current || !st.ok || (prev && prev.n === st.n) ? st : prev));
     s.on("room:update", onUpdate);
     s.on("round:rewards-summary", onTally);
+    s.on("round:saved", onSaved);
     s.on("host:replaced", onReplaced);
     s.io.on("reconnect", onReconnect);
-    return () => { s.off("room:update", onUpdate); s.off("host:replaced", onReplaced); s.off("round:rewards-summary", onTally); s.off("round:teams", onTeams); s.io.off("reconnect", onReconnect); };
+    return () => {
+      s.off("room:update", onUpdate); s.off("host:replaced", onReplaced); s.off("round:rewards-summary", onTally); s.off("round:saved", onSaved);
+      s.off("round:teams", onTeams);
+      s.io.off("reconnect", onReconnect);
+    };
   }, [account]); // eslint-disable-line
 
   // The look follows the teacher's setting here, and on every device in the room.
@@ -188,20 +200,33 @@ export default function WordShakeWorkbook() {
     if (room && room.theme && room.theme !== settings.theme) call("host:theme", { theme: settings.theme });
   }, [settings.theme, room]);
 
-  // Tell joined devices whether a round is on.
+  // Tell joined devices whether a round is on. A message that doesn't get through (wifi blip) is sent again.
   // While a round is starting, the server has already moved the room to "playing" but this screen is still on the lobby:
   // sending "lobby" then would abandon the new round (so it would never be saved, rewarded or team-scored).
   const sentPhaseRef = useRef(null);
   const startingRef = useRef(false);
+  const [phaseRetry, setPhaseRetry] = useState(0);
   useEffect(() => {
     if (!room) { sentPhaseRef.current = null; return; }
     if (startingRef.current) return;
     const p = roomPhaseFor(phase);
     if (p !== room.phase || sentPhaseRef.current !== p) {
       sentPhaseRef.current = p;
-      call("host:phase", { phase: p });
+      call("host:phase", { phase: p }).then(res => {
+        if (res.ok || sentPhaseRef.current !== p) return;
+        sentPhaseRef.current = null;
+        setTimeout(() => setPhaseRetry(n => n + 1), 3000);
+      });
     }
-  }, [phase, room]);
+  }, [phase, room, phaseRetry]);
+
+  // Keep the server awake for the whole lesson (Render's free plan sleeps after 15 minutes without a web request).
+  const roomOpen = !!room;
+  useEffect(() => {
+    if (!roomOpen) return;
+    const id = setInterval(() => { fetch("/api/ping").catch(() => { /* offline: the socket reconnect handles it */ }); }, 4 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [roomOpen]);
 
   const saveSettingsNow = () => {
     if (account) {
@@ -273,6 +298,8 @@ export default function WordShakeWorkbook() {
     let g;
     if (room) {
       // Students play on their devices: the server builds the board and checks their words.
+      // First make sure the server knows how the last round ended (answers shown, or abandoned), so it's saved or not.
+      await call("host:phase", { phase: roomPhaseFor(phaseRef.current) });
       const { seconds, size, minLen, phSound, phTicked, phBonus } = settings;
       startingRef.current = true;
       const res = await call("host:start", { settings: { seconds, size, minLen, phSound, phTicked, phBonus } });
@@ -286,6 +313,7 @@ export default function WordShakeWorkbook() {
       setRewardsTally(null);
       setRoundTeams(res.teams || 0);
       setTeamResult(null);
+      setSaveStatus(st => (st && !st.ok ? st : null));
       setLiveRound(res.n);
       setRoomNote("");
     } else {
@@ -879,6 +907,14 @@ export default function WordShakeWorkbook() {
                 rewardsTally.stickers && `${rewardsTally.stickers} new ${rewardsTally.stickers === 1 ? "sticker" : "stickers"}`,
                 rewardsTally.bests && `${rewardsTally.bests} personal ${rewardsTally.bests === 1 ? "best" : "bests"}`,
               ].filter(Boolean).join(" · ")}
+            </div>
+          )}
+
+          {liveRound && room && room.roster && saveStatus && (saveStatus.n === liveRound || !saveStatus.ok) && (
+            <div role={saveStatus.ok ? "status" : "alert"} style={{ alignSelf: "center", marginTop: 6, fontSize: 14.5, color: saveStatus.ok ? T.green : T.red }}>
+              {saveStatus.ok
+                ? "✓ Saved to class progress"
+                : `⚠ Round ${saveStatus.n} hasn't reached class progress yet — it's being retried automatically. Keep this room open.`}
             </div>
           )}
 

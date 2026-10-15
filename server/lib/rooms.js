@@ -2,7 +2,7 @@ import { randomBytes, randomInt } from "crypto";
 import { cleanGuestName, uniqueName } from "./names.js";
 import { pickRoundSettings } from "./settings.js";
 import { newRound, setClock, remainingMs, playerView, checkWord, roundRecord, teamResults, GRACE_MS } from "./round.js";
-import { applyRound, emptySummary } from "../../shared/rewards.js";
+import { emptySummary } from "../../shared/rewards.js";
 import { pickTheme } from "./settings.js";
 import { MIN_TEAMS, MAX_TEAMS } from "../../shared/teams.js";
 
@@ -14,6 +14,8 @@ const CLOCK_STATES = ["playing", "paused", "over"];
 const HOST_GONE_MS = 2 * 60 * 60 * 1000;   // a room with no teacher for 2 hours is closed
 const MAX_AGE_MS = 12 * 60 * 60 * 1000;    // and no room outlives a school day
 const LOOKUP_FAILS = { max: 100, windowMs: 10 * 60 * 1000 }; // per school IP: room codes can't be guessed
+const SAVE_RETRY_MS = [1000, 3000, 10000, 30000];      // a failed save is tried again after these waits...
+const SAVE_RETRY_LATER_MS = 5 * 60 * 1000;            // ...then every 5 minutes for as long as the server runs
 
 const newToken = () => randomBytes(16).toString("base64url");
 const newCode = () => Array.from({ length: CODE_LEN }, () => CODE_CHARS[randomInt(CODE_CHARS.length)]).join("");
@@ -29,7 +31,7 @@ const obj = d => (d && typeof d === "object" ? d : {});
  */
 export function attachRooms(io, {
   verifyTeacher, getClass, makeGame, isRealWord,
-  saveRound = null, loadSummaries = null, getStudent = null,
+  saveRound = null, getStudent = null,
   now = Date.now, later = (fn, ms) => setTimeout(fn, ms),
 }) {
   const rooms = new Map();
@@ -55,60 +57,87 @@ export function attachRooms(io, {
   };
 
   /*
-   * Progress tracking: a finished round (time up or End now, so the big screen shows the answers) is saved for
-   * class-list rooms. The save waits out the grace window so a word swiped at zero is included.
-   * A round abandoned mid-way (back to the lobby, quit) is never saved.
+   * Progress tracking: a finished class-list round is saved (with every student's rewards) exactly once.
+   * A round is finished when the answers are shown (time up or End now) or when the server's own copy of the clock
+   * runs out, so a lost message from the big screen (wifi blip, laptop asleep) can never drop a round.
+   * The save waits out the grace window so a word swiped at zero is included, and is retried until the database
+   * takes it. A round abandoned mid-way (back to the lobby, close the room) is never saved.
    */
-  function finishRound(room) {
-    const round = room.round;
+  const unsaved = new Set();   // save jobs waiting for a retry, across every room (a closed room's round still counts)
+  let saveRuns = Promise.resolve();
+
+  const timeUp = round => round.state === "over" || (round.state === "playing" && now() >= round.endsAt);
+  function finishRound(room, round = room.round, { grace = true } = {}) {
     if (!round || round.aborted || round.save || !room.classId || !saveRound) return;
     round.save = "pending";
-    later(() => flushRound(room, round), GRACE_MS + 100);
+    round.endedAt = round.state === "playing" ? Math.min(now(), round.endsAt) : now();
+    if (round.state !== "over") setClock(round, "over", 0, now());
+    if (grace) later(() => flushRound(room, round), GRACE_MS + 100);
+    else flushRound(room, round);
   }
-  async function flushRound(room, round) {
-    if (round.save !== "pending") return;
-    round.save = "done";
-    const record = roundRecord(round);
-    const sids = Object.keys(record.players);
-    if (!sids.length) return;
-    if (room.loadingSummaries) await room.loadingSummaries;
-    // Rewards: only when the students' saved summaries loaded, so nothing is awarded twice or overwritten.
-    let updates = null;
-    if (room.summaries) {
-      updates = {};
-      const bySid = {}, tally = { trophies: 0, stickers: 0, bests: 0 }, t = now();
-      for (const sid of sids) {
-        const { summary, earned } = applyRound(room.summaries.get(sid), record.players[sid], record, t);
-        room.summaries.set(sid, summary);
-        updates[sid] = { ...summary, name: record.players[sid].name };
-        bySid[sid] = earned;
-        tally.trophies += earned.trophies.length;
-        tally.stickers += earned.stickers.length;
-        tally.bests += earned.best.length ? 1 : 0;
+  // The server's own end-of-round: fires when its copy of the clock runs out, whatever the big screen did.
+  function watchClock(room, round) {
+    if (round.state !== "playing") return;
+    later(() => {
+      if (round.state === "playing" && now() >= round.endsAt && !round.aborted) {
+        finishRound(room, round);
+        finishTeams(room, round);
+        if (room.round === round) io.to(`players:${room.code}`).emit("round:clock", { n: round.n, state: "over", remainingMs: 0 });
       }
-      round.rewards = new Map();
-      for (const [playerId, who] of round.who || []) {
-        if (!who.studentId || !bySid[who.studentId] || !round.eligible.has(playerId)) continue;
-        round.rewards.set(playerId, bySid[who.studentId]);
-        const p = room.players.get(playerId), s = p && p.socketId && io.sockets.sockets.get(p.socketId);
-        if (s) s.emit("round:rewards", { n: round.n, ...bySid[who.studentId] });
-      }
-      // The big screen only ever gets totals, never who earned what.
-      io.to(`host:${room.code}`).emit("round:rewards-summary", { n: round.n, ...tally });
-    }
-    // Saves run one after another, so an older round's summaries can never land after a newer one's.
-    room.saveChain = (room.saveChain || Promise.resolve())
-      .then(() => saveRound(room.teacherId, room.classId, record, updates))
-      .catch(err => console.error("Saving a round failed:", err.message));
+    }, Math.max(0, round.endsAt - now()) + 50);
   }
 
-  function loadRoomSummaries(room) {
-    if (!loadSummaries || !room.classId || room.summaries || room.loadingSummaries) return;
-    room.loadingSummaries = Promise.resolve()
-      .then(() => loadSummaries(room.teacherId, room.classId))
-      .then(m => { room.summaries = m; })
-      .catch(err => console.error("Loading student rewards failed:", err.message))
-      .finally(() => { room.loadingSummaries = null; });
+  function flushRound(room, round) {
+    if (round.save !== "pending") return;
+    round.save = "saving";
+    const record = roundRecord(round);
+    if (round.cutShort) record.cutShort = true;
+    if (!Object.keys(record.players).length) { round.save = "done"; return; }
+    runSave({ room, round, record, tries: 0 });
+  }
+  // Saves run one after another (a round waiting on a retry doesn't hold up the rounds after it).
+  function runSave(job) {
+    const p = saveRuns.then(() => attemptSave(job)).catch(err => console.error("Saving a round:", err));
+    saveRuns = p;
+    return p;
+  }
+  async function attemptSave(job) {
+    const { room, round, record } = job;
+    let out;
+    try { out = await saveRound(room.teacherId, room.classId, round.id, record, round.endedAt); }
+    catch (err) { out = { error: err }; }
+    if (!out || out.error) {
+      job.tries++;
+      const wait = SAVE_RETRY_MS[job.tries - 1] ?? SAVE_RETRY_LATER_MS;
+      console.error(`Saving round ${round.n} for class ${room.classId} failed (try ${job.tries}), trying again in ${wait / 1000}s:`, out && out.error && out.error.message);
+      if (job.tries === 1 || job.tries === SAVE_RETRY_MS.length + 1) tellHost(room, "round:saved", { n: round.n, ok: false, retrying: true });
+      unsaved.add(job);
+      later(() => { if (unsaved.delete(job)) runSave(job); }, wait);
+      return;
+    }
+    round.save = "done";
+    if (out.status === "no-class") return;   // the class was deleted mid-lesson
+    tellHost(room, "round:saved", { n: round.n, ok: true });
+    if (out.status === "saved") giveRewards(room, round, out.earned || {});
+  }
+  const tellHost = (room, event, data) => { if (rooms.get(room.code) === room) io.to(`host:${room.code}`).emit(event, data); };
+
+  // Each student's device hears only its own rewards; the big screen only ever gets totals, never who earned what.
+  function giveRewards(room, round, bySid) {
+    const tally = { trophies: 0, stickers: 0, bests: 0 };
+    for (const e of Object.values(bySid)) {
+      tally.trophies += e.trophies.length;
+      tally.stickers += e.stickers.length;
+      tally.bests += e.best.length ? 1 : 0;
+    }
+    round.rewards = new Map();
+    for (const [playerId, who] of round.who || []) {
+      if (!who.studentId || !bySid[who.studentId] || !round.eligible.has(playerId)) continue;
+      round.rewards.set(playerId, bySid[who.studentId]);
+      const p = rooms.get(room.code) === room && room.players.get(playerId), s = p && p.socketId && io.sockets.sockets.get(p.socketId);
+      if (s) s.emit("round:rewards", { n: round.n, ...bySid[who.studentId] });
+    }
+    tellHost(room, "round:rewards-summary", { n: round.n, ...tally });
   }
 
   /*
@@ -135,8 +164,7 @@ export function attachRooms(io, {
     }
   }
   // The team scores are added up once late words have had their grace window; devices see them when the big screen does.
-  function finishTeams(room) {
-    const round = room.round;
+  function finishTeams(room, round = room.round) {
     if (!round || !round.teams || round.teamResult || round.teamsPending) return;
     round.teamsPending = true;
     later(() => {
@@ -148,6 +176,8 @@ export function attachRooms(io, {
   }
 
   function closeRoom(room, reason = "closed") {
+    // A finished round whose clock has run out is saved even if the room closes straight away.
+    if (room.round && timeUp(room.round)) finishRound(room, room.round, { grace: false });
     if (room.round && room.round.save === "pending") flushRound(room, room.round);
     io.to(`players:${room.code}`).to(`lookup:${room.code}`).emit("room:closed", reason);
     for (const r of ["host", "players", "lookup"]) io.socketsLeave(`${r}:${room.code}`);
@@ -264,7 +294,6 @@ export function attachRooms(io, {
       };
       rooms.set(code, room);
       byTeacher.set(teacher.id, code);
-      loadRoomSummaries(room);
       attachHost(socket, room);
       ack({ ok: true, room: hostView(room) });
     });
@@ -284,10 +313,12 @@ export function attachRooms(io, {
       if (!room) return ack({ error: "no-room" });
       const picked = pickRoundSettings(settings);
       if (!picked) return ack({ error: "invalid settings" });
-      loadRoomSummaries(room);   // retry if it failed when the room opened
       const game = await makeGame(picked);
       if (game.error) return ack({ error: game.error });
+      // The last round ran out of time but the big screen's "answers" message never arrived: it still counts.
+      if (room.round && timeUp(room.round)) finishRound(room, room.round);
       room.round = newRound(++room.roundNo, picked, game, [...room.players.keys()]);
+      room.round.id = randomBytes(10).toString("hex");  // the saved round's id, so a retried save can't count it twice
       // Who played, captured now so the saved record doesn't depend on who is still in the room later.
       room.round.who = new Map(players(room).map(p => [p.id, { studentId: p.studentId, name: p.name }]));
       // The teams as they stand now; moving someone mid-round only counts from the next round.
@@ -303,7 +334,10 @@ export function attachRooms(io, {
       const room = hostRoom(socket);
       if (!room || !room.round || room.round.n !== n) return ack({ error: "no-round" });
       if (!CLOCK_STATES.includes(state)) return ack({ error: "invalid state" });
+      // Once the server has ended a round (its clock ran out), it can't be reopened: what's saved is what was played.
+      if (room.round.save) return ack({ error: "round-over" });
       setClock(room.round, state, ms, now());
+      watchClock(room, room.round);
       io.to(`players:${room.code}`).emit("round:clock", { n, state, remainingMs: remainingMs(room.round, now()) });
       ack({ ok: true });
     });
@@ -312,10 +346,12 @@ export function attachRooms(io, {
       const room = hostRoom(socket);
       if (!room) return ack({ error: "no-room" });
       if (!PHASES.includes(phase)) return ack({ error: "invalid phase" });
-      // Leaving a round early (back to the lobby) ends it for every device.
+      // Leaving a round early (back to the lobby) ends it for every device. If its time had already run out,
+      // it finished normally (the "answers" message was lost), so it is saved, not thrown away.
       if (phase !== "playing" && room.round && room.round.state !== "over") {
-        setClock(room.round, "over", 0, now());
-        if (phase !== "reveal") room.round.aborted = true;
+        if (phase === "lobby" && !timeUp(room.round)) room.round.aborted = true;
+        else finishRound(room);
+        if (room.round.state !== "over") setClock(room.round, "over", 0, now());
       }
       if (phase === "reveal") { finishRound(room); if (!room.round || !room.round.aborted) finishTeams(room); }
       const changed = room.phase !== phase;
@@ -451,9 +487,7 @@ export function attachRooms(io, {
       if (socket.data.trophiesAt && now() - socket.data.trophiesAt < 2000) return ack({ error: "slow-down" });
       socket.data.trophiesAt = now();
       const saved = getStudent ? await Promise.resolve().then(() => getStudent(room.teacherId, room.classId, p.studentId)).catch(() => null) : null;
-      const live = room.summaries && room.summaries.get(p.studentId);
-      // Game progress from memory is newest (its save may still be on the way); awards only live in the database.
-      ack({ ok: true, summary: { ...emptySummary(), ...(saved || {}), ...(live || {}), awards: (saved && saved.awards) || [] } });
+      ack({ ok: true, summary: { ...emptySummary(), ...(saved || {}), awards: (saved && saved.awards) || [] } });
     });
 
     // "That's not me": frees the name for its owner.
@@ -473,6 +507,21 @@ export function attachRooms(io, {
       if (room && room.hostSocket === socket.id) { room.hostSocket = null; room.hostSeenAt = now(); }
     });
   });
+
+  // The server is stopping (a deploy, or the host putting it to sleep): finish and save every round it can first.
+  // A round still being played is saved as it stands, marked as cut short, rather than lost.
+  async function shutdown() {
+    for (const room of rooms.values()) {
+      const round = room.round;
+      if (!round || round.aborted || round.save || round.state === "countdown") continue;
+      if (!timeUp(round)) round.cutShort = true;
+      finishRound(room, round, { grace: false });
+    }
+    for (const room of rooms.values()) if (room.round && room.round.save === "pending") flushRound(room, room.round);
+    for (const job of unsaved) { unsaved.delete(job); runSave(job); }
+    await saveRuns;
+    return unsaved.size;
+  }
 
   function sweep() {
     const t = now();
@@ -494,5 +543,5 @@ export function attachRooms(io, {
     }
   }
 
-  return { rooms, sweep, rewardsChanged };
+  return { rooms, sweep, rewardsChanged, shutdown };
 }

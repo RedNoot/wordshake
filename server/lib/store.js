@@ -1,4 +1,5 @@
-import { getFirestore, FieldValue } from "firebase-admin/firestore";
+import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
+import { applyRound } from "../../shared/rewards.js";
 import { firebaseApp } from "./firebase.js";
 
 const db = firebaseApp ? getFirestore(firebaseApp) : null;
@@ -64,22 +65,34 @@ const studentsOf = (teacherId, classId) => classesOf(teacherId).doc(classId).col
 const SUMMARY_FIELDS = ["name", "rounds", "words", "bestScore", "bestWords", "weeks", "stickers", "trophies"];
 const pickSummary = data => Object.fromEntries(SUMMARY_FIELDS.filter(k => data[k] !== undefined).map(k => [k, data[k]]));
 
-// The round and every student's updated summary are written together. Awards are never touched here,
-// so an award given from the Progress page during a lesson can't be overwritten by a round.
-export async function saveRound(teacherId, classId, record, summaries = null) {
-  const cls = await classesOf(teacherId).doc(classId).get();
-  if (!cls.exists) return;  // the class was deleted mid-lesson: don't leave orphaned history behind
-  const batch = db.batch();
-  batch.set(gamesOf(teacherId, classId).doc(), { ...record, endedAt: FieldValue.serverTimestamp() });
-  for (const [sid, sum] of Object.entries(summaries || {})) {
-    batch.set(studentsOf(teacherId, classId).doc(sid), { ...pickSummary(sum), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-  }
-  await batch.commit();
-}
-
-export async function loadSummaries(teacherId, classId) {
-  const snap = await studentsOf(teacherId, classId).get();
-  return new Map(snap.docs.map(d => [d.id, pickSummary(d.data())]));
+/*
+ * Saves one finished round and folds it into every player's reward summary, in a single transaction:
+ * the class's progress and the students' rewards can never disagree, because both are written or neither is.
+ * Rewards are worked out from the summaries in the database at that moment (never from a copy held in memory),
+ * and the round's id makes a retry harmless: a round that is already saved is never counted twice.
+ * Awards are never touched here, so an award given from the Progress page during a lesson can't be overwritten.
+ * Returns { status: "saved", earned, summaries } | { status: "already-saved" } | { status: "no-class" }.
+ */
+export async function saveRound(teacherId, classId, gameId, record, endedAt) {
+  const sids = Object.keys(record.players);
+  const clsRef = classesOf(teacherId).doc(classId);
+  const gameRef = gamesOf(teacherId, classId).doc(gameId);
+  const studentRefs = sids.map(sid => studentsOf(teacherId, classId).doc(sid));
+  return db.runTransaction(async tx => {
+    const [cls, game, ...students] = await tx.getAll(clsRef, gameRef, ...studentRefs);
+    if (!cls.exists) return { status: "no-class" };  // the class was deleted mid-lesson: don't leave orphaned history behind
+    if (game.exists) return { status: "already-saved" };
+    const earned = {}, summaries = {};
+    students.forEach((doc, i) => {
+      const sid = sids[i];
+      const { summary, earned: e } = applyRound(doc.exists ? pickSummary(doc.data()) : null, record.players[sid], record, endedAt);
+      tx.set(doc.ref, { ...pickSummary(summary), name: record.players[sid].name, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      earned[sid] = e;
+      summaries[sid] = summary;
+    });
+    tx.set(gameRef, { ...record, endedAt: Timestamp.fromMillis(endedAt) });
+    return { status: "saved", earned, summaries };
+  });
 }
 
 export async function getStudent(teacherId, classId, studentId) {
