@@ -10,6 +10,7 @@ const ERRORS = {
   "too-many": "Too many wrong codes have been tried. Wait a few minutes, then try again.",
   "bad-name": "Please type your first name, using letters only.",
   "no-student": "That name isn't on the list any more. Ask your teacher.",
+  locked: "Your teacher has locked this game, so no one new can join. Ask your teacher.",
   offline: "We can't reach the game. Check the wifi, then try again.",
 };
 const ENDED = {
@@ -173,16 +174,17 @@ export function Join({ initialCode }) {
           <div className="ws-fade" style={{ width: "100%", display: "grid", gap: 16, justifyItems: "center" }}>
             <h1 className="ws-display" style={{ margin: 0, fontSize: 34, textAlign: "center" }}>Tap your name</h1>
             <div style={{ color: T.mist, fontSize: 17 }}>{room.className}</div>
+            {room.locked && <div role="status" style={{ color: T.amber, fontSize: 17, textAlign: "center" }}>🔒 The game is locked. Only students who were already in can tap their name.</div>}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 12, width: "100%" }}>
               {room.roster.map(s => (
-                <button key={s.id} disabled={s.taken} onClick={() => { setChosen(s); setMessage(""); setStep("confirm"); }} className="ws-btn ws-display"
+                <button key={s.id} disabled={s.taken || (room.locked && !s.inGame)} onClick={() => { setChosen(s); setMessage(""); setStep("confirm"); }} className="ws-btn ws-display"
                   aria-label={s.taken ? `${s.name}, already in the game` : s.name}
-                  style={{ fontSize: 23, fontWeight: 600, padding: "18px 10px", borderRadius: 16, cursor: s.taken ? "default" : "pointer", border: `2px solid ${s.taken ? "transparent" : "rgb(var(--ws-fg) / .18)"}`, background: s.taken ? "rgb(var(--ws-fg) / .03)" : "rgb(var(--ws-fg) / .08)", color: s.taken ? "rgb(var(--ws-fg) / .3)" : "var(--ws-text)" }}>
+                  style={{ fontSize: 23, fontWeight: 600, padding: "18px 10px", borderRadius: 16, cursor: s.taken ? "default" : "pointer", border: `2px solid ${s.taken ? "transparent" : "rgb(var(--ws-fg) / .18)"}`, background: s.taken ? "rgb(var(--ws-fg) / .03)" : "rgb(var(--ws-fg) / .08)", color: s.taken ? "rgb(var(--ws-fg) / .3)" : "var(--ws-text)", opacity: room.locked && !s.inGame && !s.taken ? 0.4 : 1 }}>
                   {s.name}{s.taken && <span style={{ display: "block", fontSize: 13, fontWeight: 400 }}>✓ already in</span>}
                 </button>
               ))}
             </div>
-            <button onClick={() => { setMessage(""); setStep("guest"); }} style={link}>My name isn't here</button>
+            {!room.locked && <button onClick={() => { setMessage(""); setStep("guest"); }} style={link}>My name isn't here</button>}
           </div>
         )}
 

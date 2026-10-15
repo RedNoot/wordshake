@@ -25,7 +25,8 @@ const obj = d => (d && typeof d === "object" ? d : {});
  * Live rooms, held in server memory only (a restart closes every room).
  * room = { code, teacherId, hostSocket, classId, className, roster: [{ id, name }] | null,
  *          players: Map<playerId, { id, name, studentId, token, socketId }>, phase, createdAt, hostSeenAt,
- *          round: see round.js | null, roundNo }
+ *          round: see round.js | null, roundNo, locked }
+ * A locked room lets nobody new in; anyone already in the game can still come back (sleep, refresh, new device).
  * Socket.IO rooms: host:CODE (the big screen), players:CODE (joined devices), lookup:CODE (devices on the name grid).
  */
 export function attachRooms(io, {
@@ -39,14 +40,15 @@ export function attachRooms(io, {
 
   const players = room => [...room.players.values()];
   const hostView = room => ({
-    code: room.code, className: room.className, phase: room.phase, theme: room.theme,
+    code: room.code, className: room.className, phase: room.phase, theme: room.theme, locked: room.locked,
     roster: room.roster && room.roster.map(s => ({ id: s.id, name: s.name })),
     players: players(room).map(p => ({ id: p.id, name: p.name, studentId: p.studentId, guest: !p.studentId, connected: !!p.socketId })),
   });
   const lookupView = room => ({
-    code: room.code, className: room.className, phase: room.phase, theme: room.theme,
+    code: room.code, className: room.className, phase: room.phase, theme: room.theme, locked: room.locked,
     roster: room.roster && room.roster.map(s => ({
       id: s.id, name: s.name, taken: players(room).some(p => p.studentId === s.id && p.socketId),
+      inGame: players(room).some(p => p.studentId === s.id),
     })),
   });
   const notify = room => {
@@ -250,7 +252,7 @@ export function attachRooms(io, {
         code, teacherId: teacher.id, hostSocket: null, classId: cls ? classId : null, className: cls ? cls.name : null,
         roster: cls ? cls.students.map(s => ({ id: s.id, name: s.name })) : null,
         players: new Map(), phase: "lobby", createdAt: now(), hostSeenAt: now(), round: null, roundNo: 0,
-        theme: pickTheme(theme),
+        theme: pickTheme(theme), locked: false,
       };
       rooms.set(code, room);
       byTeacher.set(teacher.id, code);
@@ -330,6 +332,16 @@ export function attachRooms(io, {
       ack({ ok: true });
     });
 
+    // Lock: no new names or guests can join. Students already in the game can still rejoin.
+    on("host:lock", async ({ locked }, ack) => {
+      const room = hostRoom(socket);
+      if (!room) return ack({ error: "no-room" });
+      if (typeof locked !== "boolean") return ack({ error: "invalid lock" });
+      room.locked = locked;
+      notify(room);
+      ack({ ok: true, locked });
+    });
+
     on("host:kick", async ({ playerId }, ack) => {
       const room = hostRoom(socket);
       if (!room) return ack({ error: "no-room" });
@@ -368,10 +380,12 @@ export function attachRooms(io, {
         // One device per name. A device that dropped out can be replaced by a new one, which takes over the name.
         if (existing && existing.socketId && existing.socketId !== socket.id) return ack({ error: "already-in" });
         if (existing) { existing.token = newToken(); return ack(attachPlayer(socket, room, existing)); }
+        if (room.locked) return ack({ error: "locked" });
         const p = { id: newToken(), name: student.name, studentId: student.id, token: newToken(), socketId: null };
         room.players.set(p.id, p);
         return ack(attachPlayer(socket, room, p));
       }
+      if (room.locked) return ack({ error: "locked" });
       const clean = cleanGuestName(guestName);
       if (!clean) return ack({ error: "bad-name" });
       const taken = [...players(room).map(p => p.name), ...(room.roster || []).map(s => s.name)];
