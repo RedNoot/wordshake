@@ -277,8 +277,8 @@ function StudentDetail({ s, summary, onGive, onRemove, onBack, onRound }) {
 
       <section style={{ display: "grid", gap: 12 }}>
         <h3 className="ws-display" style={{ margin: 0, fontSize: 22 }}>Sticker book</h3>
-        <StickerBook stickers={summary && summary.stickers} compact />
-        <div style={{ fontSize: 13, color: T.mist }}>A spelling's sticker comes with the first word found, turns silver at 5 words and gold at 15. This is what {s.name} sees on their device.</div>
+        <StickerBook stickers={summary && summary.stickers} spotted={summary && summary.spotted} compact />
+        <div style={{ fontSize: 13, color: T.mist }}>In Sounds-Write rounds every spelling found counts. A spelling's sticker comes with the first word found and turns silver at 5 words with today's sound (or 25 found any other time) and gold at 15 (or 75). This is what {s.name} sees on their device.</div>
       </section>
 
       <section style={{ display: "grid", gap: 12 }}>

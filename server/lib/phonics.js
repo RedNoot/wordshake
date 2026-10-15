@@ -45,6 +45,22 @@ const NAME_WORDS = new Set(("al als alan anna annas beth bobby brad carl carls d
 // Re-screened so blocklist additions apply without regenerating the table.
 export const SW_WORDS = [..._phWords].filter(w => !BLOCKLIST.has(w) && !NAME_WORDS.has(w));
 export const PH_STATS = { words: SW_WORDS.length, tags: _phTags };
+// Every Sounds-Write sound and spelling in a word, e.g. "cat" -> [["k","c"], ["a","a"], ["t","t"]] (from the same table).
+let _wordSounds = null;
+export function soundsOf(word) {
+  if (!_wordSounds) {
+    _wordSounds = new Map();
+    for (const [sound, bySp] of Object.entries(PH_TABLE)) {
+      for (const [g, m] of Object.entries(bySp)) {
+        for (const w of m.keys()) {
+          if (!_wordSounds.has(w)) _wordSounds.set(w, []);
+          _wordSounds.get(w).push([sound, g]);
+        }
+      }
+    }
+  }
+  return _wordSounds.get(word) || [];
+}
 export function tagLookup(word, soundId, ticked) {
   const bySp = PH_TABLE[soundId];
   if (!bySp) return null;
