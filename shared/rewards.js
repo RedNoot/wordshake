@@ -4,9 +4,29 @@
  */
 
 // Sound stickers: a spelling's sticker appears with its first word, then turns silver and gold.
-export const STICKER_TIERS = [1, 5, 15];
+// In a Sounds-Write round every spelling a student finds counts, not just today's sound, but today's sound counts more:
+// a word with today's sound is worth FOCUS_WORTH points, a word with any other sound's spelling is worth 1.
+// So silver is 5 words with today's sound or 25 others, and gold is 15 or 75 (or any mix).
+export const FOCUS_WORTH = 5;
+export const STICKER_TIERS = [1, 5 * FOCUS_WORTH, 15 * FOCUS_WORTH];   // in points
 export const TIER_NAMES = ["", "sticker", "silver", "gold"];
-export const tierOf = n => STICKER_TIERS.filter(x => n >= x).length;
+export const tierOf = points => STICKER_TIERS.filter(x => points >= x).length;
+// stickers: sound -> spelling -> words found while it was today's sound; spotted: the same, any other time.
+export const stickerPoints = (stickers, spotted, sound, g) =>
+  ((stickers && stickers[sound] && stickers[sound][g]) || 0) * FOCUS_WORTH + ((spotted && spotted[sound] && spotted[sound][g]) || 0);
+// Every sound page a student has a sticker on: sound -> spelling -> points.
+export function stickerPages(stickers, spotted) {
+  const pages = {};
+  for (const src of [stickers || {}, spotted || {}]) {
+    for (const [sound, page] of Object.entries(src)) {
+      for (const g of Object.keys(page)) {
+        const pts = stickerPoints(stickers, spotted, sound, g);
+        if (pts > 0) (pages[sound] ||= {})[g] = pts;
+      }
+    }
+  }
+  return pages;
+}
 
 export const TROPHIES = [
   { id: "first-round", emoji: "🎲", name: "Off we go", desc: "Played your first round" },
@@ -40,7 +60,7 @@ export const CUSTOM_AWARD_EMOJI = "🏅";
 export const AWARD_LABEL_MAX = 30;
 export const AWARDS_MAX = 100;
 
-export const emptySummary = () => ({ rounds: 0, words: 0, bestScore: 0, bestWords: 0, weeks: [], stickers: {}, trophies: {} });
+export const emptySummary = () => ({ rounds: 0, words: 0, bestScore: 0, bestWords: 0, weeks: [], stickers: {}, spotted: {}, trophies: {} });
 
 // Monday-start week, e.g. "2026-W41", so "played in N weeks" ignores how many rounds were in a week.
 // Counted in Australian time (shifted 12 hours from UTC), so a Monday-morning lesson isn't filed under the week before.
@@ -54,7 +74,9 @@ export function weekKey(t) {
 
 /*
  * Folds one saved round (a player entry from roundRecord, plus the round's settings and spelling counts)
- * into a student's summary. Returns the new summary and what was earned this round:
+ * into a student's summary. p.bySpelling holds today's-sound finds; p.spotted (sound -> spelling -> count) every other
+ * Sounds-Write spelling found in the round
+ * Returns the new summary and what was earned this round:
  *   { trophies: [id], stickers: [{ sound, g, tier }], best: ["score" | "words"] }
  * Personal bests only start counting from a student's second round.
  */
@@ -63,6 +85,7 @@ export function applyRound(prev, p, round, t) {
   s.weeks = [...s.weeks];
   s.trophies = { ...s.trophies };
   s.stickers = Object.fromEntries(Object.entries(s.stickers).map(([k, v]) => [k, { ...v }]));
+  s.spotted = Object.fromEntries(Object.entries(s.spotted || {}).map(([k, v]) => [k, { ...v }]));
   const earned = { trophies: [], stickers: [], best: [] };
   const award = id => { if (!s.trophies[id]) { s.trophies[id] = t; earned.trophies.push(id); } };
 
@@ -78,13 +101,19 @@ export function applyRound(prev, p, round, t) {
 
   const sound = round.settings && round.settings.phSound;
   if (sound) {
-    for (const [g, ws] of Object.entries(bySpelling)) {
-      if (!ws.length) continue;
-      const page = (s.stickers[sound] ||= {});
-      const before = tierOf(page[g] || 0);
-      page[g] = (page[g] || 0) + ws.length;
-      const after = tierOf(page[g]);
-      if (after > before) earned.stickers.push({ sound, g, tier: after });
+    const before = {};
+    const add = (field, snd, g, n) => {
+      const key = snd + "|" + g;
+      if (!(key in before)) before[key] = tierOf(stickerPoints(s.stickers, s.spotted, snd, g));
+      const page = (s[field][snd] ||= {});
+      page[g] = (page[g] || 0) + n;
+    };
+    for (const [g, ws] of Object.entries(bySpelling)) if (ws.length) add("stickers", sound, g, ws.length);
+    for (const [snd, page] of Object.entries(p.spotted || {})) for (const [g, n] of Object.entries(page)) if (n > 0) add("spotted", snd, g, n);
+    for (const [key, was] of Object.entries(before)) {
+      const [snd, g] = key.split("|");
+      const now = tierOf(stickerPoints(s.stickers, s.spotted, snd, g));
+      if (now > was) earned.stickers.push({ sound: snd, g, tier: now });
     }
   }
 
@@ -97,8 +126,9 @@ export function applyRound(prev, p, round, t) {
   if (n >= 20) award("word-storm");
   const onBoard = Object.entries(round.available || {}).filter(([, k]) => k > 0);
   if (sound && onBoard.length >= 2 && onBoard.every(([g]) => (bySpelling[g] || []).length)) award("full-set");
-  if (Object.values(s.stickers).filter(page => Object.values(page).some(k => k > 0)).length >= 5) award("sound-collector");
-  if (Object.values(s.stickers).some(page => Object.values(page).some(k => tierOf(k) === 3))) award("gold-sticker");
+  const pages = stickerPages(s.stickers, s.spotted);
+  if (Object.keys(pages).length >= 5) award("sound-collector");
+  if (Object.values(pages).some(page => Object.values(page).some(k => tierOf(k) === 3))) award("gold-sticker");
   if (s.words >= 50) award("words-50");
   if (s.words >= 100) award("words-100");
   if (s.words >= 250) award("words-250");

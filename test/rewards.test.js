@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applyRound, weekKey, tierOf, emptySummary } from "../shared/rewards.js";
+import { applyRound, weekKey, tierOf, emptySummary, stickerPages } from "../shared/rewards.js";
 
 const MON = Date.UTC(2026, 9, 4, 22, 0);   // Monday 5 Oct, 9am in Melbourne
 const day = 86400000;
@@ -13,8 +13,34 @@ test("weeks are counted in Australian time", () => {
   assert.equal(weekKey(MON + 4 * day + 6 * 3600e3), "2026-W41", "Friday afternoon");
 });
 
-test("sticker tiers", () => {
-  assert.deepEqual([0, 1, 4, 5, 14, 15, 99].map(tierOf), [0, 1, 1, 2, 2, 3, 3]);
+test("sticker tiers, in points: today's sound is worth 5, any other find 1", () => {
+  assert.deepEqual([0, 1, 24, 25, 74, 75, 999].map(tierOf), [0, 1, 1, 2, 2, 3, 3]);
+  assert.deepEqual(stickerPages({ ae: { ay: 5 } }, { ae: { ay: 2, a: 1 }, t: { t: 3 } }), { ae: { ay: 27, a: 1 }, t: { t: 3 } });
+});
+
+test("every Sounds-Write spelling found adds to the sticker book, other sounds more slowly", () => {
+  // A /ae/ round: "rain" also has /r/ r and /n/ n.
+  const first = applyRound(null, { words: ["rain"], score: 1, bySpelling: { ai: ["rain"] }, spotted: { r: { r: 1 }, n: { n: 1 } } }, sw, MON);
+  assert.deepEqual(first.earned.stickers, [{ sound: "ae", g: "ai", tier: 1 }, { sound: "r", g: "r", tier: 1 }, { sound: "n", g: "n", tier: 1 }]);
+  assert.deepEqual(first.summary.spotted, { r: { r: 1 }, n: { n: 1 } });
+  assert.deepEqual(first.summary.stickers, { ae: { ai: 1 } }, "today's-sound counts are kept apart");
+  // /r/ r: silver takes 25 other finds; 5 with it as today's sound would do the same.
+  const s24 = applyRound(first.summary, { words: [], score: 0, bySpelling: {}, spotted: { r: { r: 23 } } }, sw, MON);
+  assert.deepEqual(s24.earned.stickers, [], "24 points: still a plain sticker");
+  const s25 = applyRound(s24.summary, { words: [], score: 0, bySpelling: {}, spotted: { r: { r: 1 } } }, sw, MON);
+  assert.deepEqual(s25.earned.stickers, [{ sound: "r", g: "r", tier: 2 }]);
+  // A mix: 4 /ai/ words as today's sound (20 points) + 5 found any other time = silver.
+  const mixed = applyRound(first.summary, { words: [], score: 0, bySpelling: { ai: ["a", "b", "c"] }, spotted: { ae: { ai: 5 } } }, sw, MON);
+  assert.deepEqual(mixed.earned.stickers, [{ sound: "ae", g: "ai", tier: 2 }]);
+  // Rounds without Sounds-Write words don't touch stickers, whatever the record says.
+  assert.deepEqual(applyRound(null, { words: ["cat"], score: 1, bySpelling: {}, spotted: { t: { t: 1 } } }, plain, MON).earned.stickers, []);
+});
+
+test("old summaries (today's-sound counts only) keep the tiers they had", () => {
+  const old = { rounds: 3, words: 20, bestScore: 5, bestWords: 5, weeks: [], stickers: { ae: { ay: 5, ai: 15 } }, trophies: {} };
+  const pages = stickerPages(old.stickers, old.spotted);
+  assert.deepEqual([tierOf(pages.ae.ay), tierOf(pages.ae.ai)], [2, 3]);
+  assert.deepEqual(applyRound(old, { words: [], score: 0, bySpelling: {} }, sw, MON).summary.spotted, {});
 });
 
 test("a first round: trophies for turning up, no personal bests yet", () => {

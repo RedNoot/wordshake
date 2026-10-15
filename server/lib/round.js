@@ -1,4 +1,5 @@
 import { findPath } from "./solver.js";
+import { soundsOf } from "./phonics.js";
 
 import { wordPoints, BONUS } from "../../shared/scoring.js";
 
@@ -118,6 +119,8 @@ export async function checkWord(round, playerId, raw, t, isRealWord) {
  * (guests and late joiners are left out), including anyone who found nothing.
  * For a Sounds-Write round, each ticked spelling records how many board words used it ("available")
  * and which of those each student found ("bySpelling": spelling -> words), so the teacher can see "found 3 of 7 ay words".
+ * Every other sound's spellings in the student's words are counted too ("spotted": sound -> spelling -> words),
+ * so they add to the sticker book at a slower rate (see shared/rewards.js).
  */
 export function roundRecord(round) {
   const { settings, game } = round;
@@ -137,11 +140,21 @@ export function roundRecord(round) {
     const words = [...found.keys()];
     const prev = players[who.studentId];
     if (prev && prev.words.length > words.length) continue;
-    const bySpelling = {};
+    const bySpelling = {}, spotted = {};
     for (const w of words) for (const g of spellingsOf.get(w) || []) (bySpelling[g] ||= []).push(w);
+    if (settings.phSound) {
+      for (const w of words) {
+        for (const [snd, g] of soundsOf(w)) {
+          if (snd === settings.phSound && (spellingsOf.get(w) || []).includes(g)) continue;  // already counted as today's sound
+          const page = (spotted[snd] ||= {});
+          page[g] = (page[g] || 0) + 1;
+        }
+      }
+    }
     players[who.studentId] = {
       name: who.name, words, score: playerTotal(round, playerId),
       bonusCount: [...found.values()].filter(f => f.bonus).length, bySpelling,
+      ...(settings.phSound ? { spotted } : {}),
     };
   }
   return {

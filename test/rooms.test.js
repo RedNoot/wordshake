@@ -416,9 +416,10 @@ test("progress: finished class-list rounds are saved once, after the grace windo
   assert.equal(saved.length, 1);
   assert.equal(mine.n, r.n);
   assert.deepEqual(mine.trophies.sort(), ["first-round", "first-word", "sound-spotter"].sort());
-  assert.deepEqual(mine.stickers, [{ sound: "a", g: "a", tier: 1 }]);
+  assert.deepEqual(mine.stickers, [{ sound: "a", g: "a", tier: 1 }, { sound: "k", g: "c", tier: 1 }, { sound: "t", g: "t", tier: 1 }, { sound: "s", g: "s", tier: 1 }],
+    "today's sound, and every other Sounds-Write spelling in cat and cats");
   assert.deepEqual(mine.best, [], "no personal best in a first round");
-  assert.deepEqual(totals, { n: r.n, trophies: 4, stickers: 1, bests: 0 }, "big screen: totals only (Ava 3, Ben 1)");
+  assert.deepEqual(totals, { n: r.n, trophies: 4, stickers: 4, bests: 0 }, "big screen: totals only (Ava 3, Ben 1)");
   assert.equal(guestGotRewards, false, "guests get no rewards");
   assert.equal(saved[0].updates.s1.rounds, 1);
   assert.equal(saved[0].updates.s1.name, "Ava");
@@ -447,8 +448,9 @@ test("progress: finished class-list rounds are saved once, after the grace windo
   const { teacherId, classId, record } = saved[0];
   assert.deepEqual([teacherId, classId], ["teacherA", "class1"]);
   assert.deepEqual(Object.keys(record.players).sort(), ["s1", "s2"], "no guests, no late joiners");
-  assert.deepEqual(record.players.s1, { name: "Ava", words: ["cat", "cats"], score: 5, bonusCount: 1, bySpelling: { a: ["cat", "cats"] } });
-  assert.deepEqual(record.players.s2, { name: "Ben", words: [], score: 0, bonusCount: 0, bySpelling: {} }, "a zero still counts");
+  assert.deepEqual(record.players.s1, { name: "Ava", words: ["cat", "cats"], score: 5, bonusCount: 1, bySpelling: { a: ["cat", "cats"] },
+    spotted: { k: { c: 2 }, t: { t: 2 }, s: { s: 1 } } }, "/a/ is today's sound, so it isn't counted again");
+  assert.deepEqual(record.players.s2, { name: "Ben", words: [], score: 0, bonusCount: 0, bySpelling: {}, spotted: {} }, "a zero still counts");
   assert.deepEqual(record.available, { a: 2 });
   assert.equal(record.settings.phSound, "a");
   assert.equal(record.boardWords, 2);

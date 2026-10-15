@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { T } from "./theme.js";
 import { call } from "./net.js";
 import { SOUND_BY_ID } from "./sounds.js";
-import { TROPHIES, TROPHY_BY_ID, TIER_NAMES, tierOf, STICKER_TIERS } from "../shared/rewards.js";
+import { TROPHIES, TROPHY_BY_ID, TIER_NAMES, tierOf, STICKER_TIERS, FOCUS_WORTH, stickerPages } from "../shared/rewards.js";
 
 const soundLab = id => (SOUND_BY_ID[id] ? SOUND_BY_ID[id].lab : id);
 const cap = s => s[0].toUpperCase() + s.slice(1);
@@ -54,14 +54,16 @@ function StickerSpot({ g, size }) {
 }
 
 // One page per sound the student has met: its usual spellings, as stickers stuck in or spaces still to fill.
-export function StickerBook({ stickers, compact = false }) {
-  const sounds = Object.keys(stickers || {}).filter(id => Object.values(stickers[id]).some(n => n > 0));
-  if (!sounds.length) return <div style={{ color: T.mist, fontSize: compact ? 14 : 17 }}>No stickers yet. Find words with today's sound to collect them!</div>;
+// Each spelling shows points: a word with today's sound is worth FOCUS_WORTH, any other word with that spelling 1.
+export function StickerBook({ stickers, spotted, compact = false }) {
+  const pages = stickerPages(stickers, spotted);
+  const sounds = Object.keys(pages);
+  if (!sounds.length) return <div style={{ color: T.mist, fontSize: compact ? 14 : 17 }}>No stickers yet. Find words in a sounds game to collect them!</div>;
   const size = compact ? 46 : 64, bind = compact ? 16 : 22;
   return (
     <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fill, minmax(${compact ? 230 : 280}px, 1fr))`, gap: compact ? 12 : 18 }}>
       {sounds.map((id, pi) => {
-        const def = SOUND_BY_ID[id], page = stickers[id];
+        const def = SOUND_BY_ID[id], page = pages[id];
         const spellings = [...new Set([...(def ? def.sp.filter(s => s[2]).map(s => s[0]) : []), ...Object.keys(page)])];
         const got = spellings.filter(g => page[g] > 0).length;
         return (
@@ -84,7 +86,7 @@ export function StickerBook({ stickers, compact = false }) {
             <div style={{ display: "flex", flexWrap: "wrap", gap: compact ? "10px 12px" : "14px 18px", marginTop: compact ? 10 : 14 }}>
               {spellings.map(g => {
                 const n = page[g] || 0, tier = tierOf(n), next = STICKER_TIERS[tier];
-                const label = tier ? `${g}: ${TIER_NAMES[tier]} sticker, ${n} ${n === 1 ? "word" : "words"}${next ? `, ${next - n} more for ${TIER_NAMES[tier + 1]}` : ""}` : `${g}: not found yet`;
+                const label = tier ? `${g}: ${TIER_NAMES[tier]} sticker, ${n} ${n === 1 ? "point" : "points"}${next ? `, ${next - n} more for ${TIER_NAMES[tier + 1]}` : ""}` : `${g}: not found yet`;
                 return (
                   <div key={g} role="img" aria-label={label} title={label} style={{ display: "grid", justifyItems: "center", gap: 5, width: size + 8 }}>
                     {tier ? <Sticker g={g} tier={tier} sound={id} size={size} /> : <StickerSpot g={g} size={size} />}
@@ -214,16 +216,17 @@ export function RewardsPopup({ rewards, onDone }) {
     );
   } else if (step.kind === "stickers") {
     label = rewards.stickers.length === 1 ? "New sticker!" : `${rewards.stickers.length} new stickers!`;
-    const size = rewards.stickers.length > 4 ? 76 : 96;
+    // Every sound counts now, so a first sounds round can bring a dozen or more: smaller, quicker slaps when there are many.
+    const many = rewards.stickers.length, size = many > 8 ? 58 : many > 4 ? 76 : 96, gap = Math.min(0.28, 2.4 / many);
     body = (
       <>
-        <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: "18px 20px", maxWidth: 440 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: many > 8 ? "12px 14px" : "18px 20px", maxWidth: many > 8 ? 560 : 440, maxHeight: "55vh", overflowY: "auto" }}>
           {rewards.stickers.map((s, k) => (
             <div key={`${s.sound}-${s.g}`} style={{ display: "grid", justifyItems: "center", gap: 8 }}>
-              <span style={{ display: "inline-block", animation: `ws-slap .55s ${0.15 + 0.28 * k}s cubic-bezier(.3,1.4,.5,1) both` }}>
+              <span style={{ display: "inline-block", animation: `ws-slap .55s ${0.15 + gap * k}s cubic-bezier(.3,1.4,.5,1) both` }}>
                 <Sticker g={s.g} tier={s.tier} sound={s.sound} size={size} />
               </span>
-              <span style={{ fontSize: 14, color: T.mist, animation: `ws-fade .4s ${0.35 + 0.28 * k}s ease both` }}>
+              <span style={{ fontSize: 14, color: T.mist, animation: `ws-fade .4s ${0.35 + gap * k}s ease both` }}>
                 {s.tier > 1 ? <b style={{ color: T.amber }}>{cap(TIER_NAMES[s.tier])}!</b> : soundLab(s.sound)}
               </span>
             </div>
@@ -347,8 +350,8 @@ export function Cabinet({ name, cached, refresh, onLoaded, onClose }) {
           </section>
           <section style={{ display: "grid", gap: 10 }}>
             <h2 className="ws-display" style={{ margin: 0, fontSize: 22 }}>Sticker book</h2>
-            <StickerBook stickers={summary.stickers} />
-            <div style={{ color: T.mist, fontSize: 14 }}>Find a word with a spelling to get its sticker. 5 words makes it silver, 15 makes it gold.</div>
+            <StickerBook stickers={summary.stickers} spotted={summary.spotted} />
+            <div style={{ color: T.mist, fontSize: 14 }}>Find a word with a spelling to get its sticker. A word with today's sound is worth {FOCUS_WORTH} points, any other word with that spelling is worth 1. {STICKER_TIERS[1]} points makes it silver, {STICKER_TIERS[2]} makes it gold.</div>
           </section>
         </>
       )}

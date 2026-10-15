@@ -62,7 +62,7 @@ export const GAMES_SHOWN = 150;
 
 /* ---- rewards: teachers/{uid}/classes/{classId}/students/{studentId} = summary (see shared/rewards.js) + awards ---- */
 const studentsOf = (teacherId, classId) => classesOf(teacherId).doc(classId).collection("students");
-const SUMMARY_FIELDS = ["name", "rounds", "words", "bestScore", "bestWords", "weeks", "stickers", "trophies"];
+const SUMMARY_FIELDS = ["name", "rounds", "words", "bestScore", "bestWords", "weeks", "stickers", "spotted", "trophies"];
 const pickSummary = data => Object.fromEntries(SUMMARY_FIELDS.filter(k => data[k] !== undefined).map(k => [k, data[k]]));
 
 /*
