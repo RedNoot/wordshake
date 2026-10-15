@@ -88,7 +88,7 @@ export async function saveRound(teacherId, classId, gameId, record, endedAt) {
       const { summary, earned: e } = applyRound(doc.exists ? pickSummary(doc.data()) : null, record.players[sid], record, endedAt);
       tx.set(doc.ref, { ...pickSummary(summary), name: record.players[sid].name, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       earned[sid] = e;
-      summaries[sid] = summary;
+      summaries[sid] = { ...pickSummary(summary), awards: (doc.exists && doc.get("awards")) || [] };
     });
     tx.set(gameRef, { ...record, endedAt: Timestamp.fromMillis(endedAt) });
     return { status: "saved", earned, summaries };
