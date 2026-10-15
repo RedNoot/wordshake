@@ -29,7 +29,7 @@ const savedTheme = () => { try { return localStorage.getItem(THEME_KEY) || "clas
 /* ================= main app ================= */
 export default function WordShakeWorkbook() {
   const [phase, setPhase] = useState(signInConfigured ? "loading" : "setup");
-  const [settings, setSettings] = useState({ seconds: 180, size: 4, minLen: 3, sound: true, showCount: true, phSound: null, phTicked: [], phBonus: false, mode: signInConfigured ? "online" : "workbook", classId: null, theme: savedTheme() });
+  const [settings, setSettings] = useState({ seconds: 180, size: 4, minLen: 3, sound: true, showCount: true, phSound: null, phTicked: [], phBonus: false, hints: true, mode: signInConfigured ? "online" : "workbook", classId: null, theme: savedTheme() });
   const [dict, setDict] = useState({ status: "loading", count: 0 });
   const [phStats, setPhStats] = useState({ words: 0, tags: 0 });
   const [busy, setBusy] = useState(false);
@@ -128,8 +128,8 @@ export default function WordShakeWorkbook() {
       const r = res.round, fresh = ["setup", "loading", "home"].includes(phaseRef.current);
       if (r && res.room.phase !== "lobby" && (fresh || liveRef.current !== r.n)) {
         // A refresh mid-round: bring the board and the clock back from the server.
-        const { seconds, size, minLen, phSound, phTicked, phBonus } = r.settings;
-        setSettings(v => ({ ...v, seconds, size, minLen, phSound, phTicked, phBonus }));
+        const { seconds, size, minLen, phSound, phTicked, phBonus, hints = true } = r.settings;
+        setSettings(v => ({ ...v, seconds, size, minLen, phSound, phTicked, phBonus, hints }));
         setGame(r.game);
         setLiveRound(r.n);
         setRoundTeams(r.teams || 0);
@@ -300,9 +300,9 @@ export default function WordShakeWorkbook() {
       // Students play on their devices: the server builds the board and checks their words.
       // First make sure the server knows how the last round ended (answers shown, or abandoned), so it's saved or not.
       await call("host:phase", { phase: roomPhaseFor(phaseRef.current) });
-      const { seconds, size, minLen, phSound, phTicked, phBonus } = settings;
+      const { seconds, size, minLen, phSound, phTicked, phBonus, hints } = settings;
       startingRef.current = true;
-      const res = await call("host:start", { settings: { seconds, size, minLen, phSound, phTicked, phBonus } });
+      const res = await call("host:start", { settings: { seconds, size, minLen, phSound, phTicked, phBonus, hints } });
       if (!res.ok) {
         startingRef.current = false;
         setBusy(false);
@@ -665,6 +665,9 @@ export default function WordShakeWorkbook() {
             <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
               <Toggle on={settings.sound} onClick={() => setSettings(v => ({ ...v, sound: !v.sound }))} label="Sound effects" />
               <Toggle on={settings.showCount} onClick={() => setSettings(v => ({ ...v, showCount: !v.showCount }))} label="Show how many words are hiding" />
+              {settings.mode === "online" && (
+                <Toggle on={settings.hints} onClick={() => setSettings(v => ({ ...v, hints: !v.hints }))} label="Hints: a short word for anyone stuck for 15 seconds" />
+              )}
               <Toggle on={settings.theme === "rednut"} onClick={() => setSettings(v => ({ ...v, theme: v.theme === "rednut" ? "classic" : "rednut" }))} label="RedNut look (students' devices too)" />
             </div>
           </div>

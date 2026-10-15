@@ -452,8 +452,8 @@ test("progress: finished class-list rounds are saved once, after the grace windo
   assert.deepEqual([teacherId, classId], ["teacherA", "class1"]);
   assert.deepEqual(Object.keys(record.players).sort(), ["s1", "s2"], "no guests, no late joiners");
   assert.deepEqual(record.players.s1, { name: "Ava", words: ["cat", "cats"], score: 5, bonusCount: 1, bySpelling: { a: ["cat", "cats"] },
-    spotted: { k: { c: 2 }, t: { t: 2 }, s: { s: 1 } } }, "/a/ is today's sound, so it isn't counted again");
-  assert.deepEqual(record.players.s2, { name: "Ben", words: [], score: 0, bonusCount: 0, bySpelling: {}, spotted: {} }, "a zero still counts");
+    spotted: { k: { c: 2 }, t: { t: 2 }, s: { s: 1 } }, hints: 0 }, "/a/ is today's sound, so it isn't counted again");
+  assert.deepEqual(record.players.s2, { name: "Ben", words: [], score: 0, bonusCount: 0, bySpelling: {}, spotted: {}, hints: 0 }, "a zero still counts");
   assert.deepEqual(record.available, { a: 2 });
   assert.equal(record.settings.phSound, "a");
   assert.equal(record.boardWords, 2);
@@ -569,6 +569,61 @@ test("a round is saved even when the big screen's 'answers' message is lost", as
   assert.equal(saved.length, 5);
   assert.equal(saved[4].record.cutShort, true);
   assert.deepEqual(saved[4].record.players.s1.words, ["cat"]);
+  await call(host, "host:close");
+  pending = [];
+});
+
+test("hints: a shortest unfound word after 15 seconds without finding one", async () => {
+  saved = []; pending = [];
+  const host = await client();
+  const { room } = await call(host, "host:open", { idToken: "tok-a", classId: "class1" });
+  const kid = await client();
+  const joined = await call(kid, "player:join", { code: room.code, studentId: "s1" });
+  const r = await call(host, "host:start", { settings: ROUND });
+  const hint = () => call(kid, "player:hint", { n: r.n });
+  assert.equal((await hint()).result, "late", "not before the round starts");
+  await call(host, "host:clock", { n: r.n, state: "playing", remainingMs: 60000 });
+
+  const early = await hint();
+  assert.equal(early.result, "wait");
+  assert.equal(early.waitMs, 15000);
+  clock += 15000;
+  assert.deepEqual(await hint(), { result: "hint", word: "cat" }, "the shortest word on the board");
+  assert.equal((await hint()).result, "wait", "the next one is 15 seconds away");
+
+  // A refresh keeps the hint on screen until it's found.
+  kid.close();
+  const kid2 = await client();
+  assert.equal((await call(kid2, "player:rejoin", { code: room.code, token: joined.token })).round.hint, "cat");
+  clock += 5000;
+  assert.equal((await call(kid2, "player:word", { n: r.n, word: "cat" })).result, "ok");
+  assert.equal((await call(kid2, "player:rejoin", { code: room.code, token: joined.token })).round.hint, null, "found: gone");
+  clock += 14000;
+  assert.equal((await call(kid2, "player:hint", { n: r.n })).result, "wait", "finding a word restarts the 15 seconds");
+
+  // Paused time doesn't count as being stuck.
+  await call(host, "host:clock", { n: r.n, state: "paused" });
+  clock += 30000;
+  await call(host, "host:clock", { n: r.n, state: "playing", remainingMs: 50000 });
+  assert.equal((await call(kid2, "player:hint", { n: r.n })).result, "wait");
+  clock += 15000;
+  assert.deepEqual(await call(kid2, "player:hint", { n: r.n }), { result: "hint", word: "cats" });
+  await call(kid2, "player:word", { n: r.n, word: "cats" });
+  clock += 15000;
+  assert.equal((await call(kid2, "player:hint", { n: r.n })).result, "none", "nothing left to suggest");
+
+  // The teacher's report shows how many hints each student used.
+  await call(host, "host:phase", { phase: "reveal" });
+  runTimers();
+  await settle();
+  assert.equal(saved.at(-1).record.players.s1.hints, 2);
+
+  // Hints switched off for a round.
+  const off = await call(host, "host:start", { settings: { ...ROUND, hints: false } });
+  await call(host, "host:clock", { n: off.n, state: "playing", remainingMs: 60000 });
+  clock += 20000;
+  assert.equal((await call(kid2, "player:hint", { n: off.n })).result, "off");
+  assert.equal((await call(kid2, "player:rejoin", { code: room.code, token: joined.token })).round.hints, false);
   await call(host, "host:close");
   pending = [];
 });

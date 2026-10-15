@@ -6,6 +6,8 @@ import { PlayBoard } from "./components/PlayBoard.jsx";
 import { RoundRewards, RoundSplash } from "./Trophies.jsx";
 import { TeamBadge, TeamResults, winnerLine } from "./Teams.jsx";
 
+const HINT_AFTER_MS = 15000;   // matches the server (server/lib/round.js), which has the final say
+
 // Which round's splash this device has already shown, so a refresh doesn't play it again.
 const SEEN_KEY = "wordshake-rewards-seen";
 const readSeen = () => { try { return sessionStorage.getItem(SEEN_KEY) || ""; } catch { return ""; } };
@@ -54,6 +56,28 @@ export function Play({ round, name, onRound }) {
   useEffect(() => { setFeedback(null); setFlash(null); setTyped(""); }, [round.n]);
 
   const playing = round.state === "playing" && left > 0 && round.eligible;
+
+  // Hints: after 15 seconds of play without finding a word, ask the server for one of the shortest words on the board.
+  // The server checks the time itself and picks the word, so the answers never come to the device.
+  const [hint, setHint] = useState(round.hint || null);
+  const idleFrom = useRef(Date.now());
+  const hintStop = useRef(false), asking = useRef(false);
+  useEffect(() => { setHint(round.hint || null); hintStop.current = false; }, [round.n, round.hint]);
+  useEffect(() => { idleFrom.current = Date.now(); }, [round.n, round.state]);
+  useEffect(() => {
+    if (!playing || round.hints === false) return;
+    const id = setInterval(async () => {
+      if (hintStop.current || asking.current || Date.now() - idleFrom.current < HINT_AFTER_MS) return;
+      asking.current = true;
+      const res = await call("player:hint", { n: round.n });
+      asking.current = false;
+      if (res.result === "hint") { idleFrom.current = Date.now(); setHint(res.word); }
+      else if (res.result === "wait") idleFrom.current = Date.now() - HINT_AFTER_MS + (res.waitMs || 1000);
+      else if (res.result === "offline" || res.error) idleFrom.current = Date.now() - HINT_AFTER_MS + 5000;
+      else hintStop.current = true;   // hints off, nothing left to suggest, or the round is over
+    }, 1000);
+    return () => clearInterval(id);
+  }, [playing, round.n, round.hints]);
   const timeUp = round.state === "over" || (round.state === "playing" && left <= 0);
   // The splash appears once the round is saved (class-list students only; guests have no collection).
   const r = round.rewards;
@@ -75,6 +99,8 @@ export function Play({ round, name, onRound }) {
       timers.current.b = setTimeout(() => setFlash(null), 550);
     }
     if (r.result === "ok") {
+      idleFrom.current = Date.now();
+      if (r.word === hint) setHint(null);
       try { navigator.vibrate && navigator.vibrate(20); } catch { /* not supported */ }
       onRound(cur => cur && cur.n === round.n && !cur.words.some(w => w.word === r.word)
         ? { ...cur, words: [...cur.words, { word: r.word, pts: r.pts, bonus: r.bonus }], total: r.total } : cur);
@@ -180,6 +206,15 @@ export function Play({ round, name, onRound }) {
       {sound && (
         <div className="ws-display" style={{ width: dim, boxSizing: "border-box", background: T.amber, color: T.ink, borderRadius: 12, padding: "6px 14px", fontSize: 18, fontWeight: 700, textAlign: "center" }}>
           Today's sound {sound.lab} <span style={{ fontWeight: 500, opacity: 0.8 }}>· {round.phTicked.join(" · ")}{round.phBonus ? " · ⭐ +2" : ""}</span>
+        </div>
+      )}
+
+      {hint && playing && (
+        <div key={hint} role="status" aria-live="polite" style={{ width: dim, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, flexWrap: "wrap",
+          background: "rgb(var(--ws-green-rgb) / .14)", border: "2px dashed rgb(var(--ws-green-rgb) / .6)", borderRadius: 14, padding: "8px 14px", animation: "ws-pop .45s ease both" }}>
+          <span aria-hidden="true" style={{ fontSize: 26, animation: "ws-bob 1.6s ease-in-out infinite" }}>💡</span>
+          <span style={{ fontSize: 17, color: T.mist }}>Stuck? Look for</span>
+          <span className="ws-display" style={{ fontSize: 26, fontWeight: 800, letterSpacing: 3, color: T.green }}>{UP(hint)}</span>
         </div>
       )}
 
