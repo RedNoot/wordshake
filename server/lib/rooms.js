@@ -118,12 +118,13 @@ export function attachRooms(io, {
     round.save = "done";
     if (out.status === "no-class") return;   // the class was deleted mid-lesson
     tellHost(room, "round:saved", { n: round.n, ok: true });
-    if (out.status === "saved") giveRewards(room, round, out.earned || {});
+    if (out.status === "saved") giveRewards(room, round, out.earned || {}, out.summaries || {});
   }
   const tellHost = (room, event, data) => { if (rooms.get(room.code) === room) io.to(`host:${room.code}`).emit(event, data); };
 
-  // Each student's device hears only its own rewards; the big screen only ever gets totals, never who earned what.
-  function giveRewards(room, round, bySid) {
+  // Each student's device hears only its own rewards, with its own updated collection for the end-of-round splash;
+  // the big screen only ever gets totals, never who earned what.
+  function giveRewards(room, round, bySid, summaries) {
     const tally = { trophies: 0, stickers: 0, bests: 0 };
     for (const e of Object.values(bySid)) {
       tally.trophies += e.trophies.length;
@@ -133,9 +134,10 @@ export function attachRooms(io, {
     round.rewards = new Map();
     for (const [playerId, who] of round.who || []) {
       if (!who.studentId || !bySid[who.studentId] || !round.eligible.has(playerId)) continue;
-      round.rewards.set(playerId, bySid[who.studentId]);
+      const mine = { ...bySid[who.studentId], summary: summaries[who.studentId] || null };
+      round.rewards.set(playerId, mine);
       const p = rooms.get(room.code) === room && room.players.get(playerId), s = p && p.socketId && io.sockets.sockets.get(p.socketId);
-      if (s) s.emit("round:rewards", { n: round.n, ...bySid[who.studentId] });
+      if (s) s.emit("round:rewards", { n: round.n, ...mine });
     }
     tellHost(room, "round:rewards-summary", { n: round.n, ...tally });
   }

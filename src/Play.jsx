@@ -3,10 +3,10 @@ import { T } from "./theme.js";
 import { call } from "./net.js";
 import { SOUND_BY_ID } from "./sounds.js";
 import { PlayBoard } from "./components/PlayBoard.jsx";
-import { RoundRewards, RewardsPopup, hasRewards } from "./Trophies.jsx";
+import { RoundRewards, RoundSplash } from "./Trophies.jsx";
 import { TeamBadge, TeamResults, winnerLine } from "./Teams.jsx";
 
-// Which round's pop-up this device has already shown, so a refresh doesn't play it again.
+// Which round's splash this device has already shown, so a refresh doesn't play it again.
 const SEEN_KEY = "wordshake-rewards-seen";
 const readSeen = () => { try { return sessionStorage.getItem(SEEN_KEY) || ""; } catch { return ""; } };
 
@@ -55,9 +55,12 @@ export function Play({ round, name, onRound }) {
 
   const playing = round.state === "playing" && left > 0 && round.eligible;
   const timeUp = round.state === "over" || (round.state === "playing" && left <= 0);
-  const rewardSig = hasRewards(round.rewards) ? `${round.n}|${JSON.stringify(round.rewards)}` : "";
+  // The splash appears once the round is saved (class-list students only; guests have no collection).
+  const r = round.rewards;
+  const rewardSig = r ? `${round.n}|${JSON.stringify([r.best, r.trophies, r.stickers])}` : "";
   const [seen, setSeen] = useState(readSeen);
-  const closePopup = () => { setSeen(rewardSig); try { sessionStorage.setItem(SEEN_KEY, rewardSig); } catch { /* private mode */ } };
+  const [replay, setReplay] = useState(false);
+  const closePopup = () => { setReplay(false); setSeen(rewardSig); try { sessionStorage.setItem(SEEN_KEY, rewardSig); } catch { /* private mode */ } };
 
   const send = async (word, path) => {
     const res = await call("player:word", { n: round.n, word });
@@ -142,8 +145,16 @@ export function Play({ round, name, onRound }) {
           </section>
         )}
         <RoundRewards rewards={round.rewards} />
+        {r && r.summary && (
+          <button type="button" className="ws-btn ws-display" onClick={() => setReplay(true)}
+            style={{ fontSize: 19, fontWeight: 700, background: "none", color: T.amber, border: `2px solid ${T.amber}`, borderRadius: 14, padding: "10px 22px", cursor: "pointer" }}>
+            🏆 See my progress
+          </button>
+        )}
         {wordList}
-        {rewardSig && seen !== rewardSig && <RewardsPopup rewards={round.rewards} onDone={closePopup} />}
+        {rewardSig && (seen !== rewardSig || replay) && (
+          <RoundSplash rewards={r} name={name} words={round.words.length} points={round.total} onDone={closePopup} />
+        )}
       </div>
     );
   }

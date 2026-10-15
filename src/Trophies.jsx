@@ -181,13 +181,145 @@ function Confetti() {
   );
 }
 
-// Pops up over "Time's up!" on the student's own device: each new trophy gets its own moment,
-// then all the new stickers get slapped down together. Tap anywhere (or press the button) to carry on.
-export function RewardsPopup({ rewards, onDone }) {
-  const steps = [];
-  if (rewards.best.length) steps.push({ kind: "best" });
+// Counts up from 0 to a number, for the round's score (straight to the number when motion is reduced).
+function useCountUp(target, ms = 900, delay = 250) {
+  const [v, setV] = useState(0);
+  useEffect(() => {
+    let reduce = false;
+    try { reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { /* old browser */ }
+    if (reduce || !target) { setV(target); return; }
+    let raf, t0 = null;
+    const tick = t => {
+      if (t0 === null) t0 = t + delay;
+      const k = Math.min(1, Math.max(0, (t - t0) / ms));
+      setV(Math.round(target * (1 - Math.pow(1 - k, 3))));
+      if (k < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, ms, delay]);
+  return v;
+}
+
+// A sunburst behind the big emoji on a splash step.
+const Burst = ({ size = 200, children }) => (
+  <div style={{ position: "relative", display: "grid", placeItems: "center", width: size, height: size }}>
+    <span aria-hidden="true" style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "repeating-conic-gradient(rgb(var(--ws-amber-rgb) / .38) 0 12deg, transparent 12deg 30deg)", WebkitMaskImage: "radial-gradient(circle, #000 30%, transparent 70%)", maskImage: "radial-gradient(circle, #000 30%, transparent 70%)", animation: "ws-spin 9s linear infinite" }} />
+    {children}
+  </div>
+);
+
+// Step 1: how the round went, with the numbers counting up.
+function RoundStep({ name, words, points, best }) {
+  const w = useCountUp(words), pts = useCountUp(points, 1100, 450);
+  const stat = (n, label, delay) => (
+    <div style={{ display: "grid", justifyItems: "center", minWidth: 120, background: "rgb(var(--ws-fg) / .07)", borderRadius: 18, padding: "12px 18px", animation: `ws-pop .5s ${delay}s ease both` }}>
+      <span className="ws-display" style={{ fontSize: 54, fontWeight: 800, lineHeight: 1, color: T.amber, fontVariantNumeric: "tabular-nums" }}>{n}</span>
+      <span style={{ fontSize: 16, color: T.mist, marginTop: 4 }}>{label}</span>
+    </div>
+  );
+  return (
+    <>
+      <span aria-hidden="true" style={{ fontSize: 84, lineHeight: 1, animation: "ws-slap .7s .05s ease both" }}>{best.length ? "⭐" : words ? "🎉" : "💪"}</span>
+      <div className="ws-display" style={{ fontSize: 32, fontWeight: 800 }}>{words ? `Great round, ${name}!` : `Good try, ${name}!`}</div>
+      <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap" }}>
+        {stat(w, words === 1 ? "word" : "words", 0.15)}
+        {stat(pts, points === 1 ? "point" : "points", 0.3)}
+      </div>
+      {best.map((b, k) => (
+        <div key={b} className="ws-display" style={{ fontSize: 22, fontWeight: 700, color: T.amber, background: "rgb(var(--ws-amber-rgb) / .14)", border: "1px solid rgb(var(--ws-amber-rgb) / .5)", borderRadius: 999, padding: "6px 18px", animation: `ws-pop .5s ${1.3 + 0.2 * k}s ease both` }}>
+          ⭐ {b === "score" ? "Your best score ever!" : "The most words you've ever found!"}
+        </div>
+      ))}
+      {!words && <div style={{ fontSize: 18, color: T.mist }}>Every round is practice. Have another go!</div>}
+    </>
+  );
+}
+
+// The last step: the student's whole collection, with this round's new things glowing.
+function CollectionStep({ summary, rewards }) {
+  const won = summary.trophies || {}, fresh = new Set(rewards.trophies);
+  const wonCount = TROPHIES.filter(t => won[t.id]).length;
+  const pages = stickerPages(summary.stickers, summary.spotted);
+  const all = Object.entries(pages).flatMap(([sound, page]) => Object.entries(page).map(([g, pts]) => ({ sound, g, pts, tier: tierOf(pts) })));
+  const tierCount = k => all.filter(x => x.tier === k).length;
+  const newSticker = new Set(rewards.stickers.map(x => `${x.sound}|${x.g}`));
+  // The stickers closest to their next level: something to aim for next round.
+  const close = all.filter(x => x.tier < 3).map(x => ({ ...x, next: STICKER_TIERS[x.tier], frac: x.pts / STICKER_TIERS[x.tier] }))
+    .sort((a, b) => b.frac - a.frac).slice(0, 3);
+  const awards = summary.awards || [];
+  const pill = (text, delay) => (
+    <span style={{ background: "rgb(var(--ws-fg) / .08)", borderRadius: 999, padding: "4px 12px", fontSize: 15, animation: `ws-pop .4s ${delay}s ease both` }}>{text}</span>
+  );
+  return (
+    <>
+      <div style={{ width: "100%", display: "grid", gap: 8 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+          <span className="ws-display" style={{ fontSize: 20, fontWeight: 700 }}>🏆 Trophies</span>
+          <span style={{ color: T.mist, fontSize: 15 }}>{wonCount} of {TROPHIES.length}</span>
+        </div>
+        <div style={{ height: 10, borderRadius: 999, background: "rgb(var(--ws-fg) / .12)", overflow: "hidden" }}>
+          <div style={{ width: `${(wonCount / TROPHIES.length) * 100}%`, height: "100%", background: T.amber, transformOrigin: "left", animation: "ws-grow .9s .2s cubic-bezier(.2,.7,.3,1) both" }} />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6, marginTop: 4 }}>
+          {TROPHIES.map((t, k) => {
+            const has = !!won[t.id], isNew = fresh.has(t.id);
+            return (
+              <div key={t.id} title={has ? t.name : `${t.name} (not won yet)`} style={{ position: "relative", display: "grid", placeItems: "center", aspectRatio: "1", borderRadius: 12,
+                background: isNew ? "rgb(var(--ws-amber-rgb) / .22)" : "rgb(var(--ws-fg) / .05)", boxShadow: isNew ? "0 0 0 2px var(--ws-amber), 0 0 18px rgb(var(--ws-amber-rgb) / .6)" : "none",
+                animation: `ws-pop .35s ${0.25 + 0.05 * k}s ease both${isNew ? ", ws-pulse 1.4s 1.2s ease-in-out infinite" : ""}` }}>
+                <span aria-hidden="true" style={{ fontSize: 30, lineHeight: 1, filter: has ? "none" : "grayscale(1) brightness(.55)", opacity: has ? 1 : 0.55 }}>{t.emoji}</span>
+                {isNew && <span className="ws-display" style={{ position: "absolute", top: -7, right: -5, background: T.red, color: "#fff", fontSize: 10, fontWeight: 800, borderRadius: 999, padding: "2px 6px", letterSpacing: ".05em" }}>NEW</span>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={{ width: "100%", display: "grid", gap: 8, marginTop: 6 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+          <span className="ws-display" style={{ fontSize: 20, fontWeight: 700 }}>📒 Stickers</span>
+          <span style={{ color: T.mist, fontSize: 15 }}>{all.length} collected</span>
+        </div>
+        {all.length ? (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+            {pill(`${tierCount(1)} sticker${tierCount(1) === 1 ? "" : "s"}`, 0.9)}
+            {pill(`🥈 ${tierCount(2)} silver`, 1.0)}
+            {pill(`🥇 ${tierCount(3)} gold`, 1.1)}
+          </div>
+        ) : <div style={{ color: T.mist, fontSize: 15 }}>Find words in a sounds game to start your sticker book!</div>}
+        {close.length > 0 && <div style={{ fontSize: 15, color: T.mist, marginTop: 4 }}>Nearly there…</div>}
+        {close.map((x, k) => (
+          <div key={x.sound + x.g} style={{ display: "flex", alignItems: "center", gap: 12, textAlign: "left", animation: `ws-fade .4s ${1.2 + 0.15 * k}s ease both` }}>
+            <Sticker g={x.g} tier={x.tier} sound={x.sound} size={42} />
+            <div style={{ flex: 1, display: "grid", gap: 4 }}>
+              <div style={{ fontSize: 15 }}>
+                <b>{x.g}</b> <span style={{ color: T.mist }}>for {soundLab(x.sound)}</span>
+                {newSticker.has(`${x.sound}|${x.g}`) && <b style={{ color: T.amber }}> · new!</b>}
+                <span style={{ float: "right", color: T.mist }}>{x.pts}/{x.next} to {TIER_NAMES[x.tier + 1]}</span>
+              </div>
+              <div style={{ height: 8, borderRadius: 999, background: "rgb(var(--ws-fg) / .12)", overflow: "hidden" }}>
+                <div style={{ width: `${Math.min(100, x.frac * 100)}%`, height: "100%", background: x.tier === 2 ? "#E8B923" : "#B8C2CC", transformOrigin: "left", animation: `ws-grow .8s ${1.35 + 0.15 * k}s cubic-bezier(.2,.7,.3,1) both` }} />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {awards.length > 0 && <div style={{ fontSize: 15, color: T.mist }}>🏅 {awards.length} award{awards.length === 1 ? "" : "s"} from your teacher</div>}
+    </>
+  );
+}
+
+/*
+ * The end-of-round splash, on the student's own device only. Every round: how it went (score counting up and any
+ * personal bests), then each new trophy gets its own moment, then the new stickers are slapped down together,
+ * and it always ends on the student's whole collection with what's new glowing. Tap anywhere to carry on.
+ */
+export function RoundSplash({ rewards, name, words, points, onDone }) {
+  const steps = [{ kind: "round" }];
   rewards.trophies.map(id => TROPHY_BY_ID[id]).filter(Boolean).forEach(t => steps.push({ kind: "trophy", t }));
   if (rewards.stickers.length) steps.push({ kind: "stickers" });
+  if (rewards.summary) steps.push({ kind: "collection" });
   const [i, setI] = useState(0);
   const btn = useRef(null);
   const last = i >= steps.length - 1;
@@ -201,22 +333,25 @@ export function RewardsPopup({ rewards, onDone }) {
   const step = steps[i];
   if (!step) return null;
 
-  let label, body;
-  if (step.kind === "trophy") {
+  let label, body, party = true;
+  if (step.kind === "round") {
+    label = "Round complete!";
+    party = words > 0 || rewards.best.length > 0;
+    body = <RoundStep name={name} words={words} points={points} best={rewards.best} />;
+  } else if (step.kind === "trophy") {
     label = "New trophy!";
     body = (
       <>
-        <div style={{ position: "relative", display: "grid", placeItems: "center", width: 200, height: 200 }}>
-          <span aria-hidden="true" style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "repeating-conic-gradient(rgb(var(--ws-amber-rgb) / .38) 0 12deg, transparent 12deg 30deg)", WebkitMaskImage: "radial-gradient(circle, #000 30%, transparent 70%)", maskImage: "radial-gradient(circle, #000 30%, transparent 70%)", animation: "ws-spin 9s linear infinite" }} />
+        <Burst>
           <span aria-hidden="true" style={{ position: "relative", fontSize: 112, lineHeight: 1, filter: "drop-shadow(0 8px 8px rgba(0,0,0,.35))", animation: "ws-slap .7s .1s ease both" }}>{step.t.emoji}</span>
-        </div>
+        </Burst>
         <div className="ws-display" style={{ fontSize: 34, fontWeight: 800 }}>{step.t.name}</div>
         <div style={{ fontSize: 19, color: T.mist }}>{step.t.desc}</div>
       </>
     );
   } else if (step.kind === "stickers") {
     label = rewards.stickers.length === 1 ? "New sticker!" : `${rewards.stickers.length} new stickers!`;
-    // Every sound counts now, so a first sounds round can bring a dozen or more: smaller, quicker slaps when there are many.
+    // Every sound counts, so a first sounds round can bring a dozen or more: smaller, quicker slaps when there are many.
     const many = rewards.stickers.length, size = many > 8 ? 58 : many > 4 ? 76 : 96, gap = Math.min(0.28, 2.4 / many);
     body = (
       <>
@@ -236,19 +371,15 @@ export function RewardsPopup({ rewards, onDone }) {
       </>
     );
   } else {
-    label = rewards.best.length > 1 ? "Two personal bests!" : "Personal best!";
-    body = (
-      <>
-        <span aria-hidden="true" style={{ fontSize: 104, lineHeight: 1, animation: "ws-slap .7s .1s ease both" }}>⭐</span>
-        {rewards.best.map(b => <div key={b} className="ws-display" style={{ fontSize: 26, fontWeight: 700 }}>{b === "score" ? "Your best score ever!" : "The most words you've ever found!"}</div>)}
-      </>
-    );
+    label = "Your collection";
+    party = false;
+    body = <CollectionStep summary={rewards.summary} rewards={rewards} />;
   }
 
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="ws-reward-title" onClick={next}
-      style={{ position: "fixed", inset: 0, zIndex: 50, display: "grid", placeItems: "center", padding: 16, background: "rgb(var(--ws-ink-rgb) / .9)", backdropFilter: "blur(3px)", cursor: "pointer" }}>
-      <Confetti key={"c" + i} />
+      style={{ position: "fixed", inset: 0, zIndex: 50, display: "grid", placeItems: "center", padding: 16, overflowY: "auto", background: "rgb(var(--ws-ink-rgb) / .92)", backdropFilter: "blur(3px)", cursor: "pointer" }}>
+      {party && <Confetti key={"c" + i} />}
       <div key={"s" + i} className="ws-fade" style={{ position: "relative", display: "grid", justifyItems: "center", gap: 14, textAlign: "center", width: "min(100%, 480px)" }}>
         <div id="ws-reward-title" aria-live="polite" className="ws-display" style={{ fontSize: 22, fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", color: T.amber }}>{label}</div>
         {body}
@@ -258,7 +389,7 @@ export function RewardsPopup({ rewards, onDone }) {
         </button>
         {steps.length > 1 && (
           <div aria-hidden="true" style={{ display: "flex", gap: 7 }}>
-            {steps.map((_, k) => <span key={k} style={{ width: 9, height: 9, borderRadius: "50%", background: k === i ? T.amber : "rgb(var(--ws-fg) / .25)" }} />)}
+            {steps.map((_, k) => <span key={k} style={{ width: 9, height: 9, borderRadius: "50%", background: k === i ? T.amber : "rgb(var(--ws-fg) / .25)", transition: "background .2s" }} />)}
           </div>
         )}
       </div>

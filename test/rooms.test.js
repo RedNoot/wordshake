@@ -419,6 +419,8 @@ test("progress: finished class-list rounds are saved once, after the grace windo
   assert.deepEqual(mine.stickers, [{ sound: "a", g: "a", tier: 1 }, { sound: "k", g: "c", tier: 1 }, { sound: "t", g: "t", tier: 1 }, { sound: "s", g: "s", tier: 1 }],
     "today's sound, and every other Sounds-Write spelling in cat and cats");
   assert.deepEqual(mine.best, [], "no personal best in a first round");
+  assert.equal(mine.summary.rounds, 1, "the device gets its own updated collection for the end-of-round splash");
+  assert.ok(mine.summary.trophies["first-word"]);
   assert.deepEqual(totals, { n: r.n, trophies: 4, stickers: 4, bests: 0 }, "big screen: totals only (Ava 3, Ben 1)");
   assert.equal(guestGotRewards, false, "guests get no rewards");
   assert.equal(saved[0].updates.s1.rounds, 1);
@@ -430,6 +432,7 @@ test("progress: finished class-list rounds are saved once, after the grace windo
   const back = await call(ava2, "player:rejoin", { code: room.code, token: avaJoin.token });
   assert.deepEqual(back.round.rewards.trophies.sort(), mine.trophies);
   assert.deepEqual(back.round.rewards.stickers, mine.stickers);
+  assert.equal(back.round.rewards.summary.rounds, 1, "and again after a refresh");
   // Trophy cabinet: the student's own summary plus teacher awards; guests have none.
   const cab = await call(ava2, "player:trophies");
   assert.equal(cab.summary.rounds, 1);
