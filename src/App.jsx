@@ -10,6 +10,7 @@ import { signInConfigured, initAuth, signIn, signOut, authFetch, getIdToken } fr
 import { getSocket, call } from "./net.js";
 import { ClassLists } from "./ClassLists.jsx";
 import { Lobby } from "./Lobby.jsx";
+import { TeamResults, winnerLine } from "./Teams.jsx";
 import { Progress } from "./Progress.jsx";
 
 const pts = L => (L <= 4 ? 1 : L === 5 ? 2 : L === 6 ? 3 : L === 7 ? 5 : 11);
@@ -52,6 +53,8 @@ export default function WordShakeWorkbook() {
   const liveRef = useRef(null);
   liveRef.current = liveRound;
   const [rewardsTally, setRewardsTally] = useState(null);  // this round's class totals for the big screen (never who earned what)
+  const [roundTeams, setRoundTeams] = useState(0);         // how many teams played this round (0: no teams)
+  const [teamResult, setTeamResult] = useState(null);      // the team scores, once the server has added them up
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
   const pausedRef = useRef(false);
@@ -128,6 +131,8 @@ export default function WordShakeWorkbook() {
         setSettings(v => ({ ...v, seconds, size, minLen, phSound, phTicked, phBonus }));
         setGame(r.game);
         setLiveRound(r.n);
+        setRoundTeams(r.teams || 0);
+        setTeamResult(r.teamResult || null);
         setRemaining(r.remainingMs / 1000);
         if (r.state === "over" || res.room.phase === "reveal") { setStep(0); setPhase("reveal"); }
         else {
@@ -165,11 +170,13 @@ export default function WordShakeWorkbook() {
     };
     const onReconnect = () => { if (roomRef.current) resumeRoom(); };
     const onTally = t => { if (t.n === liveRef.current) setRewardsTally(t); };
+    const onTeams = r => { if (r.n === liveRef.current) setTeamResult(r); };
+    s.on("round:teams", onTeams);
     s.on("room:update", onUpdate);
     s.on("round:rewards-summary", onTally);
     s.on("host:replaced", onReplaced);
     s.io.on("reconnect", onReconnect);
-    return () => { s.off("room:update", onUpdate); s.off("host:replaced", onReplaced); s.off("round:rewards-summary", onTally); s.io.off("reconnect", onReconnect); };
+    return () => { s.off("room:update", onUpdate); s.off("host:replaced", onReplaced); s.off("round:rewards-summary", onTally); s.off("round:teams", onTeams); s.io.off("reconnect", onReconnect); };
   }, [account]); // eslint-disable-line
 
   // The look follows the teacher's setting here, and on every device in the room.
@@ -182,9 +189,13 @@ export default function WordShakeWorkbook() {
   }, [settings.theme, room]);
 
   // Tell joined devices whether a round is on.
+  // While a round is starting, the server has already moved the room to "playing" but this screen is still on the lobby:
+  // sending "lobby" then would abandon the new round (so it would never be saved, rewarded or team-scored).
   const sentPhaseRef = useRef(null);
+  const startingRef = useRef(false);
   useEffect(() => {
     if (!room) { sentPhaseRef.current = null; return; }
+    if (startingRef.current) return;
     const p = roomPhaseFor(phase);
     if (p !== room.phase || sentPhaseRef.current !== p) {
       sentPhaseRef.current = p;
@@ -220,6 +231,8 @@ export default function WordShakeWorkbook() {
   };
 
   const kick = playerId => call("host:kick", { playerId });
+  const setTeams = count => call("host:teams", { count });
+  const moveTeam = (playerId, team) => call("host:team-move", { playerId, team });
   const toSettings = () => setPhase(room ? "lobby" : "setup");
 
   const pickSound = id => setSettings(v => ({
@@ -261,14 +274,18 @@ export default function WordShakeWorkbook() {
     if (room) {
       // Students play on their devices: the server builds the board and checks their words.
       const { seconds, size, minLen, phSound, phTicked, phBonus } = settings;
+      startingRef.current = true;
       const res = await call("host:start", { settings: { seconds, size, minLen, phSound, phTicked, phBonus } });
       if (!res.ok) {
+        startingRef.current = false;
         setBusy(false);
         setPhase("lobby");
         return setRoomNote(res.error === "offline" ? "We can't reach the game server. Check the wifi, then try again." : "The round didn't start. Please try again.");
       }
       g = res.game;
       setRewardsTally(null);
+      setRoundTeams(res.teams || 0);
+      setTeamResult(null);
       setLiveRound(res.n);
       setRoomNote("");
     } else {
@@ -282,6 +299,7 @@ export default function WordShakeWorkbook() {
       });
       g = await res.json();
       setLiveRound(null);
+      setRoundTeams(0);
     }
     setGame(g);
     setBusy(false);
@@ -289,6 +307,7 @@ export default function WordShakeWorkbook() {
     setRemaining(settings.seconds);
     setCount(3);
     setPhase("countdown");
+    startingRef.current = false;
   };
 
   /* ---- countdown ---- */
@@ -341,8 +360,9 @@ export default function WordShakeWorkbook() {
     if (S.phonics) arr.push({ t: "phonics" });
     for (const L of S.lens) arr.push({ t: "group", L });
     arr.push({ t: "longest" }, { t: "score" });
+    if (roundTeams) arr.push({ t: "teams" });
     return arr;
-  }, [game]);
+  }, [game, roundTeams]);
   const next = useCallback(() => setStep(s => Math.min(s + 1, steps.length - 1)), [steps.length]);
   const back = useCallback(() => setStep(s => Math.max(s - 1, 0)), []);
 
@@ -355,6 +375,15 @@ export default function WordShakeWorkbook() {
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
   }, [phase, next, back]);
+
+  // Reaching "Which team won?" on the big screen lets the devices show it too.
+  const teamsRevealedRef = useRef(null);
+  useEffect(() => {
+    if (phase === "reveal" && liveRound && steps[step] && steps[step].t === "teams" && teamsRevealedRef.current !== liveRound) {
+      teamsRevealedRef.current = liveRound;
+      call("host:teams-reveal", { n: liveRound });
+    }
+  }, [phase, step, steps, liveRound]);
 
   const mmss = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
   const S = game && game.solution;
@@ -436,7 +465,7 @@ export default function WordShakeWorkbook() {
 
       {/* ---------- LOBBY ---------- */}
       {phase === "lobby" && room && (
-        <Lobby room={room} busy={busy} onStart={start} onSettings={() => setPhase("setup")} onClose={closeRoom} onKick={kick} startLabel="Start the round →" note={roomNote} />
+        <Lobby room={room} busy={busy} onStart={start} onSettings={() => setPhase("setup")} onClose={closeRoom} onKick={kick} onTeams={setTeams} onMoveTeam={moveTeam} startLabel="Start the round →" note={roomNote} />
       )}
 
       {/* today's-sound banner on every game screen */}
@@ -816,11 +845,29 @@ export default function WordShakeWorkbook() {
                     </div>
                   )}
                 </div>
-                <div style={{ display: "flex", gap: 14, justifyContent: "center", marginTop: 30 }}>
-                  <button className="ws-btn ws-display" onClick={start} style={{ fontSize: 22, fontWeight: 700, background: T.amber, color: T.ink, border: "none", borderRadius: 14, padding: "14px 30px", cursor: "pointer", boxShadow: "0 5px 0 var(--ws-amber-edge)" }}>Play again ↻</button>
-                  {room && <button className="ws-btn ws-display" onClick={() => setPhase("lobby")} style={{ fontSize: 22, fontWeight: 600, background: "none", color: T.mist, border: `2px solid ${T.faint}`, borderRadius: 14, padding: "14px 30px", cursor: "pointer" }}>Back to the lobby</button>}
-                  <button className="ws-btn ws-display" onClick={() => setPhase("setup")} style={{ fontSize: 22, fontWeight: 600, background: "none", color: T.mist, border: `2px solid ${T.faint}`, borderRadius: 14, padding: "14px 30px", cursor: "pointer" }}>Change settings</button>
-                </div>
+              </div>
+            )}
+
+            {steps[step].t === "teams" && (
+              <div style={{ textAlign: "center", width: "min(980px,94vw)", display: "grid", gap: 22, justifyItems: "center" }}>
+                <div className="ws-display" style={{ fontSize: 30, color: T.mist }}>Which team won?</div>
+                {!teamResult && <div style={{ color: T.mist, fontSize: 22 }}>Adding up the team scores…</div>}
+                {teamResult && (
+                  <>
+                    <TeamResults result={teamResult} big />
+                    {/* the winner lands once the bars have grown */}
+                    <div role="status" className="ws-display" style={{ fontSize: "min(9vw,76px)", fontWeight: 700, color: T.amber, lineHeight: 1.1, animation: `ws-slap .8s ${0.15 * teamResult.teams.length + 1.1}s ease both` }}>{winnerLine(teamResult)}</div>
+                    <p style={{ color: T.mist, fontSize: 17, margin: 0 }}>A team's score is all its players' points added up. Everyone's trophies and stickers still count for them.</p>
+                  </>
+                )}
+              </div>
+            )}
+
+            {step === steps.length - 1 && (
+              <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap", marginTop: 10 }}>
+                <button className="ws-btn ws-display" onClick={start} style={{ fontSize: 22, fontWeight: 700, background: T.amber, color: T.ink, border: "none", borderRadius: 14, padding: "14px 30px", cursor: "pointer", boxShadow: "0 5px 0 var(--ws-amber-edge)" }}>Play again ↻</button>
+                {room && <button className="ws-btn ws-display" onClick={() => setPhase("lobby")} style={{ fontSize: 22, fontWeight: 600, background: "none", color: T.mist, border: `2px solid ${T.faint}`, borderRadius: 14, padding: "14px 30px", cursor: "pointer" }}>Back to the lobby</button>}
+                <button className="ws-btn ws-display" onClick={() => setPhase("setup")} style={{ fontSize: 22, fontWeight: 600, background: "none", color: T.mist, border: `2px solid ${T.faint}`, borderRadius: 14, padding: "14px 30px", cursor: "pointer" }}>Change settings</button>
               </div>
             )}
           </div>

@@ -4,6 +4,7 @@ import { call } from "./net.js";
 import { SOUND_BY_ID } from "./sounds.js";
 import { PlayBoard } from "./components/PlayBoard.jsx";
 import { RoundRewards, RewardsPopup, hasRewards } from "./Trophies.jsx";
+import { TeamBadge, TeamResults, winnerLine } from "./Teams.jsx";
 
 // Which round's pop-up this device has already shown, so a refresh doesn't play it again.
 const SEEN_KEY = "wordshake-rewards-seen";
@@ -119,6 +120,7 @@ export function Play({ round, name, onRound }) {
     return (
       <div className="ws-fade" style={{ display: "grid", gap: 14, justifyItems: "center", textAlign: "center", marginTop: 40 }}>
         <div className="ws-display" style={{ fontSize: 52, fontWeight: 700, color: T.amber, animation: "ws-pulse 1s ease infinite" }}>Get ready, {name}!</div>
+        {round.team != null && <div style={{ fontSize: 22, color: T.mist }}>Playing for <TeamBadge team={round.team} size={22} /></div>}
         <div style={{ fontSize: 24, color: T.mist }}>Look at the big screen.</div>
       </div>
     );
@@ -130,6 +132,15 @@ export function Play({ round, name, onRound }) {
         <div className="ws-display" style={{ fontSize: 46, fontWeight: 700, color: T.red }}>⏰ Time's up!</div>
         <div style={{ fontSize: 22, color: T.mist }}>Look at the big screen.</div>
         <div className="ws-display" style={{ fontSize: 28, fontWeight: 700 }}>{name}: {round.words.length} {round.words.length === 1 ? "word" : "words"}, {round.total} {round.total === 1 ? "point" : "points"}</div>
+        {round.team != null && !round.teamResult && (
+          <div style={{ fontSize: 19, color: T.mist }}>Your points go to <TeamBadge team={round.team} size={19} />. The big screen will show which team won.</div>
+        )}
+        {round.teamResult && (
+          <section aria-label="Team scores" style={{ display: "grid", gap: 14, justifyItems: "center", width: "min(92vw, 540px)", background: "rgb(var(--ws-fg) / .05)", borderRadius: 18, padding: "16px 16px 18px", boxSizing: "border-box", animation: "ws-pop .5s ease both" }}>
+            <div role="status" className="ws-display" style={{ fontSize: 30, fontWeight: 700, color: T.amber }}>{winnerLine(round.teamResult)}</div>
+            <TeamResults result={round.teamResult} mine={round.team} />
+          </section>
+        )}
         <RoundRewards rewards={round.rewards} />
         {wordList}
         {rewardSig && seen !== rewardSig && <RewardsPopup rewards={round.rewards} onDone={closePopup} />}
@@ -148,7 +159,7 @@ export function Play({ round, name, onRound }) {
       </div>
 
       <div style={{ width: dim, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-        <span className="ws-display" style={{ fontSize: 22, fontWeight: 700 }}>{name}</span>
+        <span className="ws-display" style={{ fontSize: 22, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>{name}{round.team != null && <TeamBadge team={round.team} size={14} />}</span>
         <span className="ws-display" aria-live="polite" style={{ fontSize: 22, fontWeight: 700 }}>
           <span style={{ color: T.amber }}>{round.total}</span> {round.total === 1 ? "pt" : "pts"}
           <span style={{ color: T.mist, fontWeight: 500 }}> · {round.words.length} {round.words.length === 1 ? "word" : "words"}</span>

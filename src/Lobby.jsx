@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { T } from "./theme.js";
+import { TEAMS, MIN_TEAMS, MAX_TEAMS } from "../shared/teams.js";
 
 const btn = { background: "none", border: `1px solid ${T.faint}`, color: T.mist, borderRadius: 10, padding: "9px 16px", cursor: "pointer", fontSize: 15 };
 
-export function Lobby({ room, onStart, onSettings, onClose, onKick, busy, startLabel, note }) {
+export function Lobby({ room, onStart, onSettings, onClose, onKick, onTeams, onMoveTeam, busy, startLabel, note }) {
   const joinHost = window.location.host;
   const joinUrl = `${window.location.origin}/join/${room.code}`;
   const [qr, setQr] = useState("");
@@ -19,6 +20,23 @@ export function Lobby({ room, onStart, onSettings, onClose, onKick, busy, startL
   const guests = room.players.filter(p => p.guest).length;
 
   const kick = p => { if (window.confirm(`Remove ${p.name} from the game? They can join again.`)) onKick(p.id); };
+  const teams = room.teams || 0;
+
+  const chip = (p, team = null) => (
+    <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 4, animation: "ws-pop .45s ease both", opacity: p.connected ? 1 : 0.45, background: p.guest ? "rgb(var(--ws-fg) / .06)" : "rgb(var(--ws-amber-rgb) / .12)", border: `1px solid ${p.guest ? T.faint : "rgb(var(--ws-amber-rgb) / .4)"}`, borderRadius: 999, padding: team == null ? "6px 6px 6px 16px" : "2px 4px 2px 4px" }}>
+      {team == null
+        ? <span className="ws-display" style={{ fontSize: 22, fontWeight: 600 }}>{p.name}</span>
+        : (
+          // In teams mode, tapping a name moves that student along to the next team.
+          <button className="ws-btn ws-display" onClick={() => onMoveTeam(p.id, (team + 1) % teams)} title={`Move to ${TEAMS[(team + 1) % teams].name}`}
+            aria-label={`${p.name}, in ${TEAMS[team].name}. Move to ${TEAMS[(team + 1) % teams].name}`}
+            style={{ background: "none", border: "none", color: "var(--ws-text)", cursor: "pointer", fontSize: 20, fontWeight: 600, padding: "4px 4px 4px 12px" }}>{p.name}</button>
+        )}
+      {p.guest && <span style={{ fontSize: 12, color: T.mist }}>guest</span>}
+      {!p.connected && <span style={{ fontSize: 12, color: T.mist }}>reconnecting</span>}
+      <button className="ws-btn" onClick={() => kick(p)} aria-label={`Remove ${p.name}`} title="Remove from game" style={{ background: "none", border: "none", color: "rgb(var(--ws-fg) / .35)", cursor: "pointer", fontSize: 15, padding: "2px 8px" }}>✕</button>
+    </div>
+  );
 
   return (
     <main className="ws-fade" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 22, padding: "14px 24px 30px" }}>
@@ -41,17 +59,34 @@ export function Lobby({ room, onStart, onSettings, onClose, onKick, busy, startL
               {room.roster && guests > 0 && ` · ${guests} guest${guests > 1 ? "s" : ""}`}
             </span>
           </div>
-          {room.players.length === 0 && <div style={{ color: T.mist, fontSize: 20, padding: "30px 0" }}>Waiting for players…</div>}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-            {room.players.map(p => (
-              <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 4, animation: "ws-pop .45s ease both", opacity: p.connected ? 1 : 0.45, background: p.guest ? "rgb(var(--ws-fg) / .06)" : "rgb(var(--ws-amber-rgb) / .12)", border: `1px solid ${p.guest ? T.faint : "rgb(var(--ws-amber-rgb) / .4)"}`, borderRadius: 999, padding: "6px 6px 6px 16px" }}>
-                <span className="ws-display" style={{ fontSize: 22, fontWeight: 600 }}>{p.name}</span>
-                {p.guest && <span style={{ fontSize: 12, color: T.mist }}>guest</span>}
-                {!p.connected && <span style={{ fontSize: 12, color: T.mist }}>reconnecting</span>}
-                <button className="ws-btn" onClick={() => kick(p)} aria-label={`Remove ${p.name}`} title="Remove from game" style={{ background: "none", border: "none", color: "rgb(var(--ws-fg) / .35)", cursor: "pointer", fontSize: 15, padding: "2px 8px" }}>✕</button>
-              </div>
+          {/* teams mode */}
+          <div role="group" aria-label="Teams" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+            <span style={{ color: T.mist, fontSize: 16, marginRight: 4 }}>Teams:</span>
+            {[0, ...Array.from({ length: MAX_TEAMS - MIN_TEAMS + 1 }, (_, i) => i + MIN_TEAMS)].map(n => (
+              <button key={n} className="ws-btn" onClick={() => n !== teams && onTeams(n)} aria-pressed={n === teams}
+                style={{ ...btn, fontSize: 15, padding: "6px 13px", background: n === teams ? T.amber : "none", color: n === teams ? T.ink : T.mist, border: `1px solid ${n === teams ? T.amber : T.faint}`, fontWeight: n === teams ? 700 : 400 }}>
+                {n === 0 ? "No teams" : n}
+              </button>
             ))}
+            {teams > 0 && <button className="ws-btn" onClick={() => onTeams(teams)} style={{ ...btn, fontSize: 15, padding: "6px 13px" }}>🔀 Shuffle</button>}
           </div>
+          {room.players.length === 0 && <div style={{ color: T.mist, fontSize: 20, padding: "30px 0" }}>Waiting for players…</div>}
+          {teams === 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>{room.players.map(p => chip(p))}</div>}
+          {teams > 0 && room.players.length > 0 && (
+            <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fit, minmax(${teams > 3 ? 190 : 230}px, 1fr))`, gap: 12 }}>
+              {Array.from({ length: teams }, (_, t) => {
+                const members = room.players.filter(p => p.team === t);
+                return (
+                  <section key={t} aria-label={`${TEAMS[t].name}, ${members.length} players`} style={{ borderRadius: 16, border: `2px solid ${TEAMS[t].colour}`, background: "rgb(var(--ws-fg) / .03)", overflow: "hidden" }}>
+                    <div className="ws-display" style={{ background: TEAMS[t].colour, color: "#fff", fontSize: 21, fontWeight: 700, padding: "6px 14px", display: "flex", justifyContent: "space-between", textShadow: "0 1px 0 rgba(0,0,0,.25)" }}>
+                      <span>{TEAMS[t].emoji} {TEAMS[t].name}</span><span>{members.length}</span>
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, padding: 10 }}>{members.map(p => chip(p, t))}</div>
+                  </section>
+                );
+              })}
+            </div>
+          )}
           {room.roster && missing.length > 0 && (
             <div style={{ marginTop: 16 }}>
               <button className="ws-btn" onClick={() => setShowMissing(v => !v)} style={{ ...btn, fontSize: 14, padding: "6px 12px" }}>
@@ -60,7 +95,7 @@ export function Lobby({ room, onStart, onSettings, onClose, onKick, busy, startL
               {showMissing && <div style={{ color: T.mist, marginTop: 8, fontSize: 16, lineHeight: 1.6 }}>{missing.map(s => s.name).join(" · ")}</div>}
             </div>
           )}
-          {room.players.length > 0 && <p style={{ color: "rgb(var(--ws-fg) / .45)", fontSize: 13.5, marginTop: 16 }}>Wrong name? Press ✕ to remove it, and the student can join again.</p>}
+          {room.players.length > 0 && <p style={{ color: "rgb(var(--ws-fg) / .45)", fontSize: 13.5, marginTop: 16 }}>Wrong name? Press ✕ to remove it, and the student can join again.{teams > 0 && " Tap a name to move that student to the next team. Anyone who joins later goes into the smallest team."}</p>}
         </section>
       </div>
 
@@ -74,7 +109,7 @@ export function Lobby({ room, onStart, onSettings, onClose, onKick, busy, startL
         <button className="ws-btn" onClick={onClose} style={btn}>Close room</button>
       </div>
       <p style={{ color: "rgb(var(--ws-fg) / .45)", fontSize: 13.5, margin: 0, textAlign: "center", maxWidth: 640 }}>
-        Students swipe words on their own device and see only their own words and score. Anyone who joins after the start plays from the next round.
+        Students swipe words on their own device and see only their own words and score{teams > 0 ? ". A team's score is all its players' points added up, revealed at the end" : ""}. Anyone who joins after the start plays from the next round.
       </p>
     </main>
   );

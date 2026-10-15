@@ -58,7 +58,27 @@ export function playerView(round, playerId, t) {
     words: [...(round.found.get(playerId) || new Map())].map(([word, s]) => ({ word, ...s })),
     total: playerTotal(round, playerId),
     rewards: (round.rewards && round.rewards.get(playerId)) || null,
+    // Teams mode: this device's team for the round, and the result once the big screen has shown it.
+    team: round.teams && round.teams.of.has(playerId) ? round.teams.of.get(playerId) : null,
+    teamResult: (round.teamsShown && round.teamResult) || null,
   };
+}
+
+/*
+ * Teams mode: each team's score is its members' points added up (players in the room when the round started).
+ * winners is every team on the top score (more than one is a draw); none if nobody scored.
+ */
+export function teamResults(round) {
+  const teams = Array.from({ length: round.teams.count }, (_, team) => ({ team, score: 0, words: 0, players: 0 }));
+  for (const [playerId, t] of round.teams.of) {
+    const row = teams[t];
+    if (!row || !round.eligible.has(playerId)) continue;
+    row.players++;
+    row.score += playerTotal(round, playerId);
+    row.words += (round.found.get(playerId) || new Map()).size;
+  }
+  const top = Math.max(0, ...teams.filter(r => r.players).map(r => r.score));
+  return { n: round.n, teams, winners: top > 0 ? teams.filter(r => r.players && r.score === top).map(r => r.team) : [] };
 }
 
 /*

@@ -1,9 +1,10 @@
 import { randomBytes, randomInt } from "crypto";
 import { cleanGuestName, uniqueName } from "./names.js";
 import { pickRoundSettings } from "./settings.js";
-import { newRound, setClock, remainingMs, playerView, checkWord, roundRecord, GRACE_MS } from "./round.js";
+import { newRound, setClock, remainingMs, playerView, checkWord, roundRecord, teamResults, GRACE_MS } from "./round.js";
 import { applyRound, emptySummary } from "../../shared/rewards.js";
 import { pickTheme } from "./settings.js";
+import { MIN_TEAMS, MAX_TEAMS } from "../../shared/teams.js";
 
 // No vowels, so a code can't spell a word; no 0/O or 1/I to confuse.
 const CODE_CHARS = "BCDFGHJKLMNPQRSTVWXZ23456789";
@@ -23,7 +24,7 @@ const obj = d => (d && typeof d === "object" ? d : {});
  * Live rooms, held in server memory only (a restart closes every room).
  * room = { code, teacherId, hostSocket, classId, className, roster: [{ id, name }] | null,
  *          players: Map<playerId, { id, name, studentId, token, socketId }>, phase, createdAt, hostSeenAt,
- *          round: see round.js | null, roundNo }
+ *          round: see round.js | null, roundNo, teams: null | { count, of: Map<playerId, team number> } }
  * Socket.IO rooms: host:CODE (the big screen), players:CODE (joined devices), lookup:CODE (devices on the name grid).
  */
 export function attachRooms(io, {
@@ -36,10 +37,11 @@ export function attachRooms(io, {
   const lookupFails = new Map();
 
   const players = room => [...room.players.values()];
+  const teamOf = (room, playerId) => (room.teams && room.teams.of.has(playerId) ? room.teams.of.get(playerId) : null);
   const hostView = room => ({
-    code: room.code, className: room.className, phase: room.phase, theme: room.theme,
+    code: room.code, className: room.className, phase: room.phase, theme: room.theme, teams: room.teams ? room.teams.count : 0,
     roster: room.roster && room.roster.map(s => ({ id: s.id, name: s.name })),
-    players: players(room).map(p => ({ id: p.id, name: p.name, studentId: p.studentId, guest: !p.studentId, connected: !!p.socketId })),
+    players: players(room).map(p => ({ id: p.id, name: p.name, studentId: p.studentId, guest: !p.studentId, connected: !!p.socketId, team: teamOf(room, p.id) })),
   });
   const lookupView = room => ({
     code: room.code, className: room.className, phase: room.phase, theme: room.theme,
@@ -109,6 +111,42 @@ export function attachRooms(io, {
       .finally(() => { room.loadingSummaries = null; });
   }
 
+  /*
+   * Teams mode. Teams are shared out evenly at random; anyone joining later goes into the smallest team.
+   * Each device is told its own team whenever it changes.
+   */
+  function shareOutTeams(room, count) {
+    const ids = players(room).map(p => p.id);
+    for (let i = ids.length - 1; i > 0; i--) { const j = randomInt(i + 1); [ids[i], ids[j]] = [ids[j], ids[i]]; }
+    // Start from a random team, so with uneven numbers it isn't always the same team that gets the extra player.
+    const first = randomInt(count);
+    room.teams = { count, of: new Map(ids.map((id, i) => [id, (first + i) % count])) };
+  }
+  function addToTeam(room, playerId) {
+    if (!room.teams || room.teams.of.has(playerId)) return;
+    const sizes = Array(room.teams.count).fill(0);
+    for (const t of room.teams.of.values()) sizes[t]++;
+    room.teams.of.set(playerId, sizes.indexOf(Math.min(...sizes)));
+  }
+  function sendTeams(room) {
+    for (const p of players(room)) {
+      const s = p.socketId && io.sockets.sockets.get(p.socketId);
+      if (s) s.emit("player:team", teamOf(room, p.id));
+    }
+  }
+  // The team scores are added up once late words have had their grace window; devices see them when the big screen does.
+  function finishTeams(room) {
+    const round = room.round;
+    if (!round || !round.teams || round.teamResult || round.teamsPending) return;
+    round.teamsPending = true;
+    later(() => {
+      round.teamResult = teamResults(round);
+      if (room.round !== round) return;
+      io.to(`host:${room.code}`).emit("round:teams", round.teamResult);
+      if (round.teamsShown) io.to(`players:${room.code}`).emit("round:teams", round.teamResult);
+    }, GRACE_MS + 100);
+  }
+
   function closeRoom(room, reason = "closed") {
     if (room.round && room.round.save === "pending") flushRound(room, room.round);
     io.to(`players:${room.code}`).to(`lookup:${room.code}`).emit("room:closed", reason);
@@ -146,13 +184,15 @@ export function attachRooms(io, {
     socket.leave(`lookup:${room.code}`);
     socket.join(`players:${room.code}`);
     notify(room);
-    return { ok: true, token: p.token, name: p.name, guest: !p.studentId || !room.classId, phase: room.phase, theme: room.theme, className: room.className, round: roundFor(room, p.id) };
+    addToTeam(room, p.id);
+    return { ok: true, token: p.token, name: p.name, guest: !p.studentId || !room.classId, phase: room.phase, theme: room.theme, className: room.className, team: teamOf(room, p.id), round: roundFor(room, p.id) };
   }
 
   // The round a device should see: none in the lobby, otherwise its own view of the current round.
   const roundFor = (room, playerId) => (room.round && room.phase !== "lobby" ? playerView(room.round, playerId, now()) : null);
   const hostRound = room => room.round && {
     n: room.round.n, settings: room.round.settings, game: room.round.game, state: room.round.state, remainingMs: remainingMs(room.round, now()),
+    teams: room.round.teams ? room.round.teams.count : 0, teamResult: room.round.teamResult || null,
   };
   // Each device gets its own copy (its own words, and whether it joined in time to play).
   function sendRound(room) {
@@ -220,7 +260,7 @@ export function attachRooms(io, {
         code, teacherId: teacher.id, hostSocket: null, classId: cls ? classId : null, className: cls ? cls.name : null,
         roster: cls ? cls.students.map(s => ({ id: s.id, name: s.name })) : null,
         players: new Map(), phase: "lobby", createdAt: now(), hostSeenAt: now(), round: null, roundNo: 0,
-        theme: pickTheme(theme),
+        theme: pickTheme(theme), teams: null,
       };
       rooms.set(code, room);
       byTeacher.set(teacher.id, code);
@@ -250,10 +290,12 @@ export function attachRooms(io, {
       room.round = newRound(++room.roundNo, picked, game, [...room.players.keys()]);
       // Who played, captured now so the saved record doesn't depend on who is still in the room later.
       room.round.who = new Map(players(room).map(p => [p.id, { studentId: p.studentId, name: p.name }]));
+      // The teams as they stand now; moving someone mid-round only counts from the next round.
+      if (room.teams) room.round.teams = { count: room.teams.count, of: new Map(room.teams.of) };
       room.phase = "playing";
       sendRound(room);
       notify(room);
-      ack({ ok: true, n: room.round.n, game });
+      ack({ ok: true, n: room.round.n, game, teams: room.round.teams ? room.round.teams.count : 0 });
     });
 
     // The big screen runs the clock; the server mirrors it so it knows when to stop accepting words.
@@ -275,7 +317,7 @@ export function attachRooms(io, {
         setClock(room.round, "over", 0, now());
         if (phase !== "reveal") room.round.aborted = true;
       }
-      if (phase === "reveal") finishRound(room);
+      if (phase === "reveal") { finishRound(room); if (!room.round || !room.round.aborted) finishTeams(room); }
       const changed = room.phase !== phase;
       room.phase = phase;
       io.to(`players:${room.code}`).emit("room:phase", phase);
@@ -294,12 +336,49 @@ export function attachRooms(io, {
       ack({ ok: true });
     });
 
+    // Teams mode on (2–6 teams, shared out afresh: also the Shuffle button) or off (0).
+    on("host:teams", async ({ count }, ack) => {
+      const room = hostRoom(socket);
+      if (!room) return ack({ error: "no-room" });
+      if (count === 0) room.teams = null;
+      else if (Number.isInteger(count) && count >= MIN_TEAMS && count <= MAX_TEAMS) shareOutTeams(room, count);
+      else return ack({ error: "invalid teams" });
+      sendTeams(room);
+      notify(room);
+      ack({ ok: true });
+    });
+
+    on("host:team-move", async ({ playerId, team }, ack) => {
+      const room = hostRoom(socket);
+      if (!room || !room.teams) return ack({ error: "no-teams" });
+      if (!room.players.has(playerId)) return ack({ error: "no-player" });
+      if (!Number.isInteger(team) || team < 0 || team >= room.teams.count) return ack({ error: "invalid team" });
+      room.teams.of.set(playerId, team);
+      const p = room.players.get(playerId), s = p.socketId && io.sockets.sockets.get(p.socketId);
+      if (s) s.emit("player:team", team);
+      notify(room);
+      ack({ ok: true });
+    });
+
+    // The big screen has reached "Which team won?": now the devices can see it too.
+    on("host:teams-reveal", async ({ n }, ack) => {
+      const room = hostRoom(socket);
+      const round = room && room.round;
+      if (!round || round.n !== n || !round.teams) return ack({ error: "no-round" });
+      if (!round.teamsShown) {
+        round.teamsShown = true;
+        if (round.teamResult) io.to(`players:${room.code}`).emit("round:teams", round.teamResult);
+      }
+      ack({ ok: true });
+    });
+
     on("host:kick", async ({ playerId }, ack) => {
       const room = hostRoom(socket);
       if (!room) return ack({ error: "no-room" });
       const p = room.players.get(playerId);
       if (!p) return ack({ error: "no-player" });
       room.players.delete(p.id);
+      if (room.teams) room.teams.of.delete(p.id);
       if (room.round) { room.round.found.delete(p.id); room.round.eligible.delete(p.id); room.round.who && room.round.who.delete(p.id); }
       const s = p.socketId && io.sockets.sockets.get(p.socketId);
       if (s) { s.emit("room:kicked"); s.leave(`players:${room.code}`); s.data.player = null; }
@@ -382,6 +461,7 @@ export function attachRooms(io, {
       const ref = socket.data.player;
       const room = ref && rooms.get(ref.code);
       const removed = room && room.players.delete(ref.id);
+      if (removed && room.teams) room.teams.of.delete(ref.id);
       detachPlayer(socket);
       if (removed) notify(room);
       ack({ ok: true });

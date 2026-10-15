@@ -3,6 +3,7 @@ import { T, CSS, applyTheme } from "./theme.js";
 import { getSocket, call } from "./net.js";
 import { Play } from "./Play.jsx";
 import { Cabinet } from "./Trophies.jsx";
+import { TeamBadge } from "./Teams.jsx";
 
 const CODE_LEN = 4;
 const ERRORS = {
@@ -42,6 +43,7 @@ export function Join({ initialCode }) {
   const cabinetCache = useRef(null);                // the last trophies loaded, shown at once next time
   const [cabinetFresh, setCabinetFresh] = useState(0); // bumped when the student's rewards change, so an open cabinet reloads
   const [phase, setPhase] = useState("lobby");
+  const [team, setTeam] = useState(null);           // teams mode: this device's team in the lobby (null: no teams)
   const [round, setRound] = useState(null);         // this device's view of the current round (letters only, never the answers)
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -53,6 +55,7 @@ export function Join({ initialCode }) {
   const joined = (c, res) => {
     store.set(tokenKey(c), res.token);
     setMe({ name: res.name, guest: !!res.guest });
+    setTeam(res.team == null ? null : res.team);
     applyTheme(res.theme);
     setCabinet(false);
     cabinetCache.current = null;
@@ -95,6 +98,9 @@ export function Join({ initialCode }) {
     const onRoundState = r => { setRound(r ? { ...r, clockAt: Date.now() } : null); if (r) setCabinet(false); };
     // Arrives just after the answers start, once the round is saved.
     const onRewards = ({ n, ...rewards }) => { cabinetCache.current = null; setRound(cur => cur && cur.n === n ? { ...cur, rewards } : cur); };
+    // Teams mode: the teacher put this device in a team (or turned teams off), and later, which team won.
+    const onTeam = t => setTeam(t == null ? null : t);
+    const onTeams = result => setRound(cur => cur && cur.n === result.n ? { ...cur, teamResult: result } : cur);
     const onRewardsChanged = () => { cabinetCache.current = null; setCabinetFresh(k => k + 1); };
     const onClock = c => setRound(cur => cur && cur.n === c.n ? { ...cur, state: c.state, remainingMs: c.remainingMs, clockAt: Date.now() } : cur);
     const end = reason => () => {
@@ -115,6 +121,8 @@ export function Join({ initialCode }) {
     s.on("round:state", onRoundState);
     s.on("round:clock", onClock);
     s.on("round:rewards", onRewards);
+    s.on("player:team", onTeam);
+    s.on("round:teams", onTeams);
     s.on("player:rewards-changed", onRewardsChanged);
     s.on("room:closed", onClosed);
     s.on("room:kicked", onKicked);
@@ -123,7 +131,7 @@ export function Join({ initialCode }) {
     if (initialCode) enter(cleanCode(initialCode));
     return () => {
       s.off("room:roster", onRoster); s.off("room:theme", onTheme); s.off("room:phase", onPhase); s.off("room:closed", onClosed);
-      s.off("round:state", onRoundState); s.off("round:clock", onClock); s.off("round:rewards", onRewards); s.off("player:rewards-changed", onRewardsChanged);
+      s.off("round:state", onRoundState); s.off("round:clock", onClock); s.off("round:rewards", onRewards); s.off("player:rewards-changed", onRewardsChanged); s.off("player:team", onTeam); s.off("round:teams", onTeams);
       s.off("room:kicked", onKicked); s.off("room:replaced", onReplaced); s.io.off("reconnect", onReconnect);
     };
   }, []); // eslint-disable-line
@@ -219,6 +227,12 @@ export function Join({ initialCode }) {
               {phase === "lobby" && "Wait for your teacher to start the game."}
               {phase !== "lobby" && "Look at the big screen."}
             </div>
+            {team != null && (
+              <div aria-live="polite" style={{ fontSize: 22, color: T.mist, display: "grid", gap: 10, justifyItems: "center" }}>
+                Your team
+                <span key={team} style={{ animation: "ws-pop .45s ease both" }}><TeamBadge team={team} size={30} /></span>
+              </div>
+            )}
             {phase === "lobby" && !me.guest && (
               <button onClick={() => setCabinet(true)} className="ws-btn ws-display" style={{ ...big, fontSize: 21, padding: "12px 24px", marginTop: 10, background: "rgb(var(--ws-amber-rgb) / .14)", color: "var(--ws-text)", border: `2px solid ${T.amber}` }}>My trophies 🏆</button>
             )}

@@ -280,6 +280,86 @@ test("device play: letters only, word checks, scoring, clock and late joiners", 
   assert.equal((await call(late, "player:word", { n: second.n, word: "tac" })).result, "notlist", "Sounds-Write round: real word, not on today's list");
 });
 
+test("teams: shared out evenly, late joiners balance, scores added up, devices see the winner with the big screen", async () => {
+  pending = [];
+  const host = await client();
+  const { room } = await call(host, "host:open", { idToken: "tok-b" });
+  const kids = [];
+  for (const name of ["Ann", "Bob", "Cat", "Dan", "Eve"]) {
+    const s = await client();
+    const j = await call(s, "player:join", { code: room.code, guestName: name });
+    assert.equal(j.team, null, "no teams yet");
+    kids.push({ s, id: null, name, token: j.token });
+  }
+  assert.deepEqual(await call(host, "host:teams", { count: 7 }), { error: "invalid teams" });
+  assert.deepEqual(await call(host, "host:teams", { count: 1 }), { error: "invalid teams" });
+
+  const told = next(kids[0].s, "player:team");
+  const update = next(host, "room:update");
+  assert.equal((await call(host, "host:teams", { count: 2 })).ok, true);
+  const view = await update;
+  assert.equal(view.teams, 2);
+  const sizes = [0, 0];
+  for (const p of view.players) sizes[p.team]++;
+  assert.deepEqual(sizes.sort(), [2, 3], "even split");
+  for (const k of kids) k.id = view.players.find(p => p.name === k.name).id;
+  assert.equal(await told, view.players.find(p => p.id === kids[0].id).team, "each device is told its team");
+
+  // A late joiner goes into the smaller team.
+  const small = view.players.filter(p => p.team === 0).length === 2 ? 0 : 1;
+  const fin = await client();
+  const fj = await call(fin, "player:join", { code: room.code, guestName: "Fin" });
+  assert.equal(fj.team, small);
+
+  // Moving: only to a real team.
+  assert.deepEqual(await call(host, "host:team-move", { playerId: kids[0].id, team: 5 }), { error: "invalid team" });
+  const moved = next(kids[0].s, "player:team");
+  await call(host, "host:team-move", { playerId: kids[0].id, team: 0 });
+  assert.equal(await moved, 0);
+  await call(host, "host:team-move", { playerId: kids[1].id, team: 1 });
+
+  const r = await call(host, "host:start", { settings: ROUND });
+  assert.equal(r.teams, 2);
+  await call(host, "host:clock", { n: r.n, state: "playing", remainingMs: 60000 });
+  await call(kids[0].s, "player:word", { n: r.n, word: "cat" });    // team 0: 1
+  await call(kids[1].s, "player:word", { n: r.n, word: "cat" });    // team 1: 1 + 1
+  await call(kids[1].s, "player:word", { n: r.n, word: "cats" });
+  // Moving someone mid-round counts from the next round.
+  await call(host, "host:team-move", { playerId: kids[1].id, team: 0 });
+
+  await call(host, "host:phase", { phase: "reveal" });
+  assert.equal(pending.length, 1, "team scores wait out the grace window");
+  let early = false;
+  kids[2].s.once("round:teams", () => { early = true; });
+  const hostResult = next(host, "round:teams");
+  pending.shift()();
+  const result = await hostResult;
+  assert.equal(result.n, r.n);
+  assert.deepEqual(result.teams.map(t => t.score), [1, 2]);
+  assert.deepEqual(result.winners, [1]);
+  assert.equal(result.teams.reduce((a, t) => a + t.players, 0), 6);
+  await new Promise(res => setTimeout(res, 30));
+  assert.equal(early, false, "devices wait for the big screen");
+
+  const shown = next(kids[2].s, "round:teams");
+  assert.deepEqual(await call(host, "host:teams-reveal", { n: r.n + 1 }), { error: "no-round" });
+  await call(host, "host:teams-reveal", { n: r.n });
+  assert.deepEqual((await shown).winners, [1]);
+  const again = await call(kids[2].s, "player:rejoin", { code: room.code, token: kids[2].token });
+  assert.deepEqual(again.round.teamResult.winners, [1], "a device that reconnects gets the result back");
+  assert.equal(again.round.team, view.players.find(p => p.id === kids[2].id).team);
+  const resumed = await call(host, "host:resume", { idToken: "tok-b" });
+  assert.deepEqual(resumed.round.teamResult.winners, [1], "a refreshed big screen gets the result back");
+
+  // Teams off.
+  await call(host, "host:teams", { count: 0 });
+  const r2 = next(kids[0].s, "round:state");
+  const second = await call(host, "host:start", { settings: ROUND });
+  assert.equal(second.teams, 0);
+  assert.equal((await r2).team, null);
+  await call(host, "host:close");
+});
+
 // Runs last: it locks this machine's address out of joining.
 test("progress: finished class-list rounds are saved once, after the grace window", async () => {
   saved = []; pending = [];
