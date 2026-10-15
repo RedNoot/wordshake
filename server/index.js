@@ -9,7 +9,7 @@ import { loadDictionary } from "./lib/dictionary.js";
 import { PH_STATS, SW_WORDS, resolveSound } from "./lib/phonics.js";
 import { AUTH, AuthError, verifyTeacher } from "./lib/auth.js";
 import { storeReady, loadTeacher, saveSettings, listClasses, getClass, countClasses, createClass, updateClass, deleteClass, saveRound, listGames, deleteGame, GAMES_SHOWN,
-  loadSummaries, getStudent, listSummaries, addAward, removeAward } from "./lib/store.js";
+  getStudent, listSummaries, addAward, removeAward } from "./lib/store.js";
 import { AWARD_PRESETS, CUSTOM_AWARD_EMOJI, AWARD_LABEL_MAX, AWARDS_MAX } from "../shared/rewards.js";
 import { randomBytes } from "crypto";
 import { pickSettings } from "./lib/settings.js";
@@ -166,6 +166,10 @@ app.delete("/api/classes/:id/students/:sid/awards/:awardId", teacherRoute(async 
   res.json({ ok: true });
 }));
 
+// The big screen calls this every few minutes while a room is open: Render's free plan puts the server to sleep
+// after 15 minutes without a web request, and a lesson's live connection alone may not count.
+app.get("/api/ping", (req, res) => res.json({ ok: true }));
+
 app.get("/check", (req, res) => res.sendFile(path.join(__dirname, "check.html")));
 
 if (process.env.NODE_ENV === "production") {
@@ -187,18 +191,31 @@ const roomsApi = attachRooms(io, {
   getClass,
   makeGame,
   isRealWord,
-  // Progress tracking must never get in the way of a lesson: no database, no save; a failed save is only logged.
-  saveRound: async (teacherId, classId, record, summaries) => {
-    if (!storeReady) return;
-    try { await saveRound(teacherId, classId, record, summaries); } catch (err) { console.error("Saving a round failed:", err.message); }
-  },
-  // Without a database there are no rewards (rooms skip them when this fails), but the game carries on.
-  loadSummaries: async (teacherId, classId) => {
-    if (!storeReady) throw new Error("accounts-not-configured");
-    return loadSummaries(teacherId, classId);
+  // Progress tracking never gets in the way of a lesson: a failed save is retried by the room in the background.
+  saveRound: async (teacherId, classId, gameId, record, endedAt) => {
+    if (!storeReady) return { status: "no-class" };
+    return saveRound(teacherId, classId, gameId, record, endedAt);
   },
   getStudent: async (teacherId, classId, studentId) => (storeReady ? getStudent(teacherId, classId, studentId) : null),
 });
 
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => console.log(`WordShake server listening on port ${PORT}`));
+
+// Render stops the server with SIGTERM (a deploy, or the free plan going to sleep) and allows 30 seconds:
+// save every finished or in-progress round before going, so a restart can't make a lesson's rounds disappear.
+let stopping = false;
+for (const sig of ["SIGTERM", "SIGINT"]) {
+  process.on(sig, async () => {
+    if (stopping) return;
+    stopping = true;
+    console.log(`${sig}: saving open rounds before stopping`);
+    const giveUp = setTimeout(() => { console.error("Stopping before every round was saved"); process.exit(1); }, 25000);
+    try {
+      const left = await roomsApi.shutdown();
+      if (left) console.error(`${left} round(s) could not be saved before stopping`);
+    } catch (err) { console.error("Saving rounds on shutdown failed:", err); }
+    clearTimeout(giveUp);
+    process.exit(0);
+  });
+}
