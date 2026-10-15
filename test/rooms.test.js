@@ -5,6 +5,7 @@ import { Server } from "socket.io";
 import { io as connect } from "socket.io-client";
 import { attachRooms } from "../server/lib/rooms.js";
 import { AuthError } from "../server/lib/auth.js";
+import { applyRound } from "../shared/rewards.js";
 
 const CLASS = { id: "class1", name: "3/4B", students: [{ id: "s1", name: "Ava" }, { id: "s2", name: "Ben" }, { id: "s3", name: "Chloe" }] };
 // C A T S on the top row, X everywhere else: "cat" and "cats" are the only answers.
@@ -16,8 +17,17 @@ const ROUND = { seconds: 60, size: 4, minLen: 3, phSound: null, phTicked: [], ph
 const TEACHERS = { "tok-a": { id: "teacherA", name: "A" }, "tok-b": { id: "teacherB", name: "B" } };
 
 let server, url, roomsApi, clock = 1_000_000;
-let saved = [], pending = [];   // rounds saved for progress tracking, and saves waiting out the grace window
+let saved = [], pending = [];   // rounds saved for progress tracking, and timers ({ fn, ms }) the rooms have set
 const summaries = new Map();     // class1 students' saved reward summaries
+const savedIds = new Set();
+let failSaves = 0;               // the next N saves throw, as a database outage would
+// Runs the timers that are due (grace windows, the server's round clock, save retries) up to `ms` from now.
+const runTimers = (ms = Infinity) => {
+  const due = pending.filter(t => t.ms <= ms);
+  pending = pending.filter(t => t.ms > ms);
+  due.forEach(t => t.fn());
+};
+const settle = () => new Promise(res => setTimeout(res, 20));
 const sockets = [];
 
 before(async () => {
@@ -28,14 +38,24 @@ before(async () => {
     getClass: async (tid, cid) => (tid === "teacherA" && cid === "class1" ? CLASS : null),
     makeGame: async ({ size }) => GAME(size),
     isRealWord: async w => ["tac", "cat", "cats"].includes(w),
-    saveRound: async (teacherId, classId, record, updates) => {
-      saved.push({ teacherId, classId, record, updates });
-      for (const [sid, sum] of Object.entries(updates || {})) summaries.set(sid, sum);
+    // Behaves like the real transaction: rewards worked out from what's stored, and a round id is only ever counted once.
+    saveRound: async (teacherId, classId, gameId, record, endedAt) => {
+      if (failSaves > 0) { failSaves--; throw new Error("database unavailable"); }
+      if (savedIds.has(gameId)) return { status: "already-saved" };
+      savedIds.add(gameId);
+      const earned = {}, updates = {};
+      for (const [sid, p] of Object.entries(record.players)) {
+        const { summary, earned: e } = applyRound(summaries.get(sid), p, record, endedAt);
+        summaries.set(sid, summary);
+        updates[sid] = { ...summary, name: p.name };
+        earned[sid] = e;
+      }
+      saved.push({ teacherId, classId, gameId, record, updates, endedAt });
+      return { status: "saved", earned, summaries: updates };
     },
-    loadSummaries: async (tid, cid) => new Map(tid === "teacherA" && cid === "class1" ? summaries : []),
     getStudent: async (tid, cid, sid) => ({ ...(summaries.get(sid) || {}), awards: [{ id: "x", emoji: "💪", label: "Great effort" }] }),
     now: () => clock,
-    later: fn => pending.push(fn),
+    later: (fn, ms) => pending.push({ fn, ms }),
   });
   await new Promise(r => server.listen(0, r));
   url = `http://localhost:${server.address().port}`;
@@ -297,16 +317,19 @@ test("progress: finished class-list rounds are saved once, after the grace windo
   assert.equal((await call(ava, "player:word", { n: r.n, word: "cat" })).result, "ok");
   assert.equal((await call(guest, "player:word", { n: r.n, word: "cat" })).result, "ok");
 
+  pending = [];   // the server's own round clock (tested below)
   await call(host, "host:phase", { phase: "reveal" });
-  assert.equal(pending.length, 1, "save scheduled");
+  assert.deepEqual(pending.map(t => t.ms), [1600], "save scheduled after the grace window");
   assert.equal(saved.length, 0, "not before the grace window ends");
   clock += 1000;
   assert.equal((await call(ava, "player:word", { n: r.n, word: "cats" })).result, "ok", "word inside the grace");
   const avaRewards = next(ava, "round:rewards"), hostRewards = next(host, "round:rewards-summary");
   let guestGotRewards = false;
   guest.once("round:rewards", () => { guestGotRewards = true; });
-  pending.shift()();
+  const savedMsg = next(host, "round:saved");
+  runTimers();
   const mine = await avaRewards, totals = await hostRewards;
+  assert.deepEqual(await savedMsg, { n: r.n, ok: true }, "the big screen hears the round was saved");
   await new Promise(res => setImmediate(res));
   assert.equal(saved.length, 1);
   assert.equal(mine.n, r.n);
@@ -352,22 +375,25 @@ test("progress: finished class-list rounds are saved once, after the grace windo
   await call(host, "host:phase", { phase: "reveal" });
   assert.equal(pending.length, 0);
 
-  // An abandoned round (back to the lobby mid-round) is never saved.
+  // An abandoned round (back to the lobby mid-round) is never saved, even when its clock would have run out.
   const r2 = await call(host, "host:start", { settings: ROUND });
   await call(host, "host:clock", { n: r2.n, state: "playing", remainingMs: 60000 });
   await call(host, "host:phase", { phase: "lobby" });
   await call(host, "host:phase", { phase: "reveal" });
-  assert.equal(pending.length, 0);
+  clock += 61000;
+  runTimers();
+  await settle();
+  assert.equal(saved.length, 1);
 
   // Closing the room straight after a round still saves it.
   const r3 = await call(host, "host:start", { settings: ROUND });
   await call(host, "host:clock", { n: r3.n, state: "playing", remainingMs: 60000 });
   await call(host, "host:phase", { phase: "reveal" });
   await call(host, "host:close");
-  await new Promise(res => setImmediate(res));
+  await settle();
   assert.equal(saved.length, 2);
   assert.deepEqual(Object.keys(saved[1].record.players).sort(), ["s1", "s2", "s3"], "Chloe plays from the next round");
-  pending.length = 0;
+  pending = [];
 
   // Guests-only rooms save nothing.
   const host2 = await client();
@@ -377,8 +403,87 @@ test("progress: finished class-list rounds are saved once, after the grace windo
   const r4 = await call(host2, "host:start", { settings: ROUND });
   await call(host2, "host:clock", { n: r4.n, state: "playing", remainingMs: 60000 });
   await call(host2, "host:phase", { phase: "reveal" });
-  assert.equal(pending.length, 0);
+  runTimers();
+  await settle();
+  assert.equal(saved.length, 2);
   await call(host2, "host:close");
+});
+
+// The rounds that "didn't happen": the big screen's end-of-round message never reached the server.
+test("a round is saved even when the big screen's 'answers' message is lost", async () => {
+  saved = []; pending = [];
+  const host = await client();
+  const { room } = await call(host, "host:open", { idToken: "tok-a", classId: "class1" });
+  const ava = await client();
+  await call(ava, "player:join", { code: room.code, studentId: "s1" });
+  const roundsBefore = summaries.get("s1").rounds;
+
+  // 1. Time runs out while the big screen is offline: the server's own clock ends and saves the round.
+  const r1 = await call(host, "host:start", { settings: ROUND });
+  await call(host, "host:clock", { n: r1.n, state: "playing", remainingMs: 60000 });
+  assert.equal((await call(ava, "player:word", { n: r1.n, word: "cat" })).result, "ok");
+  const over = next(ava, "round:clock");
+  clock += 60100;
+  runTimers(61000);              // the server's clock
+  assert.equal((await over).state, "over", "devices are told the round is over");
+  runTimers(2000);               // the grace window
+  await settle();
+  assert.equal(saved.length, 1);
+  assert.deepEqual(saved[0].record.players.s1.words, ["cat"]);
+  assert.equal(summaries.get("s1").rounds, roundsBefore + 1, "rewards and reports move together");
+  // The big screen comes back and tries to carry on the clock: the round stays ended.
+  assert.deepEqual(await call(host, "host:clock", { n: r1.n, state: "playing", remainingMs: 5000 }), { error: "round-over" });
+  assert.equal((await call(host, "host:resume", { idToken: "tok-a" })).round.state, "over");
+
+  // 2. Time ran out, the "answers" message was lost, and the teacher went straight back to the lobby: still saved.
+  const r2 = await call(host, "host:start", { settings: ROUND });
+  await call(host, "host:clock", { n: r2.n, state: "playing", remainingMs: 60000 });
+  clock += 60100;
+  await call(host, "host:phase", { phase: "lobby" });
+  runTimers();
+  await settle();
+  assert.equal(saved.length, 2, "time was up, so going to the lobby isn't abandoning it");
+
+  // 3. Time ran out and the next round was started before any end-of-round message got through: still saved.
+  const r3 = await call(host, "host:start", { settings: ROUND });
+  await call(host, "host:clock", { n: r3.n, state: "playing", remainingMs: 60000 });
+  clock += 60100;
+  pending = [];                  // the server's clock timer is lost too
+  await call(host, "host:start", { settings: ROUND });
+  runTimers();
+  await settle();
+  assert.equal(saved.length, 3);
+  assert.equal(new Set(saved.map(x => x.gameId)).size, 3, "every round has its own id");
+
+  // 4. The database is down: the save is retried until it lands, exactly once, and the teacher is told meanwhile.
+  failSaves = 2;
+  const r4 = await call(host, "host:start", { settings: ROUND });
+  await call(host, "host:clock", { n: r4.n, state: "playing", remainingMs: 60000 });
+  assert.equal((await call(ava, "player:word", { n: r4.n, word: "cats" })).result, "ok");
+  const warned = next(host, "round:saved");
+  await call(host, "host:phase", { phase: "reveal" });
+  runTimers(2000);
+  assert.deepEqual(await warned, { n: r4.n, ok: false, retrying: true });
+  assert.equal(saved.length, 3);
+  const rewards = next(ava, "round:rewards"), ok = next(host, "round:saved");
+  for (let i = 0; i < 3; i++) { runTimers(); await settle(); }
+  assert.deepEqual(await ok, { n: r4.n, ok: true });
+  assert.equal((await rewards).n, r4.n, "the student's rewards arrive once the save lands");
+  assert.equal(saved.length, 4);
+  assert.equal(failSaves, 0);
+  // A retry of a save that already landed changes nothing.
+  assert.equal(summaries.get("s1").rounds, roundsBefore + 4);
+
+  // 5. The server is stopped mid-round (a deploy, or the free plan going to sleep): the round is saved as it stands.
+  const r5 = await call(host, "host:start", { settings: ROUND });
+  await call(host, "host:clock", { n: r5.n, state: "playing", remainingMs: 60000 });
+  assert.equal((await call(ava, "player:word", { n: r5.n, word: "cat" })).result, "ok");
+  assert.equal(await roomsApi.shutdown(), 0, "nothing left unsaved");
+  assert.equal(saved.length, 5);
+  assert.equal(saved[4].record.cutShort, true);
+  assert.deepEqual(saved[4].record.players.s1.words, ["cat"]);
+  await call(host, "host:close");
+  pending = [];
 });
 
 test("guessing room codes gets throttled, whichever message is used", async () => {
