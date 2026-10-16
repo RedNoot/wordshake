@@ -12,6 +12,7 @@ import { ClassLists } from "./ClassLists.jsx";
 import { Lobby } from "./Lobby.jsx";
 import { TeamResults, winnerLine } from "./Teams.jsx";
 import { Progress } from "./Progress.jsx";
+import { Guide, guideDone, markGuideDone } from "./Guide.jsx";
 
 import { wordPoints, BONUS } from "../shared/scoring.js";
 // What joined devices are told about the big screen: in a round (countdown or playing), showing answers, or in the lobby.
@@ -44,7 +45,9 @@ export default function WordShakeWorkbook() {
   const [accountNote, setAccountNote] = useState("");
   const [isNew, setIsNew] = useState(false);
   const [classes, setClasses] = useState(null);
-  const [classPromptDismissed, setClassPromptDismissed] = useState(false);
+  const [guide, setGuide] = useState(null);  // the getting-started steps: null = show them to a teacher who hasn't set up yet
+  const showGuide = guide ?? (!!account && !!classes && (isNew || classes.length === 0) && !guideDone());
+  const hideGuide = () => { markGuideDone(); setGuide(false); };
   const [room, setRoom] = useState(null);
   const [roomNote, setRoomNote] = useState("");
   const roomRef = useRef(null);
@@ -437,6 +440,7 @@ export default function WordShakeWorkbook() {
         )}
         {["setup", "classes", "progress"].includes(phase) && signInConfigured && accountsReady && (account ? (
           <div style={{ display: "flex", alignItems: "baseline", gap: 14, fontSize: 14, color: T.mist, flexWrap: "wrap" }}>
+            {phase !== "setup" || !showGuide ? <button className="ws-btn" onClick={() => { setGuide(true); setPhase("setup"); }} style={{ background: "none", border: `1px solid ${T.faint}`, color: "var(--ws-text)", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 13 }}>How it works</button> : null}
             {phase !== "classes" && <button className="ws-btn" onClick={() => setPhase("classes")} style={{ background: "none", border: `1px solid ${T.faint}`, color: "var(--ws-text)", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 13 }}>My classes</button>}
             {phase !== "progress" && <button className="ws-btn" onClick={() => setPhase("progress")} style={{ background: "none", border: `1px solid ${T.faint}`, color: "var(--ws-text)", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 13 }}>Progress</button>}
             <span>Signed in as <b style={{ color: "var(--ws-text)" }}>{account.displayName || account.email}</b></span>
@@ -515,15 +519,8 @@ export default function WordShakeWorkbook() {
               {accountNote}
             </div>
           )}
-          {account && classes && classes.length === 0 && !classPromptDismissed && (
-            <div role="status" style={{ width: "min(760px, 94vw)", boxSizing: "border-box", background: "rgb(var(--ws-green-rgb) / .1)", border: "1px solid rgb(var(--ws-green-rgb) / .45)", borderRadius: 14, padding: "14px 18px", display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
-              <div style={{ flex: 1, minWidth: 240, fontSize: 15.5, lineHeight: 1.45 }}>
-                {isNew && <b style={{ display: "block", fontSize: 17, marginBottom: 2 }}>Welcome to WordShake, {(account.displayName || "").split(" ")[0] || "teacher"}! Your account is ready.</b>}
-                Add your class list so students can join a game by tapping their name.
-              </div>
-              <button className="ws-btn ws-display" onClick={() => setPhase("classes")} style={{ background: T.green, color: T.ink, border: "none", borderRadius: 10, padding: "9px 16px", cursor: "pointer", fontSize: 16, fontWeight: 700 }}>Add a class list</button>
-              <button className="ws-btn" onClick={() => setClassPromptDismissed(true)} style={{ background: "none", border: "none", color: T.mist, textDecoration: "underline", cursor: "pointer", fontSize: 14 }}>Later</button>
-            </div>
+          {account && showGuide && (
+            <Guide name={(account.displayName || "").split(" ")[0]} isNew={isNew} classes={classes} onAddClass={() => setPhase("classes")} onClose={hideGuide} />
           )}
           {roomNote && (
             <div role="alert" style={{ maxWidth: 680, background: "rgb(var(--ws-red-rgb) / .1)", border: "1px solid rgb(var(--ws-red-rgb) / .45)", borderRadius: 12, padding: "10px 14px", fontSize: 14.5 }}>{roomNote}</div>
