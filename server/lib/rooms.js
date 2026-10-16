@@ -1,7 +1,7 @@
 import { randomBytes, randomInt } from "crypto";
 import { cleanGuestName, uniqueName } from "./names.js";
 import { pickRoundSettings } from "./settings.js";
-import { newRound, setClock, remainingMs, playerView, checkWord, roundRecord, teamResults, GRACE_MS } from "./round.js";
+import { newRound, setClock, remainingMs, playerView, checkWord, giveHint, roundRecord, teamResults, GRACE_MS } from "./round.js";
 import { emptySummary } from "../../shared/rewards.js";
 import { pickTheme } from "./settings.js";
 import { MIN_TEAMS, MAX_TEAMS } from "../../shared/teams.js";
@@ -224,12 +224,13 @@ export function attachRooms(io, {
     markDirty(room);
     if (out.status === "no-class") return;   // the class was deleted mid-lesson
     tellHost(room, "round:saved", { n: round.n, ok: true });
-    if (out.status === "saved") giveRewards(room, round, out.earned || {});
+    if (out.status === "saved") giveRewards(room, round, out.earned || {}, out.summaries || {});
   }
   const tellHost = (room, event, data) => { if (rooms.get(room.code) === room) io.to(`host:${room.code}`).emit(event, data); };
 
-  // Each student's device hears only its own rewards; the big screen only ever gets totals, never who earned what.
-  function giveRewards(room, round, bySid) {
+  // Each student's device hears only its own rewards, with its own updated collection for the end-of-round splash;
+  // the big screen only ever gets totals, never who earned what.
+  function giveRewards(room, round, bySid, summaries) {
     const tally = { trophies: 0, stickers: 0, bests: 0 };
     for (const e of Object.values(bySid)) {
       tally.trophies += e.trophies.length;
@@ -239,9 +240,10 @@ export function attachRooms(io, {
     round.rewards = new Map();
     for (const [playerId, who] of round.who || []) {
       if (!who.studentId || !bySid[who.studentId] || !round.eligible.has(playerId)) continue;
-      round.rewards.set(playerId, bySid[who.studentId]);
+      const mine = { ...bySid[who.studentId], summary: summaries[who.studentId] || null };
+      round.rewards.set(playerId, mine);
       const p = rooms.get(room.code) === room && room.players.get(playerId), s = p && p.socketId && io.sockets.sockets.get(p.socketId);
-      if (s) s.emit("round:rewards", { n: round.n, ...bySid[who.studentId] });
+      if (s) s.emit("round:rewards", { n: round.n, ...mine });
     }
     tellHost(room, "round:rewards-summary", { n: round.n, ...tally });
   }
@@ -604,6 +606,15 @@ export function attachRooms(io, {
       // Still allowed just after the answers appear: checkWord's grace window decides whether it counts.
       if (!room.round || room.round.n !== n || room.phase === "lobby") return ack({ result: "late" });
       ack(await checkWord(room.round, ref.id, word, now(), isRealWord));
+    });
+
+    // A stuck student's device asks for a hint; the server decides whether it's due and which word to show.
+    on("player:hint", async ({ n }, ack) => {
+      const ref = socket.data.player;
+      const room = ref && rooms.get(ref.code);
+      if (!room || !room.players.has(ref.id)) return ack({ error: "not-joined" });
+      if (!room.round || room.round.n !== n || room.phase !== "playing") return ack({ result: "late" });
+      ack(giveHint(room.round, ref.id, now()));
     });
 
     // A student's own trophies, stickers and teacher awards (never anyone else's).

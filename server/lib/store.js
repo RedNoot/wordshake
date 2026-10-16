@@ -62,7 +62,7 @@ export const GAMES_SHOWN = 150;
 
 /* ---- rewards: teachers/{uid}/classes/{classId}/students/{studentId} = summary (see shared/rewards.js) + awards ---- */
 const studentsOf = (teacherId, classId) => classesOf(teacherId).doc(classId).collection("students");
-const SUMMARY_FIELDS = ["name", "rounds", "words", "bestScore", "bestWords", "weeks", "stickers", "trophies"];
+const SUMMARY_FIELDS = ["name", "rounds", "words", "bestScore", "bestWords", "weeks", "stickers", "spotted", "trophies"];
 const pickSummary = data => Object.fromEntries(SUMMARY_FIELDS.filter(k => data[k] !== undefined).map(k => [k, data[k]]));
 
 /*
@@ -88,7 +88,7 @@ export async function saveRound(teacherId, classId, gameId, record, endedAt) {
       const { summary, earned: e } = applyRound(doc.exists ? pickSummary(doc.data()) : null, record.players[sid], record, endedAt);
       tx.set(doc.ref, { ...pickSummary(summary), name: record.players[sid].name, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       earned[sid] = e;
-      summaries[sid] = summary;
+      summaries[sid] = { ...pickSummary(summary), awards: (doc.exists && doc.get("awards")) || [] };
     });
     tx.set(gameRef, { ...record, endedAt: Timestamp.fromMillis(endedAt) });
     return { status: "saved", earned, summaries };
