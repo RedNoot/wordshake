@@ -97,6 +97,12 @@ export function attachRooms(io, {
       Promise.resolve().then(() => liveStore.remove(snap.teacherId, snap.code)).catch(() => {});
       return null;
     }
+    // Another teacher's open room already has this code (host:open checks kept rooms too, so this shouldn't happen).
+    const clash = rooms.get(snap.code);
+    if (clash && clash !== prev && clash.teacherId !== snap.teacherId) {
+      console.error(`Kept room ${snap.code} clashes with an open room; not picked up`);
+      return null;
+    }
     const room = restoreRoom(snap);
     room.hostSeenAt = now();
     room.live = false;
@@ -403,7 +409,9 @@ export function attachRooms(io, {
       const existing = rooms.get(byTeacher.get(teacher.id));
       if (existing) closeRoom(existing, "replaced");
       let code;
-      do code = newCode(); while (rooms.has(code));
+      // Not a code in use here, nor one a kept room is waiting to be picked up with after a restart.
+      const keptCode = c => (liveStore ? Promise.resolve().then(() => liveStore.byCode(c)).catch(() => null) : null);
+      do code = newCode(); while (rooms.has(code) || await keptCode(code));
       const room = {
         code, teacherId: teacher.id, hostSocket: null, classId: cls ? classId : null, className: cls ? cls.name : null,
         roster: cls ? cls.students.map(s => ({ id: s.id, name: s.name })) : null,
