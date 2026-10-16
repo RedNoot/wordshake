@@ -5,6 +5,7 @@ import { newRound, setClock, remainingMs, playerView, checkWord, roundRecord, te
 import { emptySummary } from "../../shared/rewards.js";
 import { pickTheme } from "./settings.js";
 import { MIN_TEAMS, MAX_TEAMS } from "../../shared/teams.js";
+import { snapshotRoom, restoreRoom } from "./snapshot.js";
 
 // No vowels, so a code can't spell a word; no 0/O or 1/I to confuse.
 const CODE_CHARS = "BCDFGHJKLMNPQRSTVWXZ23456789";
@@ -16,6 +17,8 @@ const MAX_AGE_MS = 12 * 60 * 60 * 1000;    // and no room outlives a school day
 const LOOKUP_FAILS = { max: 100, windowMs: 10 * 60 * 1000 }; // per school IP: room codes can't be guessed
 const SAVE_RETRY_MS = [1000, 3000, 10000, 30000];      // a failed save is tried again after these waits...
 const SAVE_RETRY_LATER_MS = 5 * 60 * 1000;            // ...then every 5 minutes for as long as the server runs
+const SNAPSHOT_MS = 2000;                             // a room's changes are written to the database at most this often
+const SNAPSHOT_MAX = 900 * 1000;                      // Firestore's limit is 1MB a document
 
 const newToken = () => randomBytes(16).toString("base64url");
 const newCode = () => Array.from({ length: CODE_LEN }, () => CODE_CHARS[randomInt(CODE_CHARS.length)]).join("");
@@ -23,7 +26,7 @@ const normCode = c => (typeof c === "string" ? c.toUpperCase().replace(/[^A-Z0-9
 const obj = d => (d && typeof d === "object" ? d : {});
 
 /*
- * Live rooms, held in server memory only (a restart closes every room).
+ * Live rooms, held in server memory and copied to the database (liveStore), so a server restart doesn't close them.
  * room = { code, teacherId, hostSocket, classId, className, roster: [{ id, name }] | null,
  *          players: Map<playerId, { id, name, studentId, token, socketId }>, phase, createdAt, hostSeenAt,
  *          round: see round.js | null, roundNo, teams: null | { count, of: Map<playerId, team number> } }
@@ -31,12 +34,107 @@ const obj = d => (d && typeof d === "object" ? d : {});
  */
 export function attachRooms(io, {
   verifyTeacher, getClass, makeGame, isRealWord,
-  saveRound = null, getStudent = null,
+  saveRound = null, getStudent = null, liveStore = null,
   now = Date.now, later = (fn, ms) => setTimeout(fn, ms),
 }) {
   const rooms = new Map();
   const byTeacher = new Map();
   const lookupFails = new Map();
+
+  /*
+   * Keeping rooms through a restart. Every change marks the room; it's written at most every couple of seconds
+   * (a whole class swiping words would otherwise be a write per word), and straight away for the big moments
+   * (start, phase, teams). One write per room at a time, so an older copy can never land after a newer one.
+   * A failed write is only logged and tried again: the lesson carries on from memory either way.
+   * A room picked up from the database after a restart isn't written back until its teacher's screen reconnects,
+   * so a copy loaded while the old server is still finishing up can't overwrite the old server's last word.
+   */
+  function markDirty(room) {
+    if (!liveStore || !room.live || room.closed || room.replaced) return;
+    room.dirty = true;
+    if (room.writeTimer) return;
+    room.writeTimer = true;
+    later(() => { room.writeTimer = false; writeRoom(room); }, SNAPSHOT_MS);
+  }
+  const saveNow = room => { if (liveStore && room.live) { room.dirty = true; return writeRoom(room); } return Promise.resolve(true); };
+  // Resolves true once every change so far is in the database.
+  function writeRoom(room) {
+    if (!liveStore || !room.live || room.closed || room.replaced) return Promise.resolve(true);
+    if (room.writing) return room.writing.then(() => writeRoom(room));
+    if (!room.dirty) return Promise.resolve(true);
+    room.dirty = false;
+    const snap = snapshotRoom(room, now());
+    room.savedAt = snap.savedAt;
+    const data = JSON.stringify(snap);
+    room.writing = Promise.resolve()
+      .then(() => {
+        if (data.length > SNAPSHOT_MAX) throw new Error(`room is too big to keep (${data.length} bytes)`);
+        return liveStore.save(room.teacherId, { code: room.code, createdAt: room.createdAt, data });
+      })
+      .then(() => true, err => { console.error(`Keeping room ${room.code} failed:`, err.message); return false; })
+      .finally(() => { room.writing = null; });
+    return room.writing.then(ok => {
+      if (ok) return writeRoom(room);
+      markDirty(room);   // try again in a moment
+      return false;
+    });
+  }
+
+  // Finding a room the server doesn't have in memory (it restarted): one database read per room, however many devices ask.
+  const loads = new Map();
+  function loadOnce(key, read) {
+    if (!liveStore) return Promise.resolve(null);
+    if (!loads.has(key)) {
+      loads.set(key, Promise.resolve().then(read)
+        .catch(err => { console.error("Loading a kept room failed:", err.message); return undefined; })
+        .finally(() => loads.delete(key)));
+    }
+    return loads.get(key);
+  }
+  // Puts a kept room back (replacing an older copy of it, if there is one) and restarts what was running.
+  function adopt(snap, prev = null) {
+    if (now() - snap.createdAt > MAX_AGE_MS) {
+      Promise.resolve().then(() => liveStore.remove(snap.teacherId, snap.code)).catch(() => {});
+      return null;
+    }
+    const room = restoreRoom(snap);
+    room.hostSeenAt = now();
+    room.live = false;
+    if (prev) {
+      prev.replaced = true;   // its timers stand down; devices already attached carry over
+      for (const [id, p] of prev.players) { const q = room.players.get(id); if (q) q.socketId = p.socketId; }
+    }
+    rooms.set(room.code, room);
+    const mine = byTeacher.get(room.teacherId);
+    if (!mine || mine === room.code || !rooms.has(mine)) byTeacher.set(room.teacherId, room.code);
+    const r = room.round;
+    if (r) {
+      if (r.state === "playing") watchClock(room, r);          // its time may have run out while the server was down
+      if (r.save === "pending") flushRound(room, r);
+      if (r.state === "over" && r.teams && !r.teamResult && !r.aborted) finishTeams(room, r);
+    }
+    console.log(`Room ${room.code} picked up again after a restart`);
+    return room;
+  }
+  async function roomByCode(code) {
+    if (rooms.has(code)) return rooms.get(code);
+    const snap = await loadOnce(`code:${code}`, () => liveStore.byCode(code));
+    if (rooms.has(code)) return rooms.get(code);
+    return snap ? adopt(snap) : null;
+  }
+  // The teacher's screen reconnecting: always takes the newest kept copy if the room hasn't had its teacher back yet.
+  async function roomForTeacher(teacherId) {
+    let room = rooms.get(byTeacher.get(teacherId)) || null;
+    if (!liveStore || (room && room.live)) return room;
+    const snap = await loadOnce(`teacher:${teacherId}`, () => liveStore.byTeacher(teacherId));
+    room = rooms.get(byTeacher.get(teacherId)) || null;
+    if (room && room.live) return room;
+    if (snap === undefined) return room;   // the database couldn't be reached: carry on with what's here
+    if (!snap) { if (room) closeRoom(room); return null; }   // closed on the other server
+    if (room && room.code !== snap.code) { closeRoom(room, "replaced"); room = null; }
+    // Until its teacher is back, the kept copy is the newest word on the room (devices already here carry over).
+    return adopt(snap, room);
+  }
 
   const players = room => [...room.players.values()];
   const teamOf = (room, playerId) => (room.teams && room.teams.of.has(playerId) ? room.teams.of.get(playerId) : null);
@@ -68,7 +166,7 @@ export function attachRooms(io, {
 
   const timeUp = round => round.state === "over" || (round.state === "playing" && now() >= round.endsAt);
   function finishRound(room, round = room.round, { grace = true } = {}) {
-    if (!round || round.aborted || round.save || !room.classId || !saveRound) return;
+    if (!round || round.aborted || round.save || room.replaced || !room.classId || !saveRound) return;
     round.save = "pending";
     round.endedAt = round.state === "playing" ? Math.min(now(), round.endsAt) : now();
     if (round.state !== "over") setClock(round, "over", 0, now());
@@ -79,10 +177,11 @@ export function attachRooms(io, {
   function watchClock(room, round) {
     if (round.state !== "playing") return;
     later(() => {
-      if (round.state === "playing" && now() >= round.endsAt && !round.aborted) {
+      if (round.state === "playing" && now() >= round.endsAt && !round.aborted && !room.replaced) {
         finishRound(room, round);
         finishTeams(room, round);
         if (room.round === round) io.to(`players:${room.code}`).emit("round:clock", { n: round.n, state: "over", remainingMs: 0 });
+        markDirty(room);
       }
     }, Math.max(0, round.endsAt - now()) + 50);
   }
@@ -92,7 +191,7 @@ export function attachRooms(io, {
     round.save = "saving";
     const record = roundRecord(round);
     if (round.cutShort) record.cutShort = true;
-    if (!Object.keys(record.players).length) { round.save = "done"; return; }
+    if (!Object.keys(record.players).length) { round.save = "done"; markDirty(room); return; }
     runSave({ room, round, record, tries: 0 });
   }
   // Saves run one after another (a round waiting on a retry doesn't hold up the rounds after it).
@@ -116,6 +215,7 @@ export function attachRooms(io, {
       return;
     }
     round.save = "done";
+    markDirty(room);
     if (out.status === "no-class") return;   // the class was deleted mid-lesson
     tellHost(room, "round:saved", { n: round.n, ok: true });
     if (out.status === "saved") giveRewards(room, round, out.earned || {});
@@ -169,6 +269,7 @@ export function attachRooms(io, {
     round.teamsPending = true;
     later(() => {
       round.teamResult = teamResults(round);
+      markDirty(room);
       if (room.round !== round) return;
       io.to(`host:${room.code}`).emit("round:teams", round.teamResult);
       if (round.teamsShown) io.to(`players:${room.code}`).emit("round:teams", round.teamResult);
@@ -184,6 +285,11 @@ export function attachRooms(io, {
     for (const p of players(room)) { const s = p.socketId && io.sockets.sockets.get(p.socketId); if (s) s.data.player = null; }
     rooms.delete(room.code);
     if (byTeacher.get(room.teacherId) === room.code) byTeacher.delete(room.teacherId);
+    room.closed = true;
+    if (liveStore) {
+      Promise.resolve(room.writing).then(() => liveStore.remove(room.teacherId, room.code))
+        .catch(err => console.error(`Forgetting room ${room.code} failed:`, err.message));
+    }
   }
 
   function attachHost(socket, room) {
@@ -193,6 +299,9 @@ export function attachRooms(io, {
     room.hostSeenAt = now();
     socket.data.hostOf = room.code;
     socket.join(`host:${room.code}`);
+    // From now on this server owns the room, so its changes are kept.
+    room.live = true;
+    saveNow(room);
   }
 
   function detachPlayer(socket) {
@@ -244,10 +353,13 @@ export function attachRooms(io, {
   }
 
   // Every student message names a room code, so all of them count towards the guessing limit.
-  const studentRoom = (socket, code) => {
+  // Checked against the guessing limit before the database is asked, and only well-formed codes are looked up.
+  const validCode = c => c.length === CODE_LEN && [...c].every(ch => CODE_CHARS.includes(ch));
+  const studentRoom = async (socket, code) => {
     const ip = clientIp(socket);
     if (tooManyFails(ip)) return { error: "too-many" };
-    const room = rooms.get(normCode(code));
+    const c = normCode(code);
+    const room = validCode(c) ? await roomByCode(c) : null;
     if (!room) { recordFail(ip); return { error: "no-room" }; }
     return { room };
   };
@@ -265,11 +377,17 @@ export function attachRooms(io, {
       const ack = args.findLast(a => typeof a === "function");
       const data = typeof args[0] === "function" ? undefined : args[0];
       const reply = ack || (() => {});
+      const touched = () => [socket.data.hostOf, socket.data.player && socket.data.player.code];
+      const before = touched();
       try { await handler(obj(data), reply); }
       catch (e) {
         if (e && e.code && e.status) return reply({ error: e.code });
         console.error(`${event}:`, e);
         reply({ error: "server-error" });
+      }
+      finally {
+        // Whatever the message changed is kept (a device on the name grid isn't tied to a room yet, and changes nothing).
+        for (const code of new Set([...before, ...touched()])) { const room = code && rooms.get(code); if (room) markDirty(room); }
       }
     });
 
@@ -301,7 +419,7 @@ export function attachRooms(io, {
     // After a refresh or a dropped connection, the signed-in teacher gets their open room back.
     on("host:resume", async ({ idToken }, ack) => {
       const teacher = await verifyTeacher(String(idToken || ""));
-      const room = rooms.get(byTeacher.get(teacher.id));
+      const room = await roomForTeacher(teacher.id);
       if (!room) return ack({ error: "no-room" });
       attachHost(socket, room);
       ack({ ok: true, room: hostView(room), round: hostRound(room) });
@@ -326,6 +444,7 @@ export function attachRooms(io, {
       room.phase = "playing";
       sendRound(room);
       notify(room);
+      saveNow(room);
       ack({ ok: true, n: room.round.n, game, teams: room.round.teams ? room.round.teams.count : 0 });
     });
 
@@ -359,6 +478,7 @@ export function attachRooms(io, {
       io.to(`players:${room.code}`).emit("room:phase", phase);
       if (changed) sendRound(room);
       notify(room);
+      saveNow(room);
       ack({ ok: true });
     });
 
@@ -381,6 +501,7 @@ export function attachRooms(io, {
       else return ack({ error: "invalid teams" });
       sendTeams(room);
       notify(room);
+      saveNow(room);
       ack({ ok: true });
     });
 
@@ -431,14 +552,14 @@ export function attachRooms(io, {
 
     /* ---- student devices ---- */
     on("player:lookup", async ({ code }, ack) => {
-      const { room, error } = studentRoom(socket, code);
+      const { room, error } = await studentRoom(socket, code);
       if (error) return ack({ error });
       socket.join(`lookup:${room.code}`);
       ack({ ok: true, room: lookupView(room) });
     });
 
     on("player:join", async ({ code, studentId, guestName }, ack) => {
-      const { room, error } = studentRoom(socket, code);
+      const { room, error } = await studentRoom(socket, code);
       if (error) return ack({ error });
       if (studentId != null) {
         const student = room.roster && room.roster.find(s => s.id === studentId);
@@ -461,7 +582,7 @@ export function attachRooms(io, {
 
     // A device that joined before (saved token) comes straight back, e.g. after the iPad slept.
     on("player:rejoin", async ({ code, token }, ack) => {
-      const { room, error } = studentRoom(socket, code);
+      const { room, error } = await studentRoom(socket, code);
       if (error) return ack({ error });
       const p = typeof token === "string" && players(room).find(x => x.token === token);
       if (!p) return ack({ error: "no-player" });
@@ -508,18 +629,33 @@ export function attachRooms(io, {
     });
   });
 
-  // The server is stopping (a deploy, or the host putting it to sleep): finish and save every round it can first.
-  // A round still being played is saved as it stands, marked as cut short, rather than lost.
+  /*
+   * The server is stopping (a deploy, or the host putting it to sleep). Finished rounds are saved now, then every room
+   * is kept, so after the restart the big screen and the devices carry on, even mid-round.
+   * A round still being played whose room can't be kept (no database, or the write failed) is saved as it stands,
+   * marked as cut short, rather than lost.
+   */
   async function shutdown() {
-    for (const room of rooms.values()) {
+    const cutShort = room => {
       const round = room.round;
-      if (!round || round.aborted || round.save || round.state === "countdown") continue;
+      if (!round || round.aborted || round.save || round.state === "countdown") return;
       if (!timeUp(round)) round.cutShort = true;
       finishRound(room, round, { grace: false });
+    };
+    for (const room of rooms.values()) {
+      if (room.round && timeUp(room.round)) finishRound(room, room.round, { grace: false });
+      else if (!liveStore) cutShort(room);
     }
     for (const room of rooms.values()) if (room.round && room.round.save === "pending") flushRound(room, room.round);
     for (const job of unsaved) { unsaved.delete(job); runSave(job); }
     await saveRuns;
+    if (liveStore) {
+      const live = [...rooms.values()].filter(r => r.live);
+      const kept = await Promise.all(live.map(r => saveNow(r)));
+      live.forEach((room, i) => { if (!kept[i]) cutShort(room); });
+      for (const room of live) if (room.round && room.round.save === "pending") flushRound(room, room.round);
+      await saveRuns;
+    }
     return unsaved.size;
   }
 

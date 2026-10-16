@@ -9,7 +9,7 @@ import { loadDictionary } from "./lib/dictionary.js";
 import { PH_STATS, SW_WORDS, resolveSound } from "./lib/phonics.js";
 import { AUTH, AuthError, verifyTeacher } from "./lib/auth.js";
 import { storeReady, loadTeacher, saveSettings, listClasses, getClass, countClasses, createClass, updateClass, deleteClass, saveRound, listGames, deleteGame, GAMES_SHOWN,
-  getStudent, listSummaries, addAward, removeAward } from "./lib/store.js";
+  getStudent, listSummaries, addAward, removeAward, liveRoomStore } from "./lib/store.js";
 import { AWARD_PRESETS, CUSTOM_AWARD_EMOJI, AWARD_LABEL_MAX, AWARDS_MAX } from "../shared/rewards.js";
 import { randomBytes } from "crypto";
 import { pickSettings } from "./lib/settings.js";
@@ -215,6 +215,8 @@ const roomsApi = attachRooms(io, {
     return saveRound(teacherId, classId, gameId, record, endedAt);
   },
   getStudent: async (teacherId, classId, studentId) => (storeReady ? getStudent(teacherId, classId, studentId) : null),
+  // Open rooms are kept in the database, so a restart (a deploy, or the free plan sleeping) doesn't close them.
+  liveStore: storeReady ? liveRoomStore : null,
 });
 
 const PORT = process.env.PORT || 3001;

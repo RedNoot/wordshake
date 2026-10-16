@@ -136,3 +136,34 @@ export async function listGames(teacherId, classId) {
 export async function deleteGame(teacherId, classId, gameId) {
   await gamesOf(teacherId, classId).doc(gameId).delete();
 }
+
+/*
+ * ---- live rooms: liveRooms/{teacherId} = { code, createdAt, updatedAt, data: the room as JSON (see snapshot.js) } ----
+ * One per teacher (a teacher has one open room), so the big screen can find its room again after a server restart,
+ * and students' devices find it by code. Stored as a JSON string because Firestore can't hold arrays inside arrays.
+ * Development uses its own collection, so a room opened on a laptop can never turn up on the live site.
+ * Only the server reads these (they hold each device's join pass); the app itself never touches Firestore.
+ */
+const liveRooms = () => db.collection(process.env.NODE_ENV === "production" ? "liveRooms" : "liveRooms-dev");
+const roomOut = doc => (doc && doc.exists ? JSON.parse(doc.get("data")) : null);
+
+export const liveRoomStore = {
+  async save(teacherId, { code, createdAt, data }) {
+    await liveRooms().doc(teacherId).set({ code, createdAt, updatedAt: FieldValue.serverTimestamp(), data });
+  },
+  async byTeacher(teacherId) {
+    return roomOut(await liveRooms().doc(teacherId).get());
+  },
+  async byCode(code) {
+    const snap = await liveRooms().where("code", "==", code).limit(1).get();
+    return roomOut(snap.docs[0]);
+  },
+  // Only that room: if the teacher has since opened a new one, it stays.
+  async remove(teacherId, code) {
+    const ref = liveRooms().doc(teacherId);
+    await db.runTransaction(async tx => {
+      const doc = await tx.get(ref);
+      if (doc.exists && doc.get("code") === code) tx.delete(ref);
+    });
+  },
+};
