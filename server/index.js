@@ -18,6 +18,24 @@ import { attachRooms } from "./lib/rooms.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
+
+/*
+ * Crash reports from the app's error screen, so a problem in a lesson shows up in the server log.
+ * Open to anyone, so: tiny bodies only, a few per device per 10 minutes, and only short plain text is logged.
+ */
+const reportsFrom = new Map();
+app.post("/api/client-error", express.json({ limit: "4kb" }), (req, res) => {
+  const ip = (req.get("x-forwarded-for") || req.ip || "").split(",")[0].trim(), t = Date.now();
+  const r = reportsFrom.get(ip);
+  if (!r || r.until <= t) reportsFrom.set(ip, { count: 1, until: t + 10 * 60 * 1000 });
+  else if (++r.count > 20) return res.status(429).end();
+  if (reportsFrom.size > 5000) for (const [k, v] of reportsFrom) if (v.until <= t) reportsFrom.delete(k);
+  const text = (v, n) => (typeof v === "string" ? v : "").replace(/[^\x20-\x7E\n]/g, "?").slice(0, n);
+  const { kind, message, stack, page } = req.body || {};
+  console.error(`Client ${text(kind, 10)} on ${text(page, 40)}: ${text(message, 300)}\n${text(stack, 1500)}`);
+  res.status(204).end();
+});
+
 app.use(express.json());
 
 // Kick off the dictionary load immediately so the first /api/game call doesn't stall.
