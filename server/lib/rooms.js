@@ -36,6 +36,8 @@ export function attachRooms(io, {
   verifyTeacher, getClass, makeGame, isRealWord,
   saveRound = null, getStudent = null, liveStore = null,
   now = Date.now, later = (fn, ms) => setTimeout(fn, ms),
+  // How many proxies in front of the server append to X-Forwarded-For (Render: 1). 0 ignores the header.
+  proxyHops = Number.parseInt(process.env.TRUST_PROXY_HOPS ?? "1", 10) || 0,
 }) {
   const rooms = new Map();
   const byTeacher = new Map();
@@ -349,7 +351,13 @@ export function attachRooms(io, {
     }
   }
 
-  const clientIp = socket => (socket.handshake.headers["x-forwarded-for"] || socket.handshake.address || "").split(",")[0].trim();
+  // The device's address as our own proxy saw it. Entries to the left of that are whatever the device sent,
+  // so trusting the leftmost one would let a script pick a fresh "address" for every guess.
+  const clientIp = socket => {
+    const hops = (socket.handshake.headers["x-forwarded-for"] || "").split(",").map(x => x.trim()).filter(Boolean);
+    if (!proxyHops || !hops.length) return socket.handshake.address || "";
+    return hops[Math.max(0, hops.length - proxyHops)];
+  };
   function tooManyFails(ip) {
     const f = lookupFails.get(ip);
     return f && f.until > now() && f.count >= LOOKUP_FAILS.max;

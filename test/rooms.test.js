@@ -639,6 +639,24 @@ test("guessing room codes gets throttled, whichever message is used", async () =
   for (const g of guesses) assert.deepEqual(await g(), { error: "too-many" });
 });
 
+test("a made-up X-Forwarded-For doesn't get around the guessing limit", async () => {
+  // The proxy appends the real address (9.9.9.9); anything to its left was written by the device itself.
+  const guess = async i => {
+    const s = connect(url, { transports: ["websocket"], forceNew: true, reconnection: false, extraHeaders: { "x-forwarded-for": `10.0.${i >> 8}.${i & 255}, 9.9.9.9` } });
+    sockets.push(s);
+    await new Promise(r => s.on("connect", r));
+    const out = await call(s, "player:lookup", { code: "ZZZZ" });
+    s.close();
+    return out;
+  };
+  for (let i = 0; i < 100; i++) assert.deepEqual(await guess(i), { error: "no-room" });
+  assert.deepEqual(await guess(100), { error: "too-many" }, "a new leftmost entry is the same device");
+  const other = connect(url, { transports: ["websocket"], forceNew: true, reconnection: false, extraHeaders: { "x-forwarded-for": "8.8.8.8" } });
+  sockets.push(other);
+  await new Promise(r => other.on("connect", r));
+  assert.deepEqual(await call(other, "player:lookup", { code: "ZZZZ" }), { error: "no-room" }, "another school isn't locked out");
+});
+
 test("theme: the teacher's look reaches the room and every device", async () => {
   clock += 60 * 60 * 1000; roomsApi.sweep();   // let the code-guessing throttle from the test before run out
   const host = await client();
