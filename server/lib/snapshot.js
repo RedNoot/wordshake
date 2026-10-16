@@ -26,6 +26,8 @@ export function snapshotRoom(room, t) {
       submits: pairs(r.submits), eligible: [...r.eligible], who: r.who ? pairs(r.who) : [],
       teams: teamsOut(r.teams), teamResult: r.teamResult || null, teamsShown: !!r.teamsShown,
       rewards: r.rewards ? pairs(r.rewards) : null,
+      idleFrom: pairs(r.idleFrom || new Map()), resumedAt: r.resumedAt || 0,
+      hints: pairs(r.hints || new Map()).map(([playerId, h]) => [playerId, { word: h.word, count: h.count, given: [...h.given] }]),
     },
   };
 }
@@ -46,6 +48,8 @@ export function restoreRoom(s) {
       found: new Map(x.found.map(([playerId, words]) => [playerId, new Map(words)])),
       submits: new Map(x.submits), who: new Map(x.who), teams: teamsIn(x.teams),
       rewards: x.rewards ? new Map(x.rewards) : undefined,
+      idleFrom: new Map(x.idleFrom || []), resumedAt: x.resumedAt || 0,
+      hints: new Map((x.hints || []).map(([playerId, h]) => [playerId, { ...h, given: new Set(h.given) }])),
     });
     room.round = r;
   }

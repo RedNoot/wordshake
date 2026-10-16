@@ -85,6 +85,8 @@ async function midRound(db) {
   const r = await call(host, "host:start", { settings: ROUND });
   await call(host, "host:clock", { n: r.n, state: "playing", remainingMs: 60000 });
   assert.equal((await call(ava, "player:word", { n: r.n, word: "cat" })).result, "ok");
+  clock += 16000;   // stuck for a while: a hint
+  assert.deepEqual(await call(ava, "player:hint", { n: r.n }), { result: "hint", word: "cats" });
   return { A, code: room.code, n: r.n, tokens: { ava: a.token, ben: b.token } };
 }
 
@@ -105,6 +107,7 @@ test("restart mid-round: the big screen and the devices carry on where they were
   assert.equal(back.ok, true, "Ava's device rejoins with the pass it saved");
   assert.equal(back.round.n, n);
   assert.equal(back.round.state, "playing");
+  assert.equal(back.round.hint, "cats", "the hint she was given is still showing");
   assert.deepEqual(back.round.words.map(w => w.word), ["cat"], "her words are still there");
   assert.notEqual(back.team, null, "and her team");
   assert.equal(db.writes, writesBefore, "a picked-up room isn't written back before its teacher's screen returns");
