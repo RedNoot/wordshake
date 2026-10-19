@@ -1,3 +1,5 @@
+import { starsForRound } from "./shop.js";
+
 /*
  * The rewards catalogue, shared by the server (which decides what was earned) and the app (which shows it).
  * Rewards compare a student only with their own past, and nothing is ever taken away.
@@ -60,7 +62,8 @@ export const CUSTOM_AWARD_EMOJI = "🏅";
 export const AWARD_LABEL_MAX = 30;
 export const AWARDS_MAX = 100;
 
-export const emptySummary = () => ({ rounds: 0, words: 0, bestScore: 0, bestWords: 0, weeks: [], stickers: {}, spotted: {}, trophies: {} });
+// stars: every shop star ever earned (see shared/shop.js). Spending is kept apart from the summary, in the wallet.
+export const emptySummary = () => ({ rounds: 0, words: 0, stars: 0, bestScore: 0, bestWords: 0, weeks: [], stickers: {}, spotted: {}, trophies: {} });
 
 // Monday-start week, e.g. "2026-W41", so "played in N weeks" ignores how many rounds were in a week.
 // Counted in Australian time (shifted 12 hours from UTC), so a Monday-morning lesson isn't filed under the week before.
@@ -77,7 +80,7 @@ export function weekKey(t) {
  * into a student's summary. p.bySpelling holds today's-sound finds; p.spotted (sound -> spelling -> count) every other
  * Sounds-Write spelling found in the round
  * Returns the new summary and what was earned this round:
- *   { trophies: [id], stickers: [{ sound, g, tier }], best: ["score" | "words"] }
+ *   { trophies: [id], stickers: [{ sound, g, tier }], best: ["score" | "words"], stars: number }
  * Personal bests only start counting from a student's second round.
  */
 export function applyRound(prev, p, round, t) {
@@ -86,13 +89,14 @@ export function applyRound(prev, p, round, t) {
   s.trophies = { ...s.trophies };
   s.stickers = Object.fromEntries(Object.entries(s.stickers).map(([k, v]) => [k, { ...v }]));
   s.spotted = Object.fromEntries(Object.entries(s.spotted || {}).map(([k, v]) => [k, { ...v }]));
-  const earned = { trophies: [], stickers: [], best: [] };
+  const earned = { trophies: [], stickers: [], best: [], stars: starsForRound(p.score) };
   const award = id => { if (!s.trophies[id]) { s.trophies[id] = t; earned.trophies.push(id); } };
 
   const words = p.words || [], n = words.length, bySpelling = p.bySpelling || {};
   if (s.rounds > 0 && p.score > s.bestScore) earned.best.push("score");
   if (s.rounds > 0 && n > s.bestWords) earned.best.push("words");
   s.rounds += 1;
+  s.stars = (s.stars || 0) + earned.stars;
   s.words += n;
   s.bestScore = Math.max(s.bestScore, p.score);
   s.bestWords = Math.max(s.bestWords, n);

@@ -1,6 +1,7 @@
 import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { applyRound } from "../../shared/rewards.js";
 import { firebaseApp } from "./firebase.js";
+import { pickWallet, buyIn, equipIn } from "./wallet.js";
 
 const db = firebaseApp ? getFirestore(firebaseApp) : null;
 
@@ -16,7 +17,9 @@ export async function loadTeacher(teacher) {
     name: teacher.name, email: teacher.email, lastSeenAt: FieldValue.serverTimestamp(),
     ...(snap.exists ? {} : { createdAt: FieldValue.serverTimestamp() }),
   }, { merge: true });
-  return { name: teacher.name, isNew: !snap.exists, settings: (snap.exists && snap.get("settings")) || null };
+  // A theme saved before the shop is still in the database (settings are merged, never replaced): it no longer counts.
+  const { theme, ...settings } = (snap.exists && snap.get("settings")) || {};
+  return { name: teacher.name, isNew: !snap.exists, settings: Object.keys(settings).length ? settings : null };
 }
 
 export async function saveSettings(teacherId, settings) {
@@ -60,9 +63,12 @@ export async function deleteClass(teacherId, classId) {
 const gamesOf = (teacherId, classId) => classesOf(teacherId).doc(classId).collection("games");
 export const GAMES_SHOWN = 150;
 
-/* ---- rewards: teachers/{uid}/classes/{classId}/students/{studentId} = summary (see shared/rewards.js) + awards ---- */
+/*
+ * ---- rewards: teachers/{uid}/classes/{classId}/students/{studentId} = summary (see shared/rewards.js) + awards
+ *      + the shop wallet (spent, owned, equipped: see wallet.js), which only buyItem and equipItem write ----
+ */
 const studentsOf = (teacherId, classId) => classesOf(teacherId).doc(classId).collection("students");
-const SUMMARY_FIELDS = ["name", "rounds", "words", "bestScore", "bestWords", "weeks", "stickers", "spotted", "trophies"];
+const SUMMARY_FIELDS = ["name", "rounds", "words", "stars", "bestScore", "bestWords", "weeks", "stickers", "spotted", "trophies"];
 const pickSummary = data => Object.fromEntries(SUMMARY_FIELDS.filter(k => data[k] !== undefined).map(k => [k, data[k]]));
 
 /*
@@ -88,21 +94,36 @@ export async function saveRound(teacherId, classId, gameId, record, endedAt) {
       const { summary, earned: e } = applyRound(doc.exists ? pickSummary(doc.data()) : null, record.players[sid], record, endedAt);
       tx.set(doc.ref, { ...pickSummary(summary), name: record.players[sid].name, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       earned[sid] = e;
-      summaries[sid] = { ...pickSummary(summary), awards: (doc.exists && doc.get("awards")) || [] };
+      // spent is read, never written, so the device can be told its new balance.
+      summaries[sid] = { ...pickSummary(summary), awards: (doc.exists && doc.get("awards")) || [], spent: (doc.exists && doc.get("spent")) || 0 };
     });
     tx.set(gameRef, { ...record, endedAt: Timestamp.fromMillis(endedAt) });
     return { status: "saved", earned, summaries };
   });
 }
 
+const studentOut = doc => ({ ...pickSummary(doc.data()), ...pickWallet(doc.data()), awards: doc.get("awards") || [] });
+
 export async function getStudent(teacherId, classId, studentId) {
   const doc = await studentsOf(teacherId, classId).doc(studentId).get();
-  return doc.exists ? { ...pickSummary(doc.data()), awards: doc.get("awards") || [] } : null;
+  return doc.exists ? studentOut(doc) : null;
 }
 
+// Progress: every student's summary and wallet. The class table must not show stars (it may be on a projector).
 export async function listSummaries(teacherId, classId) {
   const snap = await studentsOf(teacherId, classId).get();
-  return Object.fromEntries(snap.docs.map(d => [d.id, { ...pickSummary(d.data()), awards: d.get("awards") || [] }]));
+  return Object.fromEntries(snap.docs.map(d => [d.id, studentOut(d)]));
+}
+
+// The shop. Each is one transaction on the student's document, like addAward (see wallet.js).
+export async function buyItem(teacherId, classId, studentId, itemId, t) {
+  const ref = studentsOf(teacherId, classId).doc(studentId);
+  return db.runTransaction(tx => buyIn(tx, ref, itemId, t));
+}
+
+export async function equipItem(teacherId, classId, studentId, slot, id) {
+  const ref = studentsOf(teacherId, classId).doc(studentId);
+  return db.runTransaction(tx => equipIn(tx, ref, slot, id));
 }
 
 export async function addAward(teacherId, classId, studentId, award, max) {
