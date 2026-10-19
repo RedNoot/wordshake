@@ -117,7 +117,7 @@ export function TrophyGrid({ trophies, compact = false }) {
   const sel = picked && TROPHY_BY_ID[picked];
   return (
     <div style={{ display: "grid", gap: 10 }}>
-      <div style={{
+      <div className="ws-cabinet" style={{
         display: "grid", gridTemplateColumns: `repeat(auto-fill, minmax(${W}px, 1fr))`, gridAutoRows: H, padding: "0 10px",
         background: `${shelves}, var(--ws-cabinet)`, border: `${compact ? 5 : 8}px solid var(--ws-cabinet-edge)`, borderRadius: 14,
         boxShadow: "inset 0 0 26px rgba(0,0,0,.35), 0 8px 18px rgba(0,0,0,.25)",
