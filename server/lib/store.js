@@ -27,7 +27,7 @@ export async function saveSettings(teacherId, settings) {
 }
 
 /* ---- class lists: teachers/{uid}/classes/{classId} = { name, students: [{ id, name }] } ---- */
-const classOut = doc => ({ id: doc.id, name: doc.get("name"), students: doc.get("students") || [] });
+const classOut = doc => ({ id: doc.id, name: doc.get("name"), students: doc.get("students") || [], coopBest: doc.get("coopBest") || {} });
 
 export async function listClasses(teacherId) {
   const snap = await classesOf(teacherId).get();
@@ -98,6 +98,11 @@ export async function saveRound(teacherId, classId, gameId, record, endedAt) {
       summaries[sid] = { ...pickSummary(summary), awards: (doc.exists && doc.get("awards")) || [], spent: (doc.exists && doc.get("spent")) || 0 };
     });
     tx.set(gameRef, { ...record, endedAt: Timestamp.fromMillis(endedAt) });
+    // Class together: the class's own best for this kind of board (most words found between them).
+    const c = record.coop, best = c && (cls.get("coopBest") || {})[c.key];
+    if (c && c.words.length && (!best || c.words.length > best.words)) {
+      tx.set(clsRef, { coopBest: { [c.key]: { words: c.words.length, points: c.points, at: endedAt } } }, { merge: true });
+    }
     return { status: "saved", earned, summaries };
   });
 }

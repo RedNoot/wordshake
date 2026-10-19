@@ -5,7 +5,7 @@ import { TEAMS, MIN_TEAMS, MAX_TEAMS } from "../shared/teams.js";
 
 const btn = { background: "none", border: `1px solid ${T.faint}`, color: T.mist, borderRadius: 10, padding: "9px 16px", cursor: "pointer", fontSize: 15 };
 
-export function Lobby({ room, onStart, onSettings, onClose, onKick, onTeams, onMoveTeam, busy, startLabel, note }) {
+export function Lobby({ room, onStart, onSettings, onClose, onKick, onTeams, onMoveTeam, onCoop, busy, startLabel, note }) {
   const joinHost = window.location.host;
   const joinUrl = `${window.location.origin}/join/${room.code}`;
   const [qr, setQr] = useState("");
@@ -21,6 +21,7 @@ export function Lobby({ room, onStart, onSettings, onClose, onKick, onTeams, onM
 
   const kick = p => { if (window.confirm(`Remove ${p.name} from the game? They can join again.`)) onKick(p.id); };
   const teams = room.teams || 0;
+  const coop = !!room.coop;
 
   // A student's worn avatar (from the shop) goes before their name; the one shop look the whole class sees.
   const face = p => (p.avatar ? <span aria-hidden="true">{p.avatar} </span> : null);
@@ -61,15 +62,22 @@ export function Lobby({ room, onStart, onSettings, onClose, onKick, onTeams, onM
               {room.roster && guests > 0 && ` · ${guests} guest${guests > 1 ? "s" : ""}`}
             </span>
           </div>
-          {/* teams mode */}
+          {/* how the round is played: on your own, in teams, or the whole class together */}
           <div role="group" aria-label="Teams" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
             <span style={{ color: T.mist, fontSize: 16, marginRight: 4 }}>Teams:</span>
-            {[0, ...Array.from({ length: MAX_TEAMS - MIN_TEAMS + 1 }, (_, i) => i + MIN_TEAMS)].map(n => (
-              <button key={n} className="ws-btn" onClick={() => n !== teams && onTeams(n)} aria-pressed={n === teams}
-                style={{ ...btn, fontSize: 15, padding: "6px 13px", background: n === teams ? T.amber : "none", color: n === teams ? T.ink : T.mist, border: `1px solid ${n === teams ? T.amber : T.faint}`, fontWeight: n === teams ? 700 : 400 }}>
-                {n === 0 ? "No teams" : n}
-              </button>
-            ))}
+            {[0, ...Array.from({ length: MAX_TEAMS - MIN_TEAMS + 1 }, (_, i) => i + MIN_TEAMS)].map(n => {
+              const on = !coop && n === teams;
+              return (
+                <button key={n} className="ws-btn" onClick={() => { if (coop && n === 0) onCoop(false); else if (!on) onTeams(n); }} aria-pressed={on}
+                  style={{ ...btn, fontSize: 15, padding: "6px 13px", background: on ? T.amber : "none", color: on ? T.ink : T.mist, border: `1px solid ${on ? T.amber : T.faint}`, fontWeight: on ? 700 : 400 }}>
+                  {n === 0 ? "No teams" : n}
+                </button>
+              );
+            })}
+            <button className="ws-btn" onClick={() => !coop && onCoop(true)} aria-pressed={coop}
+              style={{ ...btn, fontSize: 15, padding: "6px 13px", background: coop ? T.amber : "none", color: coop ? T.ink : T.mist, border: `1px solid ${coop ? T.amber : T.faint}`, fontWeight: coop ? 700 : 400 }}>
+              🤝 Class together
+            </button>
             {teams > 0 && <button className="ws-btn" onClick={() => onTeams(teams)} style={{ ...btn, fontSize: 15, padding: "6px 13px" }}>🔀 Shuffle</button>}
           </div>
           {room.players.length === 0 && <div style={{ color: T.mist, fontSize: 20, padding: "30px 0" }}>Waiting for players…</div>}
@@ -111,7 +119,7 @@ export function Lobby({ room, onStart, onSettings, onClose, onKick, onTeams, onM
         <button className="ws-btn" onClick={onClose} style={btn}>Close room</button>
       </div>
       <p style={{ color: "rgb(var(--ws-fg) / .45)", fontSize: 13.5, margin: 0, textAlign: "center", maxWidth: 640 }}>
-        Students swipe words on their own device and see only their own words and score{teams > 0 ? ". A team's score is all its players' points added up, revealed at the end" : ""}. Anyone who joins after the start plays from the next round.
+        Students swipe words on their own device and see only their own words and score{teams > 0 ? ". A team's score is all its players' points added up, revealed at the end" : ""}{coop ? ". Class together: every new word anyone finds goes up on this screen (no names), and the class tries to beat its own best" : ""}. Anyone who joins after the start plays from the next round.
       </p>
     </main>
   );

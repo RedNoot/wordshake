@@ -13,7 +13,7 @@ const CLASS = { id: "class1", name: "3/4B", students: [{ id: "s1", name: "Ava" }
 // C A T S on the top row, X everywhere else: "cat" and "cats" are the only answers.
 const GAME = size => ({
   tiles: ["C", "A", "T", "S", ...Array(size * size - 4).fill("X")], rots: Array(size * size).fill("0"),
-  solution: { list: ["cat", "cats"], longest: [{ word: "cats" }], phonics: { tagMap: { cat: [[1, 2]] }, bySpelling: { a: [{ word: "cat" }, { word: "cats" }] } } },
+  solution: { list: ["cat", "cats"], total: 2, longest: [{ word: "cats" }], phonics: { tagMap: { cat: [[1, 2]] }, bySpelling: { a: [{ word: "cat" }, { word: "cats" }] } } },
 });
 const ROUND = { seconds: 60, size: 4, minLen: 3, phSound: null, phTicked: [], phBonus: false };
 const TEACHERS = { "tok-a": { id: "teacherA", name: "A" }, "tok-b": { id: "teacherB", name: "B" } };
@@ -413,6 +413,79 @@ test("teams: shared out evenly, late joiners balance, scores added up, devices s
   assert.equal(second.teams, 0);
   assert.equal((await r2).team, null);
   await call(host, "host:close");
+});
+
+test("class together: one shared list, live on the big screen, compared with the class's own best", async () => {
+  pending = [];
+  const host = await client();
+  // A guests-only room (so the class's saved progress, used by the tests below, isn't touched).
+  const { room } = await call(host, "host:open", { idToken: "tok-b" });
+  const ava = await client(), ben = await client();
+  const ja = await call(ava, "player:join", { code: room.code, guestName: "Ava" });
+  await call(ben, "player:join", { code: room.code, guestName: "Ben" });
+
+  // It replaces teams, and teams replace it.
+  await call(host, "host:teams", { count: 2 });
+  assert.deepEqual(await call(host, "host:coop", { on: "yes" }), { error: "invalid" });
+  let update = next(host, "room:update");
+  assert.equal((await call(host, "host:coop", { on: true })).ok, true);
+  let view = await update;
+  assert.deepEqual([view.coop, view.teams], [true, 0]);
+  update = next(host, "room:update");
+  await call(host, "host:teams", { count: 2 });
+  view = await update;
+  assert.deepEqual([view.coop, view.teams], [false, 2]);
+  await call(host, "host:coop", { on: true });
+
+  const avaRound = next(ava, "round:state");
+  const r = await call(host, "host:start", { settings: ROUND });
+  assert.equal(r.coop, true);
+  assert.equal(r.teams, 0);
+  assert.deepEqual((await avaRound).coop, { words: 0, of: 2 });
+  await call(host, "host:clock", { n: r.n, state: "playing", remainingMs: 60000 });
+
+  // A word counts once for the class, however many find it; everyone's own score is as usual.
+  assert.deepEqual(await call(ava, "player:word", { n: r.n, word: "cat" }), { result: "ok", word: "cat", pts: 1, bonus: 0, total: 1, classNew: true });
+  assert.deepEqual(await call(ben, "player:word", { n: r.n, word: "cat" }), { result: "ok", word: "cat", pts: 1, bonus: 0, total: 1, classNew: false });
+  assert.equal((await call(ben, "player:word", { n: r.n, word: "cats" })).classNew, true);
+
+  // The wall goes up at most every half second: one update for both words, no names.
+  assert.equal(pending.filter(t => t.ms === 500).length, 1, "one wall update waiting, not one per word");
+  const wall = next(host, "round:wall"), count = next(ava, "round:coop");
+  runTimers(500);
+  assert.deepEqual(await wall, { n: r.n, words: ["cat", "cats"], of: 2 });
+  assert.deepEqual(await count, { n: r.n, words: 2, of: 2 });
+
+  // A device or the big screen coming back gets the class's progress again.
+  const ava2 = await client();
+  assert.deepEqual((await call(ava2, "player:rejoin", { code: room.code, token: ja.token })).round.coop, { words: 2, of: 2 });
+  assert.deepEqual((await call(host, "host:resume", { idToken: "tok-b" })).round.wall.words, ["cat", "cats"]);
+
+  // The class's total once late words have had their grace window: a first best.
+  await call(host, "host:phase", { phase: "reveal" });
+  const result = next(host, "round:coop-result"), avaResult = next(ava2, "round:coop-result");
+  runTimers();
+  const res = await result;
+  assert.deepEqual(res, { n: r.n, words: 2, of: 2, points: 3, key: "4-3-all", best: null, newBest: true });
+  assert.deepEqual(await avaResult, res);
+
+  // Next time the class is compared with that best (and only that).
+  const r2 = await call(host, "host:start", { settings: ROUND });
+  await call(host, "host:clock", { n: r2.n, state: "playing", remainingMs: 60000 });
+  await call(ava2, "player:word", { n: r2.n, word: "cat" });
+  await call(host, "host:phase", { phase: "reveal" });
+  const res2 = next(host, "round:coop-result");
+  runTimers();
+  assert.deepEqual(await res2, { n: r2.n, words: 1, of: 2, points: 1, key: "4-3-all", best: 2, newBest: false });
+
+  // Off again: an ordinary round.
+  await call(host, "host:coop", { on: false });
+  const r3 = await call(host, "host:start", { settings: ROUND });
+  assert.equal(r3.coop, false);
+  await call(host, "host:clock", { n: r3.n, state: "playing", remainingMs: 60000 });
+  assert.equal("classNew" in await call(ava2, "player:word", { n: r3.n, word: "cat" }), false);
+  await call(host, "host:close");
+  runTimers();
 });
 
 // Runs last: it locks this machine's address out of joining.

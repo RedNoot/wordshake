@@ -25,6 +25,7 @@ export function newRound(n, settings, game, playerIds) {
     idleFrom: new Map(),         // playerId -> when they last found a word or were given a hint
     hints: new Map(),            // playerId -> { word: the current hint, count, given: Set of every hint so far }
     resumedAt: 0,                // when the clock last started or resumed: time paused doesn't count as stuck
+    coop: null,                  // Class together: { wall: Map(word -> pts), first found first } (see coopResult)
   };
 }
 
@@ -69,6 +70,25 @@ export function playerView(round, playerId, t) {
     // Teams mode: this device's team for the round, and the result once the big screen has shown it.
     team: round.teams && round.teams.of.has(playerId) ? round.teams.of.get(playerId) : null,
     teamResult: (round.teamsShown && round.teamResult) || null,
+    // Class together: how many words the class has found so far, and the result once the round is over.
+    coop: round.coop ? { words: round.coop.wall.size, of: game.solution.total } : null,
+    coopResult: round.coopResult || null,
+  };
+}
+
+/*
+ * Class together: everyone fills one list. A word counts once for the class however many students find it,
+ * so the class total is the board's points for the words found between them. Each student's own score is unchanged.
+ * key: which boards are fair to compare (size, shortest word, Sounds-Write or not), for the class's own best.
+ */
+export const coopKey = settings => `${settings.size}-${settings.minLen}-${settings.phSound ? "sw" : "all"}`;
+export function coopResult(round, best = null) {
+  let points = 0;
+  for (const pts of round.coop.wall.values()) points += pts;
+  const words = round.coop.wall.size;
+  return {
+    n: round.n, words, of: round.game.solution.total, points, key: coopKey(round.settings),
+    best: best ? best.words : null, newBest: words > 0 && (!best || words > best.words),
   };
 }
 
@@ -115,7 +135,9 @@ export async function checkWord(round, playerId, raw, t, isRealWord) {
     mine.set(word, { pts, bonus });
     round.found.set(playerId, mine);
     round.idleFrom.set(playerId, t);
-    return { result: "ok", word, pts, bonus, total: playerTotal(round, playerId) };
+    const classNew = !!round.coop && !round.coop.wall.has(word);
+    if (classNew) round.coop.wall.set(word, pts);
+    return { result: "ok", word, pts, bonus, total: playerTotal(round, playerId), ...(round.coop ? { classNew } : {}) };
   }
   if (!findPath(round.game.tiles, round.settings.size, word)) return { result: "board", word };
   if (round.settings.phSound && await isRealWord(word)) return { result: "notlist", word };
@@ -202,5 +224,6 @@ export function roundRecord(round) {
     tiles: game.tiles, boardWords: S.list.length,
     longest: (S.longest || []).map(x => x.word).slice(0, 3),
     available, players,
+    ...(round.coop ? { coop: { words: [...round.coop.wall.keys()], points: coopResult(round).points, key: coopKey(settings) } } : {}),
   };
 }

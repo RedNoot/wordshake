@@ -131,6 +131,9 @@ export function Join({ initialCode }) {
     // Teams mode: the teacher put this device in a team (or turned teams off), and later, which team won.
     const onTeam = t => setTeam(t == null ? null : t);
     const onTeams = result => setRound(cur => cur && cur.n === result.n ? { ...cur, teamResult: result } : cur);
+    // Class together: how many words the whole class has found so far, and the class's total at the end.
+    const onCoop = c => setRound(cur => cur && cur.n === c.n ? { ...cur, coop: { words: c.words, of: c.of } } : cur);
+    const onCoopResult = result => setRound(cur => cur && cur.n === result.n ? { ...cur, coopResult: result } : cur);
     const onRewardsChanged = () => { cabinetCache.current = null; setCabinetFresh(k => k + 1); };
     const onClock = c => setRound(cur => cur && cur.n === c.n ? { ...cur, state: c.state, remainingMs: c.remainingMs, clockAt: Date.now() } : cur);
     const end = reason => () => {
@@ -154,6 +157,8 @@ export function Join({ initialCode }) {
     s.on("round:rewards", onRewards);
     s.on("player:team", onTeam);
     s.on("round:teams", onTeams);
+    s.on("round:coop", onCoop);
+    s.on("round:coop-result", onCoopResult);
     s.on("player:rewards-changed", onRewardsChanged);
     s.on("room:closed", onClosed);
     s.on("room:kicked", onKicked);
@@ -163,6 +168,7 @@ export function Join({ initialCode }) {
     return () => {
       s.off("room:roster", onRoster); s.off("room:looks", onLooks); s.off("room:phase", onPhase); s.off("room:closed", onClosed);
       s.off("round:state", onRoundState); s.off("round:clock", onClock); s.off("round:rewards", onRewards); s.off("player:rewards-changed", onRewardsChanged); s.off("player:team", onTeam); s.off("round:teams", onTeams);
+      s.off("round:coop", onCoop); s.off("round:coop-result", onCoopResult);
       s.off("room:kicked", onKicked); s.off("room:replaced", onReplaced); s.io.off("reconnect", onReconnect);
     };
   }, []); // eslint-disable-line

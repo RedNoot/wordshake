@@ -2,7 +2,7 @@ import { randomBytes, randomInt } from "crypto";
 import { openSeasons } from "../../shared/seasons.js";
 import { cleanGuestName, uniqueName } from "./names.js";
 import { pickRoundSettings } from "./settings.js";
-import { newRound, setClock, remainingMs, playerView, checkWord, giveHint, roundRecord, teamResults, GRACE_MS } from "./round.js";
+import { newRound, setClock, remainingMs, playerView, checkWord, giveHint, roundRecord, teamResults, coopResult, coopKey, GRACE_MS } from "./round.js";
 import { emptySummary } from "../../shared/rewards.js";
 import { ITEM_BY_ID, balanceOf, wornLooks } from "../../shared/shop.js";
 import { walletOut } from "./wallet.js";
@@ -21,6 +21,7 @@ const SAVE_RETRY_MS = [1000, 3000, 10000, 30000];      // a failed save is tried
 const SAVE_RETRY_LATER_MS = 5 * 60 * 1000;            // ...then every 5 minutes for as long as the server runs
 const SNAPSHOT_MS = 2000;                             // a room's changes are written to the database at most this often
 const SNAPSHOT_MAX = 900 * 1000;                      // Firestore's limit is 1MB a document
+const WALL_MS = 500;                                  // Class together: the big screen's word wall is updated at most this often
 
 const newToken = () => randomBytes(16).toString("base64url");
 const newCode = () => Array.from({ length: CODE_LEN }, () => CODE_CHARS[randomInt(CODE_CHARS.length)]).join("");
@@ -31,7 +32,8 @@ const obj = d => (d && typeof d === "object" ? d : {});
  * Live rooms, held in server memory and copied to the database (liveStore), so a server restart doesn't close them.
  * room = { code, teacherId, hostSocket, classId, className, roster: [{ id, name }] | null,
  *          players: Map<playerId, { id, name, studentId, token, socketId, avatar: emoji | null }>, phase, createdAt, hostSeenAt,
- *          round: see round.js | null, roundNo, teams: null | { count, of: Map<playerId, team number> }, ownLooks }
+ *          round: see round.js | null, roundNo, teams: null | { count, of: Map<playerId, team number> }, ownLooks,
+ *          coop: Class together on, coopBest: { [coopKey]: { words, points, at } } the class's own bests }
  * Socket.IO rooms: host:CODE (the big screen), players:CODE (joined devices), lookup:CODE (devices on the name grid).
  */
 export function attachRooms(io, {
@@ -120,6 +122,7 @@ export function attachRooms(io, {
       if (r.state === "playing") watchClock(room, r);          // its time may have run out while the server was down
       if (r.save === "pending") flushRound(room, r);
       if (r.state === "over" && r.teams && !r.teamResult && !r.aborted) finishTeams(room, r);
+      if (r.state === "over" && r.coop && !r.coopResult && !r.aborted) finishCoop(room, r);
     }
     console.log(`Room ${room.code} picked up again after a restart`);
     return room;
@@ -147,7 +150,7 @@ export function attachRooms(io, {
   const players = room => [...room.players.values()];
   const teamOf = (room, playerId) => (room.teams && room.teams.of.has(playerId) ? room.teams.of.get(playerId) : null);
   const hostView = room => ({
-    code: room.code, className: room.className, phase: room.phase, ownLooks: room.ownLooks, teams: room.teams ? room.teams.count : 0,
+    code: room.code, className: room.className, phase: room.phase, ownLooks: room.ownLooks, teams: room.teams ? room.teams.count : 0, coop: !!room.coop,
     roster: room.roster && room.roster.map(s => ({ id: s.id, name: s.name })),
     players: players(room).map(p => ({ id: p.id, name: p.name, studentId: p.studentId, guest: !p.studentId, connected: !!p.socketId, team: teamOf(room, p.id), avatar: p.avatar || null })),
   });
@@ -188,6 +191,7 @@ export function attachRooms(io, {
       if (round.state === "playing" && now() >= round.endsAt && !round.aborted && !room.replaced) {
         finishRound(room, round);
         finishTeams(room, round);
+        finishCoop(room, round);
         if (room.round === round) io.to(`players:${room.code}`).emit("round:clock", { n: round.n, state: "over", remainingMs: 0 });
         markDirty(room);
       }
@@ -287,6 +291,38 @@ export function attachRooms(io, {
     }, GRACE_MS + 100);
   }
 
+  /*
+   * Class together (a third way to play, instead of teams): every new word the class finds goes up on the big screen's
+   * word wall straight away (no names), at most every WALL_MS so a busy class doesn't flood it; devices just get the count.
+   * At the end the class's total is compared with its own best on the same kind of board, never with anyone else.
+   */
+  const wallView = round => ({ n: round.n, words: [...round.coop.wall.keys()], of: round.game.solution.total });
+  function sendWall(room, round = room.round) {
+    if (!round || !round.coop || round.wallTimer) return;
+    round.wallTimer = true;
+    later(() => {
+      round.wallTimer = false;
+      if (room.round !== round) return;
+      const wall = wallView(round);
+      io.to(`host:${room.code}`).emit("round:wall", wall);
+      io.to(`players:${room.code}`).emit("round:coop", { n: round.n, words: wall.words.length, of: wall.of });
+    }, WALL_MS);
+  }
+  function finishCoop(room, round = room.round) {
+    if (!round || !round.coop || round.coopResult || round.coopPending) return;
+    round.coopPending = true;
+    later(() => {
+      const key = coopKey(round.settings), best = (room.coopBest || {})[key] || null;
+      round.coopResult = coopResult(round, best);
+      // The room remembers its new best straight away; the saved round makes it last (see saveRound).
+      if (round.coopResult.newBest) room.coopBest = { ...room.coopBest, [key]: { words: round.coopResult.words, points: round.coopResult.points, at: now() } };
+      markDirty(room);
+      if (room.round !== round) return;
+      io.to(`host:${room.code}`).emit("round:wall", wallView(round));
+      io.to(`host:${room.code}`).to(`players:${room.code}`).emit("round:coop-result", round.coopResult);
+    }, GRACE_MS + 100);
+  }
+
   function closeRoom(room, reason = "closed") {
     // A finished round whose clock has run out is saved even if the room closes straight away.
     if (room.round && timeUp(room.round)) finishRound(room, room.round, { grace: false });
@@ -357,6 +393,7 @@ export function attachRooms(io, {
   const hostRound = room => room.round && {
     n: room.round.n, settings: room.round.settings, game: room.round.game, state: room.round.state, remainingMs: remainingMs(room.round, now()),
     teams: room.round.teams ? room.round.teams.count : 0, teamResult: room.round.teamResult || null,
+    wall: room.round.coop ? wallView(room.round) : null, coopResult: room.round.coopResult || null,
   };
   // Each device gets its own copy (its own words, and whether it joined in time to play).
   function sendRound(room) {
@@ -435,7 +472,7 @@ export function attachRooms(io, {
         code, teacherId: teacher.id, hostSocket: null, classId: cls ? classId : null, className: cls ? cls.name : null,
         roster: cls ? cls.students.map(s => ({ id: s.id, name: s.name })) : null,
         players: new Map(), phase: "lobby", createdAt: now(), hostSeenAt: now(), round: null, roundNo: 0,
-        ownLooks: ownLooks !== false, teams: null,
+        ownLooks: ownLooks !== false, teams: null, coop: false, coopBest: (cls && cls.coopBest) || {},
       };
       rooms.set(code, room);
       byTeacher.set(teacher.id, code);
@@ -468,11 +505,12 @@ export function attachRooms(io, {
       room.round.who = new Map(players(room).map(p => [p.id, { studentId: p.studentId, name: p.name }]));
       // The teams as they stand now; moving someone mid-round only counts from the next round.
       if (room.teams) room.round.teams = { count: room.teams.count, of: new Map(room.teams.of) };
+      if (room.coop) room.round.coop = { wall: new Map() };
       room.phase = "playing";
       sendRound(room);
       notify(room);
       saveNow(room);
-      ack({ ok: true, n: room.round.n, game, teams: room.round.teams ? room.round.teams.count : 0 });
+      ack({ ok: true, n: room.round.n, game, teams: room.round.teams ? room.round.teams.count : 0, coop: !!room.round.coop });
     });
 
     // The big screen runs the clock; the server mirrors it so it knows when to stop accepting words.
@@ -499,7 +537,7 @@ export function attachRooms(io, {
         else finishRound(room);
         if (room.round.state !== "over") setClock(room.round, "over", 0, now());
       }
-      if (phase === "reveal") { finishRound(room); if (!room.round || !room.round.aborted) finishTeams(room); }
+      if (phase === "reveal") { finishRound(room); if (!room.round || !room.round.aborted) { finishTeams(room); finishCoop(room); } }
       const changed = room.phase !== phase;
       room.phase = phase;
       io.to(`players:${room.code}`).emit("room:phase", phase);
@@ -525,9 +563,21 @@ export function attachRooms(io, {
       const room = hostRoom(socket);
       if (!room) return ack({ error: "no-room" });
       if (count === 0) room.teams = null;
-      else if (Number.isInteger(count) && count >= MIN_TEAMS && count <= MAX_TEAMS) shareOutTeams(room, count);
+      else if (Number.isInteger(count) && count >= MIN_TEAMS && count <= MAX_TEAMS) { shareOutTeams(room, count); room.coop = false; }
       else return ack({ error: "invalid teams" });
       sendTeams(room);
+      notify(room);
+      saveNow(room);
+      ack({ ok: true });
+    });
+
+    // Class together on or off. It replaces teams: the whole class is one team.
+    on("host:coop", async ({ on: coop }, ack) => {
+      const room = hostRoom(socket);
+      if (!room) return ack({ error: "no-room" });
+      if (typeof coop !== "boolean") return ack({ error: "invalid" });
+      room.coop = coop;
+      if (coop && room.teams) { room.teams = null; sendTeams(room); }
       notify(room);
       saveNow(room);
       ack({ ok: true });
@@ -629,7 +679,9 @@ export function attachRooms(io, {
       if (!room || !room.players.has(ref.id)) return ack({ error: "not-joined" });
       // Still allowed just after the answers appear: checkWord's grace window decides whether it counts.
       if (!room.round || room.round.n !== n || room.phase === "lobby") return ack({ result: "late" });
-      ack(await checkWord(room.round, ref.id, word, now(), isRealWord));
+      const out = await checkWord(room.round, ref.id, word, now(), isRealWord);
+      if (out.classNew) sendWall(room);
+      ack(out);
     });
 
     // A stuck student's device asks for a hint; the server decides whether it's due and which word to show.

@@ -6,6 +6,7 @@ import { Toggle } from "./components/Toggle.jsx";
 import { Hi } from "./components/Hi.jsx";
 import { Board } from "./components/Board.jsx";
 import { WordOfGame } from "./components/WordOfGame.jsx";
+import { WordWall, bestLine } from "./components/WordWall.jsx";
 import { SoundCard } from "./components/SoundCard.jsx";
 import { signInConfigured, initAuth, signIn, signOut, authFetch, getIdToken } from "./auth.js";
 import { getSocket, call } from "./net.js";
@@ -55,6 +56,8 @@ export default function WordShakeWorkbook() {
   const [rewardsTally, setRewardsTally] = useState(null);  // this round's class totals for the big screen (never who earned what)
   const [roundTeams, setRoundTeams] = useState(0);         // how many teams played this round (0: no teams)
   const [teamResult, setTeamResult] = useState(null);      // the team scores, once the server has added them up
+  const [wall, setWall] = useState(null);                  // Class together: { words, of } found by the class so far (null: not this round)
+  const [coopResult, setCoopResult] = useState(null);      // Class together: the class's total once the round is over
   const [saveStatus, setSaveStatus] = useState(null);  // { n, ok, retrying }: whether this round reached the class's progress
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
@@ -135,6 +138,8 @@ export default function WordShakeWorkbook() {
         setLiveRound(r.n);
         setRoundTeams(r.teams || 0);
         setTeamResult(r.teamResult || null);
+        setWall(r.wall ? { words: r.wall.words, of: r.wall.of } : null);
+        setCoopResult(r.coopResult || null);
         setRemaining(r.remainingMs / 1000);
         if (r.state === "over" || res.room.phase === "reveal") { setStep(0); setPhase("reveal"); }
         else {
@@ -178,6 +183,10 @@ export default function WordShakeWorkbook() {
     const onTally = t => { if (t.n === liveRef.current) setRewardsTally(t); };
     const onTeams = r => { if (r.n === liveRef.current) setTeamResult(r); };
     s.on("round:teams", onTeams);
+    const onWall = w => { if (w.n === liveRef.current) setWall({ words: w.words, of: w.of }); };
+    const onCoopResult = r => { if (r.n === liveRef.current) setCoopResult(r); };
+    s.on("round:wall", onWall);
+    s.on("round:coop-result", onCoopResult);
     // A warning stays up until that round is saved, even if the next round has started.
     const onSaved = st => setSaveStatus(prev => (st.n === liveRef.current || !st.ok || (prev && prev.n === st.n) ? st : prev));
     s.on("room:update", onUpdate);
@@ -187,7 +196,7 @@ export default function WordShakeWorkbook() {
     s.io.on("reconnect", onReconnect);
     return () => {
       s.off("room:update", onUpdate); s.off("host:replaced", onReplaced); s.off("round:rewards-summary", onTally); s.off("round:saved", onSaved);
-      s.off("round:teams", onTeams);
+      s.off("round:teams", onTeams); s.off("round:wall", onWall); s.off("round:coop-result", onCoopResult);
       s.io.off("reconnect", onReconnect);
     };
   }, [account]); // eslint-disable-line
@@ -264,6 +273,7 @@ export default function WordShakeWorkbook() {
   const kick = playerId => call("host:kick", { playerId });
   const setTeams = count => call("host:teams", { count });
   const moveTeam = (playerId, team) => call("host:team-move", { playerId, team });
+  const setCoop = on => call("host:coop", { on });
   const toSettings = () => setPhase(room ? "lobby" : "setup");
 
   const pickSound = id => setSettings(v => ({
@@ -319,6 +329,8 @@ export default function WordShakeWorkbook() {
       setRewardsTally(null);
       setRoundTeams(res.teams || 0);
       setTeamResult(null);
+      setWall(res.coop ? { words: [], of: res.game.solution.total } : null);
+      setCoopResult(null);
       setSaveStatus(st => (st && !st.ok ? st : null));
       setLiveRound(res.n);
       setRoomNote("");
@@ -334,6 +346,7 @@ export default function WordShakeWorkbook() {
       g = await res.json();
       setLiveRound(null);
       setRoundTeams(0);
+      setWall(null);
     }
     setGame(g);
     setBusy(false);
@@ -387,6 +400,7 @@ export default function WordShakeWorkbook() {
   const endNow = () => { gong(); setPhase("reveal"); setStep(0); };
 
   /* ---- reveal steps ---- */
+  const coopOn = !!wall;
   const steps = useMemo(() => {
     if (!game) return [];
     const S = game.solution;
@@ -395,8 +409,9 @@ export default function WordShakeWorkbook() {
     for (const L of S.lens) arr.push({ t: "group", L });
     arr.push({ t: "longest" }, { t: "score" });
     if (roundTeams) arr.push({ t: "teams" });
+    if (coopOn) arr.push({ t: "coop" });
     return arr;
-  }, [game, roundTeams]);
+  }, [game, roundTeams, coopOn]);
   const next = useCallback(() => setStep(s => Math.min(s + 1, steps.length - 1)), [steps.length]);
   const back = useCallback(() => setStep(s => Math.max(s - 1, 0)), []);
 
@@ -500,7 +515,7 @@ export default function WordShakeWorkbook() {
 
       {/* ---------- LOBBY ---------- */}
       {phase === "lobby" && room && (
-        <Lobby room={room} busy={busy} onStart={start} onSettings={() => setPhase("setup")} onClose={closeRoom} onKick={kick} onTeams={setTeams} onMoveTeam={moveTeam} startLabel="Start the round →" note={roomNote} />
+        <Lobby room={room} busy={busy} onStart={start} onSettings={() => setPhase("setup")} onClose={closeRoom} onKick={kick} onTeams={setTeams} onMoveTeam={moveTeam} onCoop={setCoop} startLabel="Start the round →" note={roomNote} />
       )}
 
       {/* today's-sound banner on every game screen */}
@@ -722,7 +737,8 @@ export default function WordShakeWorkbook() {
             )}
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: "100%" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 24, alignItems: "center", justifyContent: "center", width: "100%" }}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
             {soundDef && <div style={{ position: "relative", zIndex: 5, marginBottom: 14 }}><SoundCard soundDef={soundDef} ticked={settings.phTicked} bonus={settings.phBonus} /></div>}
             {S && S.wordOfGame && phase !== "countdown" && <div style={{ marginBottom: 14 }}><WordOfGame word={S.wordOfGame} big /></div>}
             <div style={{ position: "relative" }}>
@@ -741,6 +757,8 @@ export default function WordShakeWorkbook() {
               </div>
             )}
             </div>
+          </div>
+          {wall && phase === "playing" && <WordWall words={wall.words} of={wall.of} height="min(60vh, 560px)" />}
           </div>
 
           {phase === "playing" && (
@@ -819,14 +837,16 @@ export default function WordShakeWorkbook() {
                     <span style={{ color: T.mist, fontWeight: 400, fontSize: 22 }}> · {group.length} found by the board</span>
                   </div>
                   <p style={{ color: T.mist, margin: 0 }}>
-                    {liveRound ? "How many of these did you find?" : "Tick the ones in your book — cross out anything that isn't here."}
+                    {wall ? `Together we found ${group.filter(w => wall.words.includes(w)).length} of these (ticked).` : liveRound ? "How many of these did you find?" : "Tick the ones in your book — cross out anything that isn't here."}
                     {PH && <> Words with <span style={{ color: T.amber }}>today's sound</span> are underlined{settings.phBonus ? " (+2 bonus)" : ""}.</>}
                   </p>
                   <div style={{ overflowY: "auto", width: "100%", minHeight: 0, padding: "6px 4px", display: "grid", gridTemplateColumns: `repeat(auto-fill, minmax(${Math.max(8, L + 3)}ch, 1fr))`, gap: "10px 14px", alignContent: "start" }}>
                     {group.map(w => {
                       const ranges = PH && PH.tagMap[w];
+                      const ours = wall && wall.words.includes(w);   // Class together: found by the class
                       return (
-                        <div key={w} style={{ background: ranges ? "rgb(var(--ws-amber-rgb) / .08)" : "rgb(var(--ws-fg) / .06)", border: `1px solid ${ranges ? "rgb(var(--ws-amber-rgb) / .45)" : T.faint}`, borderRadius: 10, padding: "8px 6px", textAlign: "center" }}>
+                        <div key={w} style={{ position: "relative", background: ours ? "rgb(var(--ws-green-rgb) / .14)" : ranges ? "rgb(var(--ws-amber-rgb) / .08)" : "rgb(var(--ws-fg) / .06)", border: `1px solid ${ours ? "rgb(var(--ws-green-rgb) / .5)" : ranges ? "rgb(var(--ws-amber-rgb) / .45)" : T.faint}`, borderRadius: 10, padding: "8px 6px", textAlign: "center" }}>
+                          {ours && <span aria-label="found by the class" style={{ position: "absolute", top: 2, right: 6, color: T.green, fontSize: 14, fontWeight: 700 }}>✓</span>}
                           {ranges ? <Hi word={w} ranges={ranges} fontSize={20} /> : <span className="ws-display" style={{ fontSize: 20, fontWeight: 600, letterSpacing: 1 }}>{w.toUpperCase()}</span>}
                         </div>
                       );
@@ -893,6 +913,21 @@ export default function WordShakeWorkbook() {
                     {/* the winner lands once the bars have grown */}
                     <div role="status" className="ws-display" style={{ fontSize: "min(9vw,76px)", fontWeight: 700, color: T.amber, lineHeight: 1.1, animation: `ws-slap .8s ${0.15 * teamResult.teams.length + 1.1}s ease both` }}>{winnerLine(teamResult)}</div>
                     <p style={{ color: T.mist, fontSize: 17, margin: 0 }}>A team's score is all its players' points added up. Everyone's trophies and stickers still count for them.</p>
+                  </>
+                )}
+              </div>
+            )}
+
+            {steps[step].t === "coop" && (
+              <div style={{ textAlign: "center", width: "min(860px,94vw)", display: "grid", gap: 18, justifyItems: "center" }}>
+                <div className="ws-display" style={{ fontSize: 30, color: T.mist }}>🤝 How did we do together?</div>
+                {!coopResult && <div style={{ color: T.mist, fontSize: 22 }}>Adding up the class's words…</div>}
+                {coopResult && (
+                  <>
+                    <div className="ws-display" style={{ fontSize: "min(13vw,100px)", fontWeight: 700, color: T.amber, lineHeight: 1.05, animation: "ws-pop .6s ease both" }}>{coopResult.words} of {coopResult.of} words</div>
+                    <div className="ws-display" style={{ fontSize: 30, fontWeight: 600 }}>{coopResult.points} class points</div>
+                    <div role="status" className="ws-display" style={{ fontSize: "min(6vw,44px)", fontWeight: 700, color: coopResult.newBest ? T.green : "var(--ws-text)", lineHeight: 1.15, animation: "ws-slap .8s .9s ease both" }}>{bestLine(coopResult)}</div>
+                    <p style={{ color: T.mist, fontSize: 17, margin: 0 }}>Every word counts once for the class, however many people found it. Everyone's own points, trophies and stickers still count for them.</p>
                   </>
                 )}
               </div>

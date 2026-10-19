@@ -7,6 +7,7 @@ import { WordEffect, BURST_MS } from "./effects.jsx";
 import { wornEffect } from "./looks.js";
 import { RoundRewards, RoundSplash } from "./Trophies.jsx";
 import { TeamBadge, TeamResults, winnerLine } from "./Teams.jsx";
+import { bestLine } from "./components/WordWall.jsx";
 import { WordOfGame } from "./components/WordOfGame.jsx";
 
 const HINT_AFTER_MS = 15000;   // matches the server (server/lib/round.js), which has the final say
@@ -161,6 +162,7 @@ export function Play({ round, name, avatar = "", guest = false, onRound }) {
       <div className="ws-fade" style={{ display: "grid", gap: 14, justifyItems: "center", textAlign: "center", marginTop: 40 }}>
         <div className="ws-display" style={{ fontSize: 52, fontWeight: 700, color: T.amber, animation: "ws-pulse 1s ease infinite" }}>Get ready, {name}!</div>
         {round.team != null && <div style={{ fontSize: 22, color: T.mist }}>Playing for <TeamBadge team={round.team} size={22} /></div>}
+        {round.coop && <div style={{ fontSize: 22, color: T.mist }}>🤝 Class together: every new word you find goes up on the big screen.</div>}
         <div style={{ fontSize: 24, color: T.mist }}>Look at the big screen.</div>
       </div>
     );
@@ -179,6 +181,12 @@ export function Play({ round, name, avatar = "", guest = false, onRound }) {
           <section aria-label="Team scores" style={{ display: "grid", gap: 14, justifyItems: "center", width: "min(92vw, 540px)", background: "rgb(var(--ws-fg) / .05)", borderRadius: 18, padding: "16px 16px 18px", boxSizing: "border-box", animation: "ws-pop .5s ease both" }}>
             <div role="status" className="ws-display" style={{ fontSize: 30, fontWeight: 700, color: T.amber }}>{winnerLine(round.teamResult)}</div>
             <TeamResults result={round.teamResult} mine={round.team} />
+          </section>
+        )}
+        {round.coopResult && (
+          <section aria-label="Class together" style={{ display: "grid", gap: 8, justifyItems: "center", width: "min(92vw, 540px)", background: "rgb(var(--ws-fg) / .05)", borderRadius: 18, padding: "16px 16px 18px", boxSizing: "border-box", animation: "ws-pop .5s ease both" }}>
+            <div className="ws-display" style={{ fontSize: 28, fontWeight: 700, color: T.amber }}>🤝 Together: {round.coopResult.words} of {round.coopResult.of} words</div>
+            <div role="status" style={{ fontSize: 19, color: round.coopResult.newBest ? T.green : T.mist }}>{bestLine(round.coopResult)}</div>
           </section>
         )}
         <RoundRewards rewards={round.rewards} stars={guest || !r ? null : r.stars} />
@@ -213,6 +221,11 @@ export function Play({ round, name, avatar = "", guest = false, onRound }) {
           <span style={{ color: T.mist, fontWeight: 500 }}> · {round.words.length} {round.words.length === 1 ? "word" : "words"}</span>
         </span>
       </div>
+      {round.coop && (
+        <div aria-live="polite" style={{ width: dim, fontSize: 17, color: T.mist }}>
+          🤝 Class: <b key={round.coop.words} style={{ color: T.green, display: "inline-block", animation: "ws-pop .4s ease both" }}>{round.coop.words}</b> of {round.coop.of} words found together
+        </div>
+      )}
 
       {sound && (
         <div className="ws-display" style={{ width: dim, boxSizing: "border-box", background: T.amber, color: T.ink, borderRadius: 12, padding: "6px 14px", fontSize: 18, fontWeight: 700, textAlign: "center" }}>

@@ -16,7 +16,7 @@ export function snapshotRoom(room, t) {
     code: room.code, teacherId: room.teacherId, classId: room.classId, className: room.className, roster: room.roster,
     phase: room.phase, ownLooks: room.ownLooks, createdAt: room.createdAt, roundNo: room.roundNo,
     players: [...room.players.values()].map(({ id, name, studentId, token, avatar }) => ({ id, name, studentId, token, avatar: avatar || null })),
-    teams: teamsOut(room.teams),
+    teams: teamsOut(room.teams), coop: !!room.coop, coopBest: room.coopBest || {},
     round: r && {
       n: r.n, settings: r.settings, game: r.game, state: r.state, endsAt: r.endsAt, left: r.left,
       id: r.id, endedAt: r.endedAt, aborted: !!r.aborted, cutShort: !!r.cutShort,
@@ -25,6 +25,7 @@ export function snapshotRoom(room, t) {
       found: pairs(r.found).map(([playerId, words]) => [playerId, pairs(words)]),
       submits: pairs(r.submits), eligible: [...r.eligible], who: r.who ? pairs(r.who) : [],
       teams: teamsOut(r.teams), teamResult: r.teamResult || null, teamsShown: !!r.teamsShown,
+      coop: r.coop ? pairs(r.coop.wall) : null, coopResult: r.coopResult || null,
       rewards: r.rewards ? pairs(r.rewards) : null,
       idleFrom: pairs(r.idleFrom || new Map()), resumedAt: r.resumedAt || 0,
       hints: pairs(r.hints || new Map()).map(([playerId, h]) => [playerId, { word: h.word, count: h.count, given: [...h.given] }]),
@@ -38,6 +39,7 @@ export function restoreRoom(s) {
     players: new Map(s.players.map(p => [p.id, { ...p, avatar: p.avatar || null, socketId: null }])),
     // A room kept before the shop has a theme instead: it's left behind, and own looks are on as by default.
     phase: s.phase, ownLooks: s.ownLooks !== false, createdAt: s.createdAt, roundNo: s.roundNo, teams: teamsIn(s.teams),
+    coop: !!s.coop, coopBest: s.coopBest || {},
     round: null, savedAt: s.savedAt,
   };
   const x = s.round;
@@ -46,6 +48,7 @@ export function restoreRoom(s) {
     Object.assign(r, {
       state: x.state, endsAt: x.endsAt, left: x.left, id: x.id, endedAt: x.endedAt, aborted: x.aborted, cutShort: x.cutShort,
       save: x.save || undefined, teamResult: x.teamResult || undefined, teamsShown: x.teamsShown,
+      coop: x.coop ? { wall: new Map(x.coop) } : null, coopResult: x.coopResult || undefined,
       found: new Map(x.found.map(([playerId, words]) => [playerId, new Map(words)])),
       submits: new Map(x.submits), who: new Map(x.who), teams: teamsIn(x.teams),
       rewards: x.rewards ? new Map(x.rewards) : undefined,
