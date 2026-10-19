@@ -22,15 +22,17 @@ export function Lobby({ room, onStart, onSettings, onClose, onKick, onTeams, onM
   const kick = p => { if (window.confirm(`Remove ${p.name} from the game? They can join again.`)) onKick(p.id); };
   const teams = room.teams || 0;
 
+  // A student's worn avatar (from the shop) goes before their name; the one shop look the whole class sees.
+  const face = p => (p.avatar ? <span aria-hidden="true">{p.avatar} </span> : null);
   const chip = (p, team = null) => (
     <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 4, animation: "ws-pop .45s ease both", opacity: p.connected ? 1 : 0.45, background: p.guest ? "rgb(var(--ws-fg) / .06)" : "rgb(var(--ws-amber-rgb) / .12)", border: `1px solid ${p.guest ? T.faint : "rgb(var(--ws-amber-rgb) / .4)"}`, borderRadius: 999, padding: team == null ? "6px 6px 6px 16px" : "2px 4px 2px 4px" }}>
       {team == null
-        ? <span className="ws-display" style={{ fontSize: 22, fontWeight: 600 }}>{p.name}</span>
+        ? <span className="ws-display" style={{ fontSize: 22, fontWeight: 600 }}>{face(p)}{p.name}</span>
         : (
           // In teams mode, tapping a name moves that student along to the next team.
           <button className="ws-btn ws-display" onClick={() => onMoveTeam(p.id, (team + 1) % teams)} title={`Move to ${TEAMS[(team + 1) % teams].name}`}
             aria-label={`${p.name}, in ${TEAMS[team].name}. Move to ${TEAMS[(team + 1) % teams].name}`}
-            style={{ background: "none", border: "none", color: "var(--ws-text)", cursor: "pointer", fontSize: 20, fontWeight: 600, padding: "4px 4px 4px 12px" }}>{p.name}</button>
+            style={{ background: "none", border: "none", color: "var(--ws-text)", cursor: "pointer", fontSize: 20, fontWeight: 600, padding: "4px 4px 4px 12px" }}>{face(p)}{p.name}</button>
         )}
       {p.guest && <span style={{ fontSize: 12, color: T.mist }}>guest</span>}
       {!p.connected && <span style={{ fontSize: 12, color: T.mist }}>reconnecting</span>}

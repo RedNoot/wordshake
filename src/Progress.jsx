@@ -4,6 +4,7 @@ import { authFetch } from "./auth.js";
 import { SOUND_BY_ID } from "./sounds.js";
 import { TrophyGrid, StickerBook } from "./Trophies.jsx";
 import { TROPHIES, AWARD_PRESETS, AWARD_LABEL_MAX } from "../shared/rewards.js";
+import { ITEM_BY_ID, balanceOf } from "../shared/shop.js";
 
 /*
  * Teacher-only progress for one class, built from the rounds saved at the end of each class-list game.
@@ -224,6 +225,29 @@ export function Progress({ classes, onDone }) {
   );
 }
 
+// One student's shop stars and what they've got with them. Only ever in this one-student view, never the class
+// table: stars aren't for comparing.
+function Wallet({ summary }) {
+  const stars = (summary && summary.stars) || 0, owned = Object.keys((summary && summary.owned) || {});
+  const items = owned.map(id => ITEM_BY_ID[id]).filter(Boolean);
+  return (
+    <section style={{ ...card, display: "grid", gap: 10 }}>
+      <div className="ws-display" style={{ fontSize: 20, fontWeight: 700 }}>
+        ⭐ {balanceOf(summary)} to spend <span style={{ color: T.mist, fontWeight: 500, fontSize: 16 }}>· {stars} earned</span>
+      </div>
+      {items.length ? (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {items.map(i => (
+            <span key={i.id} style={{ display: "flex", alignItems: "center", gap: 6, background: "rgb(var(--ws-fg) / .06)", borderRadius: 999, padding: "4px 12px", fontSize: 15 }}>
+              <span aria-hidden="true">{i.emoji}</span>{i.name}
+            </span>
+          ))}
+        </div>
+      ) : <div style={{ color: T.mist, fontSize: 15 }}>Nothing from the shop yet. Every round played earns stars to spend there.</div>}
+    </section>
+  );
+}
+
 function StudentDetail({ s, summary, onGive, onRemove, onBack, onRound }) {
   const rounds = s.rounds;   // oldest first
   const allWords = rounds.flatMap(r => r.p.words);
@@ -262,6 +286,8 @@ function StudentDetail({ s, summary, onGive, onRemove, onBack, onRound }) {
           <div key={k} style={card}><div style={{ color: T.mist, fontSize: 13, textTransform: "uppercase", letterSpacing: 1 }}>{k}</div><div className="ws-display" style={{ fontSize: 28, fontWeight: 700, color: T.amber, wordBreak: "break-word" }}>{v}</div></div>
         ))}
       </div>
+
+      <Wallet summary={summary} />
 
       {s.current && <Awards name={s.name} awards={(summary && summary.awards) || []} onGive={onGive} onRemove={onRemove} />}
 
