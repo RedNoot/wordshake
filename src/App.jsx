@@ -56,7 +56,7 @@ export default function WordShakeWorkbook() {
   const [rewardsTally, setRewardsTally] = useState(null);  // this round's class totals for the big screen (never who earned what)
   const [roundTeams, setRoundTeams] = useState(0);         // how many teams played this round (0: no teams)
   const [teamResult, setTeamResult] = useState(null);      // the team scores, once the server has added them up
-  const [wall, setWall] = useState(null);                  // Class together: { words, of } found by the class so far (null: not this round)
+  const [wall, setWall] = useState(null);                  // Class together: { words, counts, of } found by the class so far (null: not this round)
   const [coopResult, setCoopResult] = useState(null);      // Class together: the class's total once the round is over
   const [saveStatus, setSaveStatus] = useState(null);  // { n, ok, retrying }: whether this round reached the class's progress
   const phaseRef = useRef(phase);
@@ -138,7 +138,7 @@ export default function WordShakeWorkbook() {
         setLiveRound(r.n);
         setRoundTeams(r.teams || 0);
         setTeamResult(r.teamResult || null);
-        setWall(r.wall ? { words: r.wall.words, of: r.wall.of } : null);
+        setWall(r.wall ? { words: r.wall.words, counts: r.wall.counts, of: r.wall.of } : null);
         setCoopResult(r.coopResult || null);
         setRemaining(r.remainingMs / 1000);
         if (r.state === "over" || res.room.phase === "reveal") { setStep(0); setPhase("reveal"); }
@@ -183,7 +183,7 @@ export default function WordShakeWorkbook() {
     const onTally = t => { if (t.n === liveRef.current) setRewardsTally(t); };
     const onTeams = r => { if (r.n === liveRef.current) setTeamResult(r); };
     s.on("round:teams", onTeams);
-    const onWall = w => { if (w.n === liveRef.current) setWall({ words: w.words, of: w.of }); };
+    const onWall = w => { if (w.n === liveRef.current) setWall({ words: w.words, counts: w.counts, of: w.of }); };
     const onCoopResult = r => { if (r.n === liveRef.current) setCoopResult(r); };
     s.on("round:wall", onWall);
     s.on("round:coop-result", onCoopResult);
@@ -329,7 +329,7 @@ export default function WordShakeWorkbook() {
       setRewardsTally(null);
       setRoundTeams(res.teams || 0);
       setTeamResult(null);
-      setWall(res.coop ? { words: [], of: res.game.solution.total } : null);
+      setWall(res.coop ? { words: [], counts: [], of: res.game.solution.total } : null);
       setCoopResult(null);
       setSaveStatus(st => (st && !st.ok ? st : null));
       setLiveRound(res.n);
@@ -758,7 +758,7 @@ export default function WordShakeWorkbook() {
             )}
             </div>
           </div>
-          {wall && phase === "playing" && <WordWall words={wall.words} of={wall.of} height="min(60vh, 560px)" />}
+          {wall && phase === "playing" && <WordWall words={wall.words} counts={wall.counts} of={wall.of} height="min(66vh, 620px)" />}
           </div>
 
           {phase === "playing" && (

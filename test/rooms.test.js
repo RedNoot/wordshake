@@ -449,11 +449,11 @@ test("class together: one shared list, live on the big screen, compared with the
   assert.deepEqual(await call(ben, "player:word", { n: r.n, word: "cat" }), { result: "ok", word: "cat", pts: 1, bonus: 0, total: 1, classNew: false });
   assert.equal((await call(ben, "player:word", { n: r.n, word: "cats" })).classNew, true);
 
-  // The wall goes up at most every half second: one update for both words, no names.
+  // The wall goes up at most every half second: one update for all three finds, no names; cat found by two grows.
   assert.equal(pending.filter(t => t.ms === 500).length, 1, "one wall update waiting, not one per word");
   const wall = next(host, "round:wall"), count = next(ava, "round:coop");
   runTimers(500);
-  assert.deepEqual(await wall, { n: r.n, words: ["cat", "cats"], of: 2 });
+  assert.deepEqual(await wall, { n: r.n, words: ["cat", "cats"], counts: [2, 1], of: 2 });
   assert.deepEqual(await count, { n: r.n, words: 2, of: 2 });
 
   // A device or the big screen coming back gets the class's progress again.

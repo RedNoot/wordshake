@@ -292,11 +292,17 @@ export function attachRooms(io, {
   }
 
   /*
-   * Class together (a third way to play, instead of teams): every new word the class finds goes up on the big screen's
-   * word wall straight away (no names), at most every WALL_MS so a busy class doesn't flood it; devices just get the count.
-   * At the end the class's total is compared with its own best on the same kind of board, never with anyone else.
+   * Class together (a third way to play, instead of teams): every word the class finds drops onto the big screen's
+   * word pile (no names), and grows each time another student finds it too; sent at most every WALL_MS so a busy class
+   * doesn't flood it; devices just get the count. At the end the class's total is compared with its own best on the
+   * same kind of board, never with anyone else.
+   * counts[i]: how many students have found words[i] (read from round.found, so a restart keeps it).
    */
-  const wallView = round => ({ n: round.n, words: [...round.coop.wall.keys()], of: round.game.solution.total });
+  const wallView = round => {
+    const words = [...round.coop.wall.keys()];
+    const counts = words.map(w => { let c = 0; for (const mine of round.found.values()) if (mine.has(w)) c++; return c; });
+    return { n: round.n, words, counts, of: round.game.solution.total };
+  };
   function sendWall(room, round = room.round) {
     if (!round || !round.coop || round.wallTimer) return;
     round.wallTimer = true;
@@ -680,7 +686,7 @@ export function attachRooms(io, {
       // Still allowed just after the answers appear: checkWord's grace window decides whether it counts.
       if (!room.round || room.round.n !== n || room.phase === "lobby") return ack({ result: "late" });
       const out = await checkWord(room.round, ref.id, word, now(), isRealWord);
-      if (out.classNew) sendWall(room);
+      if (out.result === "ok" && room.round.coop) sendWall(room);   // a new word drops in, a repeat makes it grow
       ack(out);
     });
 
