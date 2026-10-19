@@ -136,7 +136,7 @@ export function Shop({ name, cached, ownLooks = true, onLoaded, onWorn, onClose,
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
 
   const take = res => {
-    const next = { wallet: res.wallet, trophies: res.trophies || (data && data.trophies) || {}, worn: res.worn };
+    const next = { wallet: res.wallet, trophies: res.trophies || (data && data.trophies) || {}, worn: res.worn, seasons: res.seasons || [] };
     setData(next);
     if (onLoaded) onLoaded(next);
     return next;
