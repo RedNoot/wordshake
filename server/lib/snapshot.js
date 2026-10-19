@@ -14,8 +14,8 @@ export function snapshotRoom(room, t) {
   return {
     v: 1, savedAt: t,
     code: room.code, teacherId: room.teacherId, classId: room.classId, className: room.className, roster: room.roster,
-    phase: room.phase, theme: room.theme, createdAt: room.createdAt, roundNo: room.roundNo,
-    players: [...room.players.values()].map(({ id, name, studentId, token }) => ({ id, name, studentId, token })),
+    phase: room.phase, ownLooks: room.ownLooks, createdAt: room.createdAt, roundNo: room.roundNo,
+    players: [...room.players.values()].map(({ id, name, studentId, token, avatar }) => ({ id, name, studentId, token, avatar: avatar || null })),
     teams: teamsOut(room.teams),
     round: r && {
       n: r.n, settings: r.settings, game: r.game, state: r.state, endsAt: r.endsAt, left: r.left,
@@ -35,8 +35,9 @@ export function snapshotRoom(room, t) {
 export function restoreRoom(s) {
   const room = {
     code: s.code, teacherId: s.teacherId, hostSocket: null, classId: s.classId, className: s.className, roster: s.roster,
-    players: new Map(s.players.map(p => [p.id, { ...p, socketId: null }])),
-    phase: s.phase, theme: s.theme, createdAt: s.createdAt, roundNo: s.roundNo, teams: teamsIn(s.teams),
+    players: new Map(s.players.map(p => [p.id, { ...p, avatar: p.avatar || null, socketId: null }])),
+    // A room kept before the shop has a theme instead: it's left behind, and own looks are on as by default.
+    phase: s.phase, ownLooks: s.ownLooks !== false, createdAt: s.createdAt, roundNo: s.roundNo, teams: teamsIn(s.teams),
     round: null, savedAt: s.savedAt,
   };
   const x = s.round;

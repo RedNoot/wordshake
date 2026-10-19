@@ -45,7 +45,7 @@ test("old summaries (today's-sound counts only) keep the tiers they had", () => 
 
 test("a first round: trophies for turning up, no personal bests yet", () => {
   const { summary, earned } = applyRound(null, { words: [], score: 0, bySpelling: {} }, plain, MON);
-  assert.deepEqual(earned, { trophies: ["first-round"], stickers: [], best: [] });
+  assert.deepEqual(earned, { trophies: ["first-round"], stickers: [], best: [], stars: 5 });
   assert.equal(summary.rounds, 1);
   assert.deepEqual(summary.weeks, ["2026-W41"]);
 });
@@ -63,7 +63,7 @@ test("words, stickers, full set and personal bests", () => {
 
   // Two more ay words: silver. Nothing earned twice; a lower score isn't a best.
   const again = applyRound(summary, { words: ["day", "way"], score: 2, bySpelling: { ay: ["day", "way"] } }, sw, MON + 2 * day);
-  assert.deepEqual(again.earned, { trophies: [], stickers: [{ sound: "ae", g: "ay", tier: 2 }], best: [] });
+  assert.deepEqual(again.earned, { trophies: [], stickers: [{ sound: "ae", g: "ay", tier: 2 }], best: [], stars: 7 });
 });
 
 test("full set needs every spelling that was on the board, and at least two", () => {
@@ -84,4 +84,15 @@ test("lifetime and weekly trophies; collector and gold", () => {
   const gold = applyRound(s, { words: ["x"], score: 1, bySpelling: { g0: Array(15).fill("x") } }, { settings: { phSound: "s0" }, available: {} }, MON);
   assert.ok(gold.earned.trophies.includes("gold-sticker"));
   assert.equal(got.length, new Set(got).size, "each trophy once");
+});
+
+test("stars: every saved round earns its score plus 5, and they only ever add up", () => {
+  const first = applyRound(null, { words: [], score: 0, bySpelling: {} }, plain, MON);
+  assert.equal(first.summary.stars, 5, "turning up earns stars");
+  const second = applyRound(first.summary, { words: ["cat", "cats"], score: 12, bySpelling: {} }, plain, MON);
+  assert.equal(second.earned.stars, 17);
+  assert.equal(second.summary.stars, 22);
+  assert.equal(first.summary.stars, 5, "the old summary isn't changed");
+  const old = { rounds: 3, words: 20, bestScore: 5, bestWords: 5, weeks: [], stickers: {}, trophies: {} };
+  assert.equal(applyRound(old, { words: [], score: -3, bySpelling: {} }, plain, MON).summary.stars, 5, "a summary from before the shop starts at 0");
 });
