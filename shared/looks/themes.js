@@ -46,6 +46,12 @@ $SEL .ws-root,$SEL.ws-root{isolation:isolate}
 ${PAT}{content:"";position:fixed;inset:0;pointer-events:none;z-index:-1;${body}}
 @media (prefers-reduced-motion: reduce){${PAT}{animation:none !important}}
 `;
+// A second layer, for themes that need two speeds (or one still and one moving).
+const PAT2 = "$SEL .ws-root::after,$SEL.ws-root::after";
+const behind2 = body => `
+${PAT2}{content:"";position:fixed;inset:0;pointer-events:none;z-index:-1;${body}}
+@media (prefers-reduced-motion: reduce){${PAT2}{animation:none !important}}
+`;
 const STARS = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='230' height='230' fill='white'><circle cx='12' cy='20' r='1.2'/><circle cx='70' cy='60' r='.8'/><circle cx='150' cy='14' r='1.5'/><circle cx='200' cy='90' r='1'/><circle cx='40' cy='130' r='1.6'/><circle cx='110' cy='110' r='.9'/><circle cx='180' cy='170' r='1.3'/><circle cx='90' cy='200' r='1'/><circle cx='20' cy='210' r='.8'/><circle cx='130' cy='160' r='.7'/></svg>")`;
 
 export const THEMES = [
@@ -103,7 +109,9 @@ $SEL .ws-root::after{content:"";position:fixed;inset:0;pointer-events:none;z-ind
     },
     css: behind(`top:0;bottom:-320px;opacity:.5;animation:ws-th-rise 40s linear infinite;
   background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='320' fill='white' fill-opacity='.10' stroke='white' stroke-opacity='.28' stroke-width='1.5'><circle cx='30' cy='290' r='9'/><circle cx='58' cy='240' r='4'/><circle cx='120' cy='180' r='14'/><circle cx='190' cy='280' r='6'/><circle cx='210' cy='120' r='10'/><circle cx='80' cy='70' r='6'/><circle cx='160' cy='40' r='3.5'/><circle cx='20' cy='150' r='4.5'/></svg>")`)
-      + "@keyframes ws-th-rise{to{transform:translateY(-320px)}}\n",
+      + behind2(`opacity:.6;animation:ws-th-swim 80s linear infinite;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='640' height='420' fill='white' fill-opacity='.16'><defs><g id='f'><ellipse rx='18' ry='9'/><path d='M-14 0L-29-10V10z'/></g></defs><use href='%23f' transform='translate(120 90)'/><use href='%23f' transform='translate(450 240) scale(.65)'/><use href='%23f' transform='translate(270 360) scale(1.3)'/><use href='%23f' transform='translate(505 268) scale(.5)'/></svg>")`)
+      + "@keyframes ws-th-rise{to{transform:translateY(-320px)}}\n@keyframes ws-th-swim{to{background-position:640px 0}}\n",
   },
   {
     // A mossy wood: dark moss page, a bark-brown dice tray, birch-cream dice and an acorn-gold highlight.
@@ -116,8 +124,9 @@ $SEL .ws-root::after{content:"";position:fixed;inset:0;pointer-events:none;z-ind
       mist: "#AEC4A7", faint: "rgba(255,255,255,0.08)", "on-light": "#15241A", sticker: "#4E8F3E", bar: "#7A9A3A",
       ...FONTS,
     },
-    css: behind(`opacity:.6;
-  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180' fill='%239BDB6E' fill-opacity='.10'><path d='M30 40c10-14 26-14 30 0-10 10-22 10-30 0z'/><path d='M130 120c10-14 26-14 30 0-10 10-22 10-30 0z' transform='rotate(30 145 120)'/><path d='M80 150c8-11 20-11 23 0-8 8-17 8-23 0z' transform='rotate(-25 92 150)'/></svg>")`),
+    css: behind(`top:-240px;bottom:0;animation:ws-th-fall 70s linear infinite;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><defs><g id='l'><path d='M0 0C7-11 23-13 34-8C27 3 11 7 0 0z'/><path d='M3-1L29-7' fill='none' stroke='%2315241A' stroke-opacity='.45' stroke-width='1.3'/></g></defs><g fill='%239BDB6E' fill-opacity='.26'><use href='%23l' transform='translate(20 40) rotate(-10)'/><use href='%23l' transform='translate(150 110) rotate(35) scale(1.2)'/><use href='%23l' transform='translate(70 190) rotate(-40) scale(.9)'/></g><g fill='%23F5B83D' fill-opacity='.22'><use href='%23l' transform='translate(170 20) rotate(60) scale(.8)'/><use href='%23l' transform='translate(30 120) rotate(15) scale(.7)'/><use href='%23l' transform='translate(190 200) rotate(-70) scale(.75)'/></g></svg>")`)
+      + "@keyframes ws-th-fall{to{transform:translateY(240px)}}\n",
   },
   {
     // A bright day out: pale-sky page, a sky-blue tray, a sunny glow at the top and a marigold highlight.
@@ -161,11 +170,11 @@ $SEL .ws-root::after{content:"";position:fixed;inset:0;pointer-events:none;z-ind
       mist: "#ABA8D6", faint: "rgba(255,255,255,0.09)", "on-light": "#07071A", sticker: "#6A5CE0", bar: "#7A6BEA",
       ...FONTS,
     },
-    css: behind(`background-image:${STARS};animation:ws-th-twinkle 7s ease-in-out infinite alternate`)
-      + `$SEL .ws-root::after,$SEL.ws-root::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:-1;background-image:${STARS};background-position:47px 83px;background-size:173px 173px;opacity:.25;animation:ws-th-twinkle 5s ease-in-out -2.5s infinite alternate-reverse}
-@media (prefers-reduced-motion: reduce){$SEL .ws-root::after,$SEL.ws-root::after{animation:none !important}}
-@keyframes ws-th-twinkle{from{opacity:.4}to{opacity:.95}}
-`,
+    css: behind(`background-image:${STARS},${STARS};background-position:0 0,47px 83px;background-size:auto,173px 173px;animation:ws-th-twinkle 7s ease-in-out infinite alternate`)
+      + behind2(`opacity:.7;background-repeat:no-repeat;background-position:right 4% top 9%,right 6% bottom 5%;background-size:min(34vw,150px) auto,min(14vw,60px) auto;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 80'><defs><radialGradient id='p' cx='.35' cy='.3'><stop offset='0' stop-color='%23CFC2FF'/><stop offset='.6' stop-color='%236A5CE0'/><stop offset='1' stop-color='%232A2266'/></radialGradient></defs><g transform='rotate(-16 60 40)' fill='none' stroke='%23FFC93D' stroke-opacity='.75' stroke-width='3'><ellipse cx='60' cy='40' rx='52' ry='11'/></g><circle cx='60' cy='40' r='24' fill='url(%23p)'/><g transform='rotate(-16 60 40)' fill='none' stroke='%23FFC93D' stroke-opacity='.85' stroke-width='3'><path d='M8 40A52 11 0 0 0 112 40'/></g></svg>"),
+  url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 50 50'><defs><radialGradient id='m' cx='.35' cy='.3'><stop offset='0' stop-color='%23FFC2A8'/><stop offset='.7' stop-color='%23E0607E'/><stop offset='1' stop-color='%237A2A4A'/></radialGradient></defs><circle cx='25' cy='25' r='21' fill='url(%23m)'/><circle cx='18' cy='30' r='4' fill='%237A2A4A' fill-opacity='.35'/><circle cx='31' cy='17' r='2.5' fill='%237A2A4A' fill-opacity='.3'/></svg>")`)
+      + "@keyframes ws-th-twinkle{from{opacity:.4}to{opacity:.95}}\n",
   },
   {
     // A volcano at night: charcoal rock, a basalt tray, lava-orange highlights and an ember glow rising from below.
@@ -195,7 +204,7 @@ $SEL .ws-root::after{content:"";position:fixed;inset:0;pointer-events:none;z-ind
       page: "#F4FAFD", "page-muted": "#4C6779", "page-accent": "#1660C8", binding: "#2F739A",
     },
     css: behind(`top:-300px;bottom:0;opacity:.9;animation:ws-th-snow 45s linear infinite;
-  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='300' fill='%23B9D9EC'><circle cx='20' cy='30' r='3'/><circle cx='90' cy='80' r='2'/><circle cx='170' cy='20' r='2.5'/><circle cx='140' cy='150' r='3.5'/><circle cx='40' cy='200' r='2'/><circle cx='200' cy='240' r='3'/><circle cx='110' cy='270' r='2'/><circle cx='70' cy='130' r='1.8'/></svg>")`)
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='300'><defs><path id='a' d='M0 0V-10M-3.2-7.4L0-4.8L3.2-7.4'/><g id='f'><use href='%23a'/><use href='%23a' transform='rotate(60)'/><use href='%23a' transform='rotate(120)'/><use href='%23a' transform='rotate(180)'/><use href='%23a' transform='rotate(240)'/><use href='%23a' transform='rotate(300)'/></g></defs><g fill='none' stroke='%2389BCDB' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'><use href='%23f' transform='translate(28 34)'/><use href='%23f' transform='translate(168 26) scale(.7)'/><use href='%23f' transform='translate(96 92) scale(.55)'/><use href='%23f' transform='translate(145 160) scale(1.15)'/><use href='%23f' transform='translate(40 205) scale(.75)'/><use href='%23f' transform='translate(196 248) scale(.6)'/><use href='%23f' transform='translate(105 272) scale(.9)'/></g></svg>")`)
       + "@keyframes ws-th-snow{to{transform:translateY(300px)}}\n",
   },
   {
@@ -218,11 +227,13 @@ $SEL .ws-btn.ws-display{box-shadow:0 0 14px rgb(var(--ws-amber-rgb) / .35)}
 `,
   },
   {
-    // The Keen bean prize: deep chocolate-black, ivory dice with a gold lip, a velvet sticker cabinet and a slow golden shimmer.
+    // The Keen bean prize, in polished metal: gold dice (a touch darker low down than the contrast rule likes, on purpose),
+    // a bronze tray with a bright rim, brushed-metal grain, a slow sheen sweeping across, a gold frame round the screen
+    // and a velvet sticker cabinet.
     id: "golden", slot: "theme", name: "Golden", emoji: "✨", price: 0, unlock: "weeks-10", scheme: "dark",
     vars: {
       ink: "#1C1408", "ink-rgb": "28 20 8", text: "#FFF6E0", fg: "255 255 255", glow: "#4A3410",
-      well: "#6A4A14", "well-edge": "#D9A632", dice: "#FFF8E6", "dice-edge": "#E2C06A", letter: "#2A1C06", "letter-lit": "#2A1C06",
+      well: "#5A3E0E", "well-edge": "#F2C94C", dice: "#F0CC5C", "dice-edge": "#8A6410", letter: "#2A1C06", "letter-lit": "#2A1C06",
       amber: "#FFC93C", "amber-rgb": "255 201 60", "amber-soft": "#FFE28A", "amber-edge": "#B8860B",
       red: "#FF7A6E", "red-rgb": "255 122 110", green: "#8FDB7E", "green-rgb": "143 219 126",
       mist: "#D2BF98", faint: "rgba(255,230,170,0.12)", "on-light": "#1C1408", sticker: "#D9A632", bar: "#E0B040",
@@ -230,8 +241,13 @@ $SEL .ws-btn.ws-display{box-shadow:0 0 14px rgb(var(--ws-amber-rgb) / .35)}
       cabinet: "#3D0F1F", "cabinet-edge": "#1A050C", shelf: "#D9A632", "shelf-edge": "#8A6410", silhouette: "brightness(0) invert(1) opacity(.18)", "sticker-font": "var(--ws-font-display)",
       page: "#FFF8E7", "page-muted": "#6E5A36", "page-accent": "#8F5200", binding: "#B8860B",
     },
-    css: behind(`opacity:.8;
-  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200' fill='%23FFD970'><path d='M40 30l2 7 7 2-7 2-2 7-2-7-7-2 7-2z' fill-opacity='.35'/><path d='M150 110l1.5 5 5 1.5-5 1.5-1.5 5-1.5-5-5-1.5 5-1.5z' fill-opacity='.3'/><circle cx='100' cy='170' r='1.6' fill-opacity='.4'/><circle cx='175' cy='40' r='1.2' fill-opacity='.35'/><circle cx='20' cy='130' r='1.3' fill-opacity='.3'/></svg>");animation:ws-th-glint 8s ease-in-out infinite alternate`)
-      + "@keyframes ws-th-glint{from{opacity:.45}to{opacity:.95}}\n",
+    css: behind(`background-image:repeating-linear-gradient(100deg, rgba(255,220,140,.035) 0 2px, transparent 2px 6px),
+    linear-gradient(160deg, rgba(255,214,110,.16), transparent 45%, rgba(255,214,110,.10))`)
+      + behind2(`background:linear-gradient(115deg, transparent 35%, rgba(255,226,140,.10) 45%, rgba(255,244,200,.22) 50%, rgba(255,226,140,.10) 55%, transparent 65%) no-repeat;
+  background-size:300% 100%;animation:ws-th-sheen 9s ease-in-out infinite`)
+      + `$SEL{--ws-dice-texture:linear-gradient(150deg, rgba(255,250,215,.95) 0%, rgba(255,250,215,0) 28%),linear-gradient(150deg, rgba(255,250,215,0) 62%, rgba(255,250,215,.55) 68%, rgba(255,250,215,0) 74%),linear-gradient(0deg, rgba(130,85,0,.38) 0%, rgba(130,85,0,0) 45%)}
+$SEL .ws-root,$SEL.ws-root{box-shadow:inset 0 0 0 3px #F7D774, inset 0 0 0 7px #8A6410}
+@keyframes ws-th-sheen{from{background-position:100% 0}to{background-position:0 0}}
+`,
   },
 ];

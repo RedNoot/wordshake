@@ -53,10 +53,13 @@ export const DICE = [
     id: "ice", slot: "dice", name: "Ice cubes", emoji: "🧊", price: 120,
     vars: {
       dice: "#DDF0FA", "dice-edge": "#93C3DF", letter: "#0B3A5C",
-      // frost: a bright glint top-left, a cooler blue deep in the bottom, a frosty rim and a hairline crack in a corner
+      // frost: a bright glint top-left, a cooler blue deep in the bottom, a frosty rim, icicles and a hairline crack in a corner
       "dice-texture": [
         svg("<rect x='3' y='3' width='94' height='94' rx='14' fill='none' stroke='#FFFFFF' stroke-width='3' stroke-opacity='.8'/>"
-          + "<path d='M78 6L84 16L80 22M84 16L92 18' fill='none' stroke='#FFFFFF' stroke-width='1.4' stroke-opacity='.9'/>"),
+          + "<path d='M78 6L84 16L80 22M84 16L92 18' fill='none' stroke='#FFFFFF' stroke-width='1.4' stroke-opacity='.9'/>"
+          // icicles hanging from the top edge, short enough to stay clear of the letter
+          + "<g fill='#FFFFFF' stroke='#4F8FBF' stroke-width='1.8' stroke-linejoin='round'>"
+          + "<path d='M8 4h12l-6 19z'/><path d='M22 4h8l-4 12z'/><path d='M43 4h11l-5.5 16z'/><path d='M57 4h7l-3.5 10z'/></g>"),
         "linear-gradient(150deg, rgba(255,255,255,.85) 0%, rgba(255,255,255,0) 30%)",
         "linear-gradient(0deg, rgba(110,170,215,.30) 0%, rgba(110,170,215,0) 34%)",
       ].join(","),

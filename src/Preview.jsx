@@ -23,22 +23,22 @@ const TABS = [
 ];
 const priceLabel = item => (item.unlock ? `🔓 ${TROPHY_BY_ID[item.unlock] ? TROPHY_BY_ID[item.unlock].name : item.unlock}` : item.price ? `⭐ ${item.price}` : "free");
 
-function Proof({ id, notes, setNote }) {
+function Proof({ id, notes, setNote, saveNote }) {
   const n = notes[id] || {};
-  const pick = v => setNote(id, { ...n, ok: n.ok === v ? undefined : v });
+  const pick = v => saveNote(id, { ...n, ok: n.ok === v ? undefined : v });
   const chip = (v, label) => (
     <button onClick={() => pick(v)} aria-pressed={n.ok === v} className="ws-btn" style={{ border: "2px solid #888", borderRadius: 10, padding: "2px 10px", fontSize: 18, cursor: "pointer", background: n.ok === v ? (v ? "#2FA36B" : "#E5484D") : "transparent" }}>{label}</button>
   );
   return (
     <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10 }}>
       {chip(true, "👍")}{chip(false, "👎")}
-      <input value={n.note || ""} onChange={e => setNote(id, { ...n, note: e.target.value })} placeholder="Note…" aria-label={`Note on ${id}`}
+      <input value={n.note || ""} onChange={e => setNote(id, { ...n, note: e.target.value })} onBlur={() => saveNote(id, n)} placeholder="Note…" aria-label={`Note on ${id}`}
         style={{ flex: 1, minWidth: 0, fontSize: 14, padding: "4px 8px", borderRadius: 8, border: "1px solid #888", background: "transparent", color: "inherit" }} />
     </div>
   );
 }
 
-function Card({ item, notes, setNote, children }) {
+function Card({ item, notes, setNote, saveNote, children }) {
   return (
     <section style={{ display: "grid", gap: 8, alignContent: "start", background: "rgb(var(--ws-fg) / .04)", border: "1px solid var(--ws-faint)", borderRadius: 18, padding: 12 }}>
       <header style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
@@ -46,7 +46,7 @@ function Card({ item, notes, setNote, children }) {
         <span style={{ color: T.mist, fontSize: 14, whiteSpace: "nowrap" }}>{priceLabel(item)} · <code>{item.id}</code></span>
       </header>
       {children}
-      <Proof id={item.id} notes={notes} setNote={setNote} />
+      <Proof id={item.id} notes={notes} setNote={setNote} saveNote={saveNote} />
     </section>
   );
 }
@@ -86,16 +86,21 @@ function Mix() {
   );
 }
 
-export function Preview() {
+// `store` (optional) keeps notes somewhere shared as well: { subscribe(onNotes) -> unsubscribe, save(id, note) }.
+// The published proofing page passes one so the notes reach Claude; the local /preview doesn't.
+export function Preview({ store = null } = {}) {
   const [tab, setTab] = useState("theme");
   const [notes, setNotes] = useState(loadNotes);
   const [copied, setCopied] = useState(false);
   useEffect(() => { applyTheme(); }, []);
+  useEffect(() => store && store.subscribe(remote => setNotes(cur => ({ ...cur, ...remote }))), [store]);
   const setNote = (id, n) => setNotes(cur => {
     const next = { ...cur, [id]: n };
     try { localStorage.setItem(NOTES_KEY, JSON.stringify(next)); } catch { /* private mode */ }
     return next;
   });
+  // Typing only touches local state; the shared copy is written on a 👍/👎 and when the note box loses focus.
+  const saveNote = (id, n) => { setNote(id, n); if (store) store.save(id, n); };
   const copy = async () => {
     const lines = Object.entries(notes).filter(([, n]) => n.ok !== undefined || n.note)
       .map(([id, n]) => `${id}: ${n.ok === true ? "👍" : n.ok === false ? "👎" : "–"}${n.note ? `  ${n.note}` : ""}`);
@@ -124,7 +129,7 @@ export function Preview() {
       {tab !== "mix" && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 340px), 1fr))", gap: 16 }}>
           {current.items.map(item => (
-            <Card key={item.id} item={item} notes={notes} setNote={setNote}>
+            <Card key={item.id} item={item} notes={notes} setNote={setNote} saveNote={saveNote}>
               {tab === "theme" && <Look theme={item.id} style={{ display: "grid", gap: 12 }}><ThemeSample /><TryBoard dim="220px" /></Look>}
               {tab === "dice" && (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
