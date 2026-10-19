@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { T, CSS, applyTheme } from "./theme.js";
+import { T, CSS } from "./theme.js";
+import { applyLooks } from "./looks.js";
 import { getSocket, call } from "./net.js";
 import { Play } from "./Play.jsx";
 import { Cabinet } from "./Trophies.jsx";
 import { TeamBadge } from "./Teams.jsx";
+import { Shop } from "./Shop.jsx";
+import { balanceOf } from "../shared/shop.js";
+import { avatarOf } from "./shopView.js";
 
 const CODE_LEN = 4;
 const ERRORS = {
@@ -30,6 +34,7 @@ const tokenKey = code => `wordshake-join-${code}`;
 const cleanCode = s => s.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, CODE_LEN);
 
 const big = { fontSize: 24, fontWeight: 700, border: "none", borderRadius: 16, padding: "16px 28px", cursor: "pointer" };
+const lobbyBtn = { ...big, fontSize: 21, padding: "12px 24px", background: "rgb(var(--ws-amber-rgb) / .14)", color: "var(--ws-text)", border: `2px solid ${T.amber}` };
 const link = { background: "none", border: "none", color: T.mist, textDecoration: "underline", cursor: "pointer", fontSize: 17, padding: 8 };
 
 export function Join({ initialCode }) {
@@ -42,6 +47,12 @@ export function Join({ initialCode }) {
   const [cabinet, setCabinet] = useState(false);    // showing "My trophies"
   const cabinetCache = useRef(null);                // the last trophies loaded, shown at once next time
   const [cabinetFresh, setCabinetFresh] = useState(0); // bumped when the student's rewards change, so an open cabinet reloads
+  const [shop, setShop] = useState(false);          // showing the Shop
+  const [shopData, setShopData] = useState(null);    // the last player:shop reply ({ wallet, trophies, worn }), for the lobby's balance
+  const [balance, setBalance] = useState(null);      // stars to spend (null: not known yet)
+  const [worn, setWorn] = useState(null);            // slot -> item id, from the server (null: guest / not joined)
+  const [ownLooks, setOwnLooks] = useState(true);    // the teacher's "Let students use their own looks"
+  const wornRef = useRef(null), ownLooksRef = useRef(true);
   const [phase, setPhase] = useState("lobby");
   const [team, setTeam] = useState(null);           // teams mode: this device's team in the lobby (null: no teams)
   const [round, setRound] = useState(null);         // this device's view of the current round (letters only, never the answers)
@@ -52,13 +63,29 @@ export function Join({ initialCode }) {
   const codeRef = useRef(code);
   codeRef.current = code;
 
+  // The one place this device puts its looks on: what it wears (from the server) and whether the teacher allows it.
+  const dress = (w, on) => {
+    wornRef.current = w; ownLooksRef.current = on;
+    setWorn(w); setOwnLooks(on);
+    applyLooks(w, on);
+  };
+  const undress = () => dress(null, true);   // back to classic: not joined, or between games
+  const gotShop = d => { setShopData(d); setBalance(balanceOf(d.wallet)); };
+  const onWorn = w => { if (w) dress(w, ownLooksRef.current); };
+
+  // Everything tied to one room is reset here: wallets belong to a class, so a new room starts fresh.
   const joined = (c, res) => {
     store.set(tokenKey(c), res.token);
     setMe({ name: res.name, guest: !!res.guest });
     setTeam(res.team == null ? null : res.team);
-    applyTheme(res.theme);
+    dress(res.guest ? null : res.looks || null, res.ownLooks !== false);
     setCabinet(false);
+    setShop(false);
+    setShopData(null);
+    setBalance(null);
     cabinetCache.current = null;
+    // The join reply has no balance, so ask for the wallet once (class-list students only) to show it in the lobby.
+    if (!res.guest) call("player:shop").then(r => { if (r.ok) gotShop({ wallet: r.wallet, trophies: r.trophies, worn: r.worn }); });
     setPhase(res.phase);
     setRound(res.round ? { ...res.round, clockAt: Date.now() } : null);
     setMessage("");
@@ -72,7 +99,7 @@ export function Join({ initialCode }) {
     if (res.error) { setMessage(ERRORS[res.error] || ERRORS.offline); setStep("code"); return; }
     window.history.replaceState(null, "", `/join/${c}`);
     setRoom(res.room);
-    applyTheme(res.room.theme);
+    undress();
     if (!keepMessage) setMessage("");
     setStep(res.room.roster ? "names" : "guest");
   };
@@ -91,13 +118,18 @@ export function Join({ initialCode }) {
 
   useEffect(() => {
     const s = getSocket();
-    const onRoster = r => { setRoom(r); applyTheme(r.theme); };
-    // The teacher changed the look: follow it straight away.
-    const onTheme = t => applyTheme(t);
-    const onPhase = p => { setPhase(p); if (p !== "lobby") setCabinet(false); };
-    const onRoundState = r => { setRound(r ? { ...r, clockAt: Date.now() } : null); if (r) setCabinet(false); };
-    // Arrives just after the answers start, once the round is saved.
-    const onRewards = ({ n, ...rewards }) => { cabinetCache.current = null; setRound(cur => cur && cur.n === n ? { ...cur, rewards } : cur); };
+    const onRoster = r => setRoom(r);
+    // The teacher turned students' own looks on or off: follow it straight away.
+    const onLooks = ({ ownLooks: on } = {}) => dress(wornRef.current, on !== false);
+    // The trophy cabinet and the shop close when a round starts.
+    const onPhase = p => { setPhase(p); if (p !== "lobby") { setCabinet(false); setShop(false); } };
+    const onRoundState = r => { setRound(r ? { ...r, clockAt: Date.now() } : null); if (r) { setCabinet(false); setShop(false); } };
+    // Arrives just after the answers start, once the round is saved. It brings the stars earned and the new balance.
+    const onRewards = ({ n, ...rewards }) => {
+      cabinetCache.current = null;
+      if (typeof rewards.balance === "number") setBalance(rewards.balance);
+      setRound(cur => cur && cur.n === n ? { ...cur, rewards } : cur);
+    };
     // Teams mode: the teacher put this device in a team (or turned teams off), and later, which team won.
     const onTeam = t => setTeam(t == null ? null : t);
     const onTeams = result => setRound(cur => cur && cur.n === result.n ? { ...cur, teamResult: result } : cur);
@@ -107,16 +139,17 @@ export function Join({ initialCode }) {
       store.del(tokenKey(codeRef.current));
       setMe(null);
       setRound(null);
+      undress();
       setMessage(ENDED[reason] || ENDED.closed);
       if (reason === "kicked") lookup(codeRef.current, true); else { setStep("code"); setCode(""); window.history.replaceState(null, "", "/join"); }
     };
     const onClosed = reason => end(reason)();
     const onKicked = end("kicked");
-    const onReplaced = () => { setMe(null); setMessage(ENDED.elsewhere); setStep("code"); };
+    const onReplaced = () => { setMe(null); undress(); setMessage(ENDED.elsewhere); setStep("code"); };
     // After the wifi drops or the iPad sleeps, quietly pick up where we were.
     const onReconnect = () => { if (stepRef.current === "joined") enter(codeRef.current); else if (["names", "confirm", "guest"].includes(stepRef.current)) call("player:lookup", { code: codeRef.current }).then(r => r.ok && setRoom(r.room)); };
     s.on("room:roster", onRoster);
-    s.on("room:theme", onTheme);
+    s.on("room:looks", onLooks);
     s.on("room:phase", onPhase);
     s.on("round:state", onRoundState);
     s.on("round:clock", onClock);
@@ -130,11 +163,15 @@ export function Join({ initialCode }) {
     s.io.on("reconnect", onReconnect);
     if (initialCode) enter(cleanCode(initialCode));
     return () => {
-      s.off("room:roster", onRoster); s.off("room:theme", onTheme); s.off("room:phase", onPhase); s.off("room:closed", onClosed);
+      s.off("room:roster", onRoster); s.off("room:looks", onLooks); s.off("room:phase", onPhase); s.off("room:closed", onClosed);
       s.off("round:state", onRoundState); s.off("round:clock", onClock); s.off("round:rewards", onRewards); s.off("player:rewards-changed", onRewardsChanged); s.off("player:team", onTeam); s.off("round:teams", onTeams);
       s.off("room:kicked", onKicked); s.off("room:replaced", onReplaced); s.io.off("reconnect", onReconnect);
     };
   }, []); // eslint-disable-line
+
+  // The worn avatar sits beside the name (it shows even when the teacher has looks turned off).
+  const avatarEmoji = avatarOf(worn);
+  const avatar = avatarEmoji ? <span aria-hidden="true">{avatarEmoji} </span> : null;
 
   const submitCode = e => { e.preventDefault(); if (code.length === CODE_LEN) enter(code); };
 
@@ -152,6 +189,7 @@ export function Join({ initialCode }) {
     await call("player:leave");
     store.del(tokenKey(room ? room.code : code));
     setMe(null);
+    undress();
     lookup(room ? room.code : code);
   };
 
@@ -216,13 +254,15 @@ export function Join({ initialCode }) {
           </form>
         )}
 
-        {step === "joined" && me && round && <Play round={round} name={me.name} onRound={setRound} />}
+        {step === "joined" && me && round && <Play round={round} name={me.name} avatar={avatarEmoji} guest={me.guest} onRound={setRound} />}
 
         {step === "joined" && me && !round && cabinet && <Cabinet name={me.name} cached={cabinetCache.current} refresh={cabinetFresh} onLoaded={s => { cabinetCache.current = s; }} onClose={() => setCabinet(false)} />}
 
-        {step === "joined" && me && !round && !cabinet && (
+        {step === "joined" && me && !round && shop && !cabinet && <Shop name={me.name} cached={shopData} ownLooks={ownLooks} onLoaded={gotShop} onWorn={onWorn} onClose={() => setShop(false)} />}
+
+        {step === "joined" && me && !round && !cabinet && !shop && (
           <div className="ws-fade" style={{ display: "grid", gap: 16, justifyItems: "center", textAlign: "center", marginTop: 30 }}>
-            <div className="ws-display" style={{ fontSize: 44, fontWeight: 700 }}>{phase === "lobby" ? <>You're in, <span style={{ color: T.amber }}>{me.name}</span>!</> : me.name}</div>
+            <div className="ws-display" style={{ fontSize: 44, fontWeight: 700 }}>{phase === "lobby" ? <>You're in, {avatar}<span style={{ color: T.amber }}>{me.name}</span>!</> : <>{avatar}{me.name}</>}</div>
             <div aria-live="polite" style={{ fontSize: 24, color: T.mist, maxWidth: 520, lineHeight: 1.4 }}>
               {phase === "lobby" && "Wait for your teacher to start the game."}
               {phase !== "lobby" && "Look at the big screen."}
@@ -234,7 +274,13 @@ export function Join({ initialCode }) {
               </div>
             )}
             {phase === "lobby" && !me.guest && (
-              <button onClick={() => setCabinet(true)} className="ws-btn ws-display" style={{ ...big, fontSize: 21, padding: "12px 24px", marginTop: 10, background: "rgb(var(--ws-amber-rgb) / .14)", color: "var(--ws-text)", border: `2px solid ${T.amber}` }}>My trophies 🏆</button>
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center", alignItems: "center", marginTop: 10 }}>
+                {balance != null && (
+                  <span className="ws-display" role="status" aria-label={`${balance} ${balance === 1 ? "star" : "stars"} to spend`} style={{ fontSize: 24, fontWeight: 800, padding: "8px 16px", borderRadius: 999, background: "rgb(var(--ws-fg) / .07)" }}>⭐ {balance}</span>
+                )}
+                <button onClick={() => setCabinet(true)} className="ws-btn ws-display" style={lobbyBtn}>My trophies 🏆</button>
+                <button onClick={() => setShop(true)} className="ws-btn ws-display" style={lobbyBtn}>Shop 🛍️</button>
+              </div>
             )}
             {phase === "lobby" && <button onClick={notMe} style={{ ...link, marginTop: 20 }}>Not {me.name}? Tap here</button>}
           </div>

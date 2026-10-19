@@ -45,7 +45,7 @@ function useLeft(round) {
   return left;
 }
 
-export function Play({ round, name, onRound }) {
+export function Play({ round, name, avatar = "", guest = false, onRound }) {
   const left = useLeft(round);
   const [trace, setTrace] = useState("");
   const [typed, setTyped] = useState("");
@@ -180,7 +180,7 @@ export function Play({ round, name, onRound }) {
             <TeamResults result={round.teamResult} mine={round.team} />
           </section>
         )}
-        <RoundRewards rewards={round.rewards} />
+        <RoundRewards rewards={round.rewards} stars={guest || !r ? null : r.stars} />
         {r && r.summary && (
           <button type="button" className="ws-btn ws-display" onClick={() => setReplay(true)}
             style={{ fontSize: 19, fontWeight: 700, background: "none", color: T.amber, border: `2px solid ${T.amber}`, borderRadius: 14, padding: "10px 22px", cursor: "pointer" }}>
@@ -189,7 +189,7 @@ export function Play({ round, name, onRound }) {
         )}
         {wordList}
         {rewardSig && (seen !== rewardSig || replay) && (
-          <RoundSplash rewards={r} name={name} words={round.words.length} points={round.total} onDone={closePopup} />
+          <RoundSplash rewards={r} name={name} avatar={avatar} stars={guest ? null : r.stars} words={round.words.length} points={round.total} onDone={closePopup} />
         )}
       </div>
     );
