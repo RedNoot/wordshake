@@ -13,14 +13,11 @@
  */
 export const SEL = "[data-ws-dice=\"$id\"]";
 
-// A small inline SVG drawn over the whole face (no width/height, so it stretches to any die size).
-const svg = body => `url("data:image/svg+xml,${encodeURIComponent(
-  `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'>${body}</svg>`)}")`;
-// Rounder corners than the theme's die. The die's radius is an inline style, hence !important.
-const round = r => `$SEL .ws-die{border-radius:${r} !important}`;
+import { svg, round } from "./kit.js";
+import { SEASONAL } from "./seasonal.js";
 
 // Textures stay faint, and their gloss and marks sit near the edges and corners, away from the letter in the middle.
-export const DICE = [
+const BASE_DICE = [
   {
     id: "wood", slot: "dice", name: "Wooden blocks", emoji: "🌳", price: 80,
     vars: {
@@ -121,3 +118,6 @@ export const DICE = [
     css: round("10%"),
   },
 ];
+
+// Plus this slot's items from the seasonal shelves (shared/looks/seasons/).
+export const DICE = [...BASE_DICE, ...SEASONAL.filter(i => i.slot === "dice")];

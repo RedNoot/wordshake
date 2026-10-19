@@ -28,33 +28,12 @@ export const THEME_KEYS = [
 // The selector a theme's extra css is written for; looks.js swaps in the real one.
 export const SEL = "[data-ws-theme=\"$id\"]";
 
-// Every theme keeps Atkinson Hyperlegible for reading (chosen for young readers) and Fredoka for headings.
-const FONTS = {
-  "font-body": "'Atkinson Hyperlegible',system-ui,sans-serif", "font-display": "'Fredoka','Atkinson Hyperlegible',system-ui,sans-serif",
-  "display-tracking": "0",
-};
+import { FONTS, behind, behind2 } from "./kit.js";
+import { SEASONAL } from "./seasonal.js";
 
-/*
- * A background pattern behind everything. .ws-root gets its own stacking layer (isolation) so the pattern, at
- * z-index -1, paints above the page's background colour but below all the (unpositioned) content. The second
- * selector is for /preview, where one element is both the themed patch and the .ws-root. The reduced-motion rule
- * in theme.js only reaches .ws-root's children, so the pattern carries its own.
- */
-const PAT = "$SEL .ws-root::before,$SEL.ws-root::before";
-const behind = body => `
-$SEL .ws-root,$SEL.ws-root{isolation:isolate}
-${PAT}{content:"";position:fixed;inset:0;pointer-events:none;z-index:-1;${body}}
-@media (prefers-reduced-motion: reduce){${PAT}{animation:none !important}}
-`;
-// A second layer, for themes that need two speeds (or one still and one moving).
-const PAT2 = "$SEL .ws-root::after,$SEL.ws-root::after";
-const behind2 = body => `
-${PAT2}{content:"";position:fixed;inset:0;pointer-events:none;z-index:-1;${body}}
-@media (prefers-reduced-motion: reduce){${PAT2}{animation:none !important}}
-`;
 const STARS = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='230' height='230' fill='white'><circle cx='12' cy='20' r='1.2'/><circle cx='70' cy='60' r='.8'/><circle cx='150' cy='14' r='1.5'/><circle cx='200' cy='90' r='1'/><circle cx='40' cy='130' r='1.6'/><circle cx='110' cy='110' r='.9'/><circle cx='180' cy='170' r='1.3'/><circle cx='90' cy='200' r='1'/><circle cx='20' cy='210' r='.8'/><circle cx='130' cy='160' r='.7'/></svg>")`;
 
-export const THEMES = [
+const BASE_THEMES = [
   {
     id: "classic", slot: "theme", name: "Classic night sky", emoji: "🌙", price: 0, scheme: "dark",
     vars: {
@@ -251,3 +230,6 @@ $SEL .ws-root,$SEL.ws-root{box-shadow:inset 0 0 0 3px #F7D774, inset 0 0 0 7px #
 `,
   },
 ];
+
+// Plus this slot's items from the seasonal shelves (shared/looks/seasons/).
+export const THEMES = [...BASE_THEMES, ...SEASONAL.filter(i => i.slot === "theme")];

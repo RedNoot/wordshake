@@ -6,12 +6,15 @@
  * Every item = { id, slot, name, emoji, price, unlock? }. A price of 0 means free for everyone (e.g. the classic theme).
  * unlock: a trophy id from shared/rewards.js. Such an item can't be bought: it's given free once that trophy is won,
  * so turning up week after week earns things too, not just high scores.
+ * season: a seasonal shelf's id from shared/seasons.js. Such an item can only be bought while its season is open,
+ * but once bought it's kept and worn like any other, all year.
  */
 import { THEMES } from "./looks/themes.js";
 import { DICE } from "./looks/dice.js";
 import { EFFECTS } from "./looks/effects.js";
 import { AVATARS } from "./looks/avatars.js";
 import { COVERS } from "./looks/covers.js";
+import { seasonOpen } from "./seasons.js";
 
 // Each slot holds one worn item at a time; null means the default look for that slot.
 export const SLOTS = ["theme", "dice", "effect", "avatar", "cover"];
@@ -42,12 +45,13 @@ export function owns(wallet, trophies, id) {
   return item.price === 0 || !!(wallet && wallet.owned && wallet.owned[id]);
 }
 
-// Why an item can't be bought, or null if it can.
-export function cantBuy(wallet, trophies, id) {
+// Why an item can't be bought at time t, or null if it can.
+export function cantBuy(wallet, trophies, id, t = Date.now()) {
   const item = ITEM_BY_ID[id];
   if (!item) return "no-item";
   if (owns(wallet, trophies, id)) return "owned";
   if (item.unlock) return "unlock-only";
+  if (item.season && !seasonOpen(item.season, t)) return "not-in-season";
   if (balanceOf(wallet) < item.price) return "not-enough";
   return null;
 }

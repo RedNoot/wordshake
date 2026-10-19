@@ -8,6 +8,8 @@ import { AVATARS } from "../shared/looks/avatars.js";
 import { COVERS } from "../shared/looks/covers.js";
 import { SLOT_NAMES, ITEM_BY_ID } from "../shared/shop.js";
 import { TROPHY_BY_ID } from "../shared/rewards.js";
+import { SEASONS, SEASON_BY_ID } from "../shared/seasons.js";
+import { SEASONAL } from "../shared/looks/seasonal.js";
 
 /*
  * /preview: the proofing gallery. Every shop item drawn the way a student would see it, side by side, plus a
@@ -18,10 +20,13 @@ const NOTES_KEY = "wordshake-proof-notes";
 const loadNotes = () => { try { return JSON.parse(localStorage.getItem(NOTES_KEY) || "{}"); } catch { return {}; } };
 
 const TABS = [
-  { id: "theme", items: THEMES }, { id: "dice", items: DICE }, { id: "effect", items: EFFECTS },
-  { id: "avatar", items: AVATARS }, { id: "cover", items: COVERS }, { id: "mix", items: [] },
+  { id: "theme", items: THEMES.filter(i => !i.season) }, { id: "dice", items: DICE.filter(i => !i.season) }, { id: "effect", items: EFFECTS.filter(i => !i.season) },
+  { id: "avatar", items: AVATARS.filter(i => !i.season) }, { id: "cover", items: COVERS.filter(i => !i.season) },
+  // One tab per seasonal shelf, whatever today's date (the gallery is for proofing ahead of time).
+  ...SEASONS.map(s => ({ id: s.id, season: s, items: SEASONAL.filter(i => i.season === s.id) })),
+  { id: "mix", items: [] },
 ];
-const priceLabel = item => (item.unlock ? `🔓 ${TROPHY_BY_ID[item.unlock] ? TROPHY_BY_ID[item.unlock].name : item.unlock}` : item.price ? `⭐ ${item.price}` : "free");
+const priceLabel = item => (item.season ? `${SEASON_BY_ID[item.season].emoji} ` : "") + (item.unlock ? `🔓 ${TROPHY_BY_ID[item.unlock] ? TROPHY_BY_ID[item.unlock].name : item.unlock}` : item.price ? `⭐ ${item.price}` : "free");
 
 function Proof({ id, notes, setNote, saveNote }) {
   const n = notes[id] || {};
@@ -119,7 +124,7 @@ export function Preview({ store = null } = {}) {
         {TABS.map(x => (
           <button key={x.id} onClick={() => setTab(x.id)} aria-pressed={tab === x.id} className="ws-btn ws-display"
             style={{ border: `2px solid ${tab === x.id ? T.amber : "rgb(var(--ws-fg) / .2)"}`, borderRadius: 999, padding: "6px 14px", fontSize: 16, fontWeight: 600, cursor: "pointer", background: tab === x.id ? "rgb(var(--ws-amber-rgb) / .15)" : "transparent", color: "var(--ws-text)" }}>
-            {x.id === "mix" ? "Mix & match" : SLOT_NAMES[x.id]}{x.id !== "mix" && ` (${x.items.length})`}
+            {x.id === "mix" ? "Mix & match" : x.season ? `${x.season.emoji} ${x.season.name}` : SLOT_NAMES[x.id]}{x.id !== "mix" && ` (${x.items.length})`}
           </button>
         ))}
       </nav>
@@ -130,20 +135,20 @@ export function Preview({ store = null } = {}) {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 340px), 1fr))", gap: 16 }}>
           {current.items.map(item => (
             <Card key={item.id} item={item} notes={notes} setNote={setNote} saveNote={saveNote}>
-              {tab === "theme" && <Look theme={item.id} style={{ display: "grid", gap: 12 }}><ThemeSample /><TryBoard dim="220px" /></Look>}
-              {tab === "dice" && (
+              {item.slot === "theme" && <Look theme={item.id} style={{ display: "grid", gap: 12 }}><ThemeSample /><TryBoard dim="220px" /></Look>}
+              {item.slot === "dice" && (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                   {["classic", "rednut"].map(th => <Look key={th} theme={th} dice={item.id} style={{ padding: 10, display: "grid", gap: 8, justifyItems: "center" }}><TryBoard dim="140px" /><DieRow /></Look>)}
                 </div>
               )}
-              {tab === "effect" && <Look style={{ display: "grid", justifyItems: "center", gap: 6 }}><TryBoard effect={item.id} dim="220px" /><span style={{ color: T.mist, fontSize: 13 }}>Swipe any letters to see it</span></Look>}
-              {tab === "avatar" && (
+              {item.slot === "effect" && <Look style={{ display: "grid", justifyItems: "center", gap: 6 }}><TryBoard effect={item.id} dim="220px" /><span style={{ color: T.mist, fontSize: 13 }}>Swipe any letters to see it</span></Look>}
+              {item.slot === "avatar" && (
                 <Look style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
                   <span style={{ fontSize: 64, lineHeight: 1 }} aria-hidden="true">{item.emoji}</span>
                   <span className="ws-display" style={{ fontSize: 22, fontWeight: 600, background: "rgb(var(--ws-fg) / .08)", borderRadius: 999, padding: "6px 16px" }}>{item.emoji} Ava</span>
                 </Look>
               )}
-              {tab === "cover" && <Look cover={item.id}><CoverSample /></Look>}
+              {item.slot === "cover" && <Look cover={item.id}><CoverSample /></Look>}
             </Card>
           ))}
         </div>

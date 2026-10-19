@@ -3,6 +3,7 @@
  * here). Kept apart from Shop.jsx so it can be tested without a browser.
  */
 import { SLOTS, ITEMS, owns, balanceOf } from "../shared/shop.js";
+import { SEASONS } from "../shared/seasons.js";
 import { TROPHY_BY_ID } from "../shared/rewards.js";
 
 // The default look for each slot, shown as its own card so a student can always go back to it.
@@ -30,12 +31,23 @@ export function itemState(item, wallet, trophies, worn) {
   return need > 0 ? { state: "short", need } : { state: "buy" };
 }
 
-// The shop's shelves: one per slot, defaults first, then cheapest first (unlock-only items last).
-export function shelves(items = ITEMS) {
+const cheapestFirst = (a, b) => (!!a.unlock - !!b.unlock) || (a.price - b.price) || a.name.localeCompare(b.name);
+
+/*
+ * The shop's shelves: one per slot, defaults first, then cheapest first (unlock-only items last), and one per open
+ * season (seasons: ids the server says are open), first in the shop. A seasonal item sits on its season's shelf
+ * while the season is open; once owned it's on its slot's shelf too, all year. Unowned ones are away off-season.
+ */
+export function shelves(items = ITEMS, { seasons = [], wallet = null, trophies = null } = {}) {
   const out = {};
+  const mine = i => owns(wallet, trophies, i.id);
+  for (const season of SEASONS) {
+    if (!seasons.includes(season.id)) continue;
+    out[season.id] = items.filter(i => i.season === season.id)
+      .sort((a, b) => (SLOTS.indexOf(a.slot) - SLOTS.indexOf(b.slot)) || cheapestFirst(a, b));
+  }
   for (const slot of SLOTS) {
-    const list = items.filter(i => i.slot === slot)
-      .sort((a, b) => (!!a.unlock - !!b.unlock) || (a.price - b.price) || a.name.localeCompare(b.name));
+    const list = items.filter(i => i.slot === slot && (!i.season || mine(i))).sort(cheapestFirst);
     out[slot] = DEFAULT_CARDS[slot] ? [DEFAULT_CARDS[slot], ...list] : list;
   }
   return out;
@@ -54,6 +66,7 @@ export const SHOP_ERRORS = {
   "not-now": "The shop is shut while a round is on. Try again after the round.",
   "not-enough": "You need a few more stars for that one. Keep playing!",
   "unlock-only": "That one comes free when you win its trophy.",
+  "not-in-season": "That one's away until its season comes round again.",
   "slow-down": "One moment, then try again.",
   "not-owned": "You need to get that one first.",
 };

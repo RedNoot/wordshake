@@ -14,7 +14,7 @@ const read = async (tx, ref) => { const doc = await tx.get(ref); return doc.exis
 
 export async function buyIn(tx, ref, itemId, t) {
   const data = await read(tx, ref), w = walletOf(data), trophies = data.trophies || {};
-  const why = cantBuy(w, trophies, itemId);
+  const why = cantBuy(w, trophies, itemId, t);
   if (why) return { error: why };
   const next = { ...w, spent: w.spent + ITEM_BY_ID[itemId].price, owned: { ...w.owned, [itemId]: t } };
   tx.set(ref, { spent: next.spent, owned: next.owned }, { merge: true });

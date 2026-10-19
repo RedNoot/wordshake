@@ -63,3 +63,18 @@ A device decides how it looks in one place only: **`applyLooks(worn, ownLooks)`*
 Teacher side: the settings gain `ownLooks` and lose `theme`. An old saved `theme` is ignored, not an error.
 `host:open` takes `ownLooks`. `host:own-looks { on }` changes it live. `host:theme` goes. In Progress, a single
 student's view shows their stars (balance, earned) and the items they own.
+
+## Seasonal shelves
+
+`shared/seasons.js` lists the seasons and when each is open (Australian days): **Halloween** all October,
+**Christmas** all December, **Easter** from two weeks before Easter Sunday to a week after.
+
+- A seasonal item is an ordinary item of any slot plus `season: "<id>"`. Each season's items live in
+  `shared/looks/seasons/<id>.js` (word-sparkle drawings in `src/effects/<id>.jsx`), and the slot files add them to
+  their lists, so every rule and test above applies to them unchanged.
+- **Buying waits for the season; keeping doesn't.** `cantBuy(wallet, trophies, id, t)` says `not-in-season` outside
+  the dates. `owns`, `cantEquip` and `wornLooks` ignore seasons: a Halloween theme bought in October is worn in March.
+- **The server's clock decides.** `player:shop` gains `seasons` (the open ones, from `openSeasons(now)`), and
+  `player:buy` can answer `not-in-season`. The Shop shows a shelf per open season, first; an owned seasonal item
+  also sits on its slot's shelf all year, and an unowned one is away until its season comes round.
+- `/preview` has a tab per season whatever the date, so shelves can be proofed ahead of time.

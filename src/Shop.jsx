@@ -4,6 +4,7 @@ import { call as netCall } from "./net.js";
 import { SLOTS, SLOT_NAMES, ITEMS, balanceOf } from "../shared/shop.js";
 import { Look, DieRow, TryBoard, CoverMini } from "./components/LookSamples.jsx";
 import { itemState, shelves, wornIn, shopError } from "./shopView.js";
+import { SEASONS, SEASON_BY_ID } from "../shared/seasons.js";
 
 /*
  * The student's shop, opened from the lobby like "My trophies" (class-list students only).
@@ -180,11 +181,12 @@ export function Shop({ name, cached, ownLooks = true, onLoaded, onWorn, onClose,
     setAsk({ item, done: true });
   };
 
-  const shelf = shelves(items);
+  const shelf = shelves(items, { seasons: (data && data.seasons) || [], wallet: data && data.wallet, trophies: data && data.trophies });
+  const seasonTabs = SEASONS.filter(s => shelf[s.id]);
   const worn = data ? data.worn : null;
   const theme = wornIn(worn, "theme");
   const list = shelf[tab] || [];
-  const real = list.filter(i => i.id && !(i.slot === "theme" && i.price === 0));   // what's actually for sale here
+  const real = SEASON_BY_ID[tab] ? list : list.filter(i => i.id && !(i.slot === "theme" && i.price === 0));   // what's actually for sale here
 
   return (
     <div className="ws-fade" style={{ width: "100%", display: "grid", gap: 18 }}>
@@ -217,14 +219,19 @@ export function Shop({ name, cached, ownLooks = true, onLoaded, onWorn, onClose,
       {data && (
         <>
           <div role="tablist" aria-label="Shop shelves" style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            {SLOTS.map(slot => (
-              <button key={slot} type="button" role="tab" id={`ws-shop-tab-${slot}`} aria-selected={tab === slot} aria-controls="ws-shop-shelf" onClick={() => { setTab(slot); setTrying(null); }}
-                className="ws-btn ws-display" style={{ fontSize: 17, fontWeight: 600, minHeight: 48, padding: "8px 16px", borderRadius: 999, cursor: "pointer", border: `2px solid ${tab === slot ? T.amber : "rgb(var(--ws-fg) / .2)"}`, background: tab === slot ? "rgb(var(--ws-amber-rgb) / .15)" : "transparent", color: "var(--ws-text)" }}>
-                <span aria-hidden="true">{SLOT_EMOJI[slot]} </span>{SLOT_NAMES[slot]}
+            {[...seasonTabs.map(s => ({ id: s.id, emoji: s.emoji, name: s.name })), ...SLOTS.map(slot => ({ id: slot, emoji: SLOT_EMOJI[slot], name: SLOT_NAMES[slot] }))].map(t => (
+              <button key={t.id} type="button" role="tab" id={`ws-shop-tab-${t.id}`} aria-selected={tab === t.id} aria-controls="ws-shop-shelf" onClick={() => { setTab(t.id); setTrying(null); }}
+                className="ws-btn ws-display" style={{ fontSize: 17, fontWeight: 600, minHeight: 48, padding: "8px 16px", borderRadius: 999, cursor: "pointer", border: `2px solid ${tab === t.id ? T.amber : "rgb(var(--ws-fg) / .2)"}`, background: tab === t.id ? "rgb(var(--ws-amber-rgb) / .15)" : "transparent", color: "var(--ws-text)" }}>
+                <span aria-hidden="true">{t.emoji} </span>{t.name}
               </button>
             ))}
           </div>
           <div id="ws-shop-shelf" role="tabpanel" aria-labelledby={`ws-shop-tab-${tab}`} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 220px), 1fr))", gap: 14 }}>
+            {SEASON_BY_ID[tab] && (
+              <div style={{ gridColumn: "1 / -1", fontSize: 18, color: T.mist }}>
+                Only in the shop {SEASON_BY_ID[tab].when}. Anything you get is yours to keep all year.
+              </div>
+            )}
             {list.map(item => (
               <ItemCard key={item.id || "none"} item={item} name={name} theme={theme} busy={busy}
                 look={itemState(item, data.wallet, data.trophies, worn)}

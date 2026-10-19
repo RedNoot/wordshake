@@ -8,9 +8,10 @@
  * whale, elephant, sloth, monkey, food), anything scary or rude, weapons, flags, people and skin tones.
  * Every emoji is Unicode 13 or older, so iPadOS 15+ and ChromeOS draw it.
  */
+import { SEASONAL } from "./seasonal.js";
 const avatar = (id, name, emoji, price, unlock) => ({ id, slot: "avatar", name, emoji, price, ...(unlock ? { unlock } : {}) });
 
-export const AVATARS = [
+const BASE_AVATARS = [
   // Animals, 25 ⭐
   avatar("fox", "Fox", "🦊", 25),
   avatar("panda", "Panda", "🐼", 25),
@@ -40,3 +41,6 @@ export const AVATARS = [
   avatar("owl", "Wise owl", "🦉", 0, "words-100"),       // Hundred club: 100 words altogether
   avatar("turtle", "Steady turtle", "🐢", 0, "weeks-5"), // Regular: played in 5 different weeks
 ];
+
+// Plus this slot's items from the seasonal shelves (shared/looks/seasons/).
+export const AVATARS = [...BASE_AVATARS, ...SEASONAL.filter(i => i.slot === "avatar")];

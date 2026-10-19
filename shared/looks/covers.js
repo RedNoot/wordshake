@@ -7,6 +7,7 @@
  *   css:  optional extra rules for the selector SEL ($SEL in the string), e.g. a pattern on the cabinet or pages.
  *         The cabinet and pages are drawn in src/Trophies.jsx (Cabinet, StickerBook, the .ws-page class).
  */
+import { SEASONAL } from "./seasonal.js";
 export const COVER_KEYS = [
   "cabinet", "cabinet-edge",       // the trophy cabinet's back and frame
   "shelf", "shelf-edge",           // the shelf planks
@@ -32,7 +33,7 @@ const page = (pattern, extra = "") => `$SEL .ws-page{background:${pattern}, var(
 const noise = (freq, alpha) => svg(`width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='${freq}' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.35 0 0 0 0 0.24 0 0 0 0 0.1 0 0 0 ${alpha} 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/>`);
 const WHITE_GHOST = a => `brightness(0) invert(1) opacity(${a})`;
 
-export const COVERS = [
+const BASE_COVERS = [
   {
     id: "treehouse", slot: "cover", name: "Treehouse", emoji: "🌳", price: 60,
     vars: {
@@ -127,3 +128,6 @@ export const COVERS = [
         "box-shadow:inset 0 0 0 4px var(--ws-page), inset 0 0 0 5px rgba(176,138,46,.55), 0 1px 0 rgba(0,0,0,.06), 0 8px 18px rgba(0,0,0,.25) !important"),
   },
 ];
+
+// Plus this slot's items from the seasonal shelves (shared/looks/seasons/).
+export const COVERS = [...BASE_COVERS, ...SEASONAL.filter(i => i.slot === "cover")];

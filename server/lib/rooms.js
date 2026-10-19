@@ -1,4 +1,5 @@
 import { randomBytes, randomInt } from "crypto";
+import { openSeasons } from "../../shared/seasons.js";
 import { cleanGuestName, uniqueName } from "./names.js";
 import { pickRoundSettings } from "./settings.js";
 import { newRound, setClock, remainingMs, playerView, checkWord, giveHint, roundRecord, teamResults, GRACE_MS } from "./round.js";
@@ -675,7 +676,7 @@ export function attachRooms(io, {
       if (error) return ack({ error });
       const saved = getStudent ? await getStudent(room.teacherId, room.classId, p.studentId) : null;
       const trophies = (saved && saved.trophies) || {};
-      ack({ ok: true, wallet: walletOut(saved || {}), trophies, worn: wornLooks(saved, trophies) });
+      ack({ ok: true, wallet: walletOut(saved || {}), trophies, worn: wornLooks(saved, trophies), seasons: openSeasons(now()) });
     });
 
     // A bought item isn't worn until the student chooses to wear it.
