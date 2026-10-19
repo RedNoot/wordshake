@@ -111,7 +111,7 @@ function Editor({ cls, onSaved, onCancel }) {
   );
 }
 
-export function ClassLists({ classes, setClasses, onDone }) {
+export function ClassLists({ classes, setClasses, onCreated, onDone }) {
   const [editing, setEditing] = useState(null); // null | "new" | class
   const [error, setError] = useState("");
 
@@ -124,6 +124,8 @@ export function ClassLists({ classes, setClasses, onDone }) {
 
   const saved = cls => {
     setClasses(cs => [...cs.filter(c => c.id !== cls.id), cls].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })));
+    // A class just made is the one the teacher means to play with next.
+    if (editing === "new") onCreated(cls.id);
     setEditing(null);
   };
 

@@ -101,7 +101,11 @@ export default function WordShakeWorkbook() {
       setAccountNote("You're signed in, but your saved settings and classes aren't available right now.");
     }
     setPhase(p => (p === "loading" || p === "home" ? "setup" : p));
-    authFetch("/api/classes").then(r => (r.ok ? r.json() : [])).then(setClasses).catch(() => setClasses([]));
+    // A teacher with one class gets it picked for them, so a room can't open as Guests only (and save nothing) by accident.
+    authFetch("/api/classes").then(r => (r.ok ? r.json() : [])).then(cs => {
+      setClasses(cs);
+      setSettings(v => (cs.length === 1 && !cs.some(c => c.id === v.classId) ? { ...v, classId: cs[0].id } : v));
+    }).catch(() => setClasses([]));
     resumeRoom();
   };
 
@@ -507,7 +511,7 @@ export default function WordShakeWorkbook() {
       {/* ---------- CLASS LISTS ---------- */}
       {phase === "classes" && (
         <main style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", padding: "18px 20px 40px" }}>
-          <ClassLists classes={classes} setClasses={setClasses} onDone={() => setPhase("setup")} />
+          <ClassLists classes={classes} setClasses={setClasses} onCreated={id => setSettings(v => ({ ...v, classId: id }))} onDone={() => setPhase("setup")} />
         </main>
       )}
 
