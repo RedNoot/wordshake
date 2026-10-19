@@ -93,7 +93,7 @@ export function PlayBoard({ tiles, size, dim, disabled, onWord, onTrace, flash }
             <div key={i} ref={el => { tileRefs.current[i] = el; }} role="gridcell" aria-label={tileText(t)} className="ws-display ws-die"
               style={{ display: "flex", alignItems: "center", justifyContent: "center", borderRadius: `calc(${dim} * 0.02)`, fontWeight: 700,
                 fontSize: `calc(${dim} / ${size} * ${t.length > 2 ? 0.26 : t.length > 1 ? 0.34 : 0.5})`,
-                background: on ? colour : T.dice, color: T.letter, transform: on ? "scale(1.05)" : "none", transition: "transform .08s, background .08s",
+                backgroundColor: on ? colour : T.dice, backgroundImage: on ? "none" : T.diceTexture, backgroundSize: "cover", color: on ? T.letterLit : T.letter, transform: on ? "scale(1.05)" : "none", transition: "transform .08s, background .08s",
                 boxShadow: `inset 0 -5px 0 ${on ? "rgba(0,0,0,.18)" : T.diceEdge}, 0 3px 6px rgba(0,0,0,.35)` }}>
               {tileText(t)}
             </div>
