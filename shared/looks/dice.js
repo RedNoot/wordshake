@@ -22,7 +22,7 @@ const round = r => `$SEL .ws-die{border-radius:${r} !important}`;
 // Textures stay faint, and their gloss and marks sit near the edges and corners, away from the letter in the middle.
 export const DICE = [
   {
-    id: "wood", slot: "dice", name: "Wooden blocks", emoji: "🪵", price: 80,
+    id: "wood", slot: "dice", name: "Wooden blocks", emoji: "🌳", price: 80,
     vars: {
       dice: "#E3C08F", "dice-edge": "#A87843", letter: "#3B2412",
       "dice-texture": [
@@ -77,7 +77,7 @@ export const DICE = [
     css: round("30%"),
   },
   {
-    id: "stone", slot: "dice", name: "Stone", emoji: "🪨", price: 120,
+    id: "stone", slot: "dice", name: "Stone", emoji: "⛰️", price: 120,
     vars: {
       dice: "#C8C3B8", "dice-edge": "#857E72", letter: "#2A2723",
       // speckles in the rock, light on the top-left and a shaded rim, on a slightly uneven pebble shape

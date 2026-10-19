@@ -82,10 +82,8 @@ export function Join({ initialCode }) {
     setCabinet(false);
     setShop(false);
     setShopData(null);
-    setBalance(null);
+    setBalance(typeof res.balance === "number" ? res.balance : null);
     cabinetCache.current = null;
-    // The join reply has no balance, so ask for the wallet once (class-list students only) to show it in the lobby.
-    if (!res.guest) call("player:shop").then(r => { if (r.ok) gotShop({ wallet: r.wallet, trophies: r.trophies, worn: r.worn }); });
     setPhase(res.phase);
     setRound(res.round ? { ...res.round, clockAt: Date.now() } : null);
     setMessage("");

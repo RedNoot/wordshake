@@ -46,7 +46,7 @@ html,body{background:var(--ws-ink)}
 @keyframes ws-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
 @keyframes ws-fade{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 .ws-fade{animation:ws-fade .45s ease both}
-@media (prefers-reduced-motion: reduce){.ws-root *{animation:none !important;transition:none !important}}
+@media (prefers-reduced-motion: reduce){.ws-root *,.ws-root::before,.ws-root::after{animation:none !important;transition:none !important}}
 .ws-btn{transition:transform .08s ease, filter .15s ease}
 .ws-btn:hover{filter:brightness(1.1)}
 .ws-btn:active{transform:scale(.97)}

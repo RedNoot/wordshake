@@ -10,7 +10,7 @@ const effect = (id, name, emoji, price) => ({ id, slot: "effect", name, emoji, p
 
 export const EFFECTS = [
   effect("sparkle", "Sparkle", "✨", 40),
-  effect("bubbles", "Bubbles", "🫧", 60),
+  effect("bubbles", "Bubbles", "🧼", 60),
   effect("stars", "Shooting stars", "⭐", 60),
   effect("hearts", "Hearts", "💖", 80),
   effect("leaves", "Falling leaves", "🍂", 80),

@@ -346,6 +346,8 @@ export function attachRooms(io, {
     return {
       ok: true, token: p.token, name: p.name, guest, phase: room.phase, className: room.className, team: teamOf(room, p.id), round: roundFor(room, p.id),
       looks, ownLooks: room.ownLooks,
+      // stars to spend, for the lobby (null: a guest, or the wallet couldn't be read)
+      balance: guest || saved === undefined ? null : balanceOf(saved),
     };
   }
 

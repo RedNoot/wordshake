@@ -78,6 +78,11 @@ test("every item has a unique id, a known slot, a name, an emoji and a fair pric
   }
 });
 
+// Newer emoji (Unicode 13 and up) show as empty boxes on Windows 10 and older iPads.
+test("every emoji is old enough to show everywhere", () => {
+  for (const item of ITEMS) for (const ch of item.emoji) assert.ok(ch.codePointAt(0) < 0x1FA70, `${item.id}: ${item.emoji} is too new`);
+});
+
 test("classic is the free default theme", () => {
   const classic = THEMES.find(t => t.id === "classic");
   assert.ok(classic && classic.price === 0 && !classic.unlock);

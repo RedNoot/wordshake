@@ -705,7 +705,10 @@ test("shop: buying and wearing looks, from the lobby only, never for guests", as
   const joined = await call(chloe, "player:join", { code: room.code, studentId: "s3" });
   assert.deepEqual(joined.looks, noLooks, "the device dresses itself from the join");
   assert.equal(joined.ownLooks, true);
-  assert.equal((await call(guest, "player:join", { code: room.code, guestName: "Max" })).looks, null, "guests have no looks");
+  assert.equal(joined.balance, 30, "and shows its stars straight away");
+  const guestJoin = await call(guest, "player:join", { code: room.code, guestName: "Max" });
+  assert.equal(guestJoin.looks, null, "guests have no looks");
+  assert.equal(guestJoin.balance, null, "or stars");
   for (const ev of ["player:shop", "player:buy", "player:equip"]) {
     assert.deepEqual(await call(guest, ev, { id: "test-fox", slot: "avatar" }), { error: "guest" });
     assert.deepEqual(await call(stranger, ev, { id: "test-fox", slot: "avatar" }), { error: "not-joined" });
@@ -761,6 +764,7 @@ test("shop: buying and wearing looks, from the lobby only, never for guests", as
   // Back on the device after a refresh: still wearing the fox.
   const back = await call(await client(), "player:rejoin", { code: room.code, token: joined.token });
   assert.equal(back.looks.avatar, "test-fox");
+  assert.equal(back.balance, 20 + earned);
   await call(host, "host:phase", { phase: "lobby" });
   clock += 1000;
   assert.deepEqual(await call(chloe, "player:equip", { slot: "avatar", id: null }), { error: "not-joined" }, "the old device was replaced");

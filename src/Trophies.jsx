@@ -139,7 +139,8 @@ export function TrophyGrid({ trophies, compact = false }) {
               <span className="ws-display" style={{
                 alignSelf: "center", maxWidth: "90%", overflow: "hidden", boxSizing: "border-box", textAlign: "center",
                 padding: compact ? "1px 5px" : "2px 7px", borderRadius: 3, fontSize: compact ? 9.5 : 11.5, fontWeight: 700, lineHeight: 1.1, marginBottom: 6, maxHeight: "2.3em",
-                background: got ? "linear-gradient(180deg,#FBE9AE,#C9A043)" : "rgba(0,0,0,.18)", color: got ? "#3B2A08" : "rgb(var(--ws-fg) / .55)",
+                // not won yet: pale text on a dark wash, so it reads on any shelf whatever the theme
+                background: got ? "linear-gradient(180deg,#FBE9AE,#C9A043)" : "rgba(0,0,0,.34)", color: got ? "#3B2A08" : "rgba(255,255,255,.82)",
                 boxShadow: got ? "0 1px 0 rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.6)" : "none",
                 animation: compact ? "none" : `ws-fade .4s ${0.03 * i}s ease both`,
               }}>{t.name}</span>
