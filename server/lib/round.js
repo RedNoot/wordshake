@@ -64,6 +64,7 @@ export function playerView(round, playerId, t) {
     words: [...(round.found.get(playerId) || new Map())].map(([word, s]) => ({ word, ...s })),
     total: playerTotal(round, playerId),
     hints: settings.hints !== false, hint: currentHint(round, playerId),
+    wordOfGame: game.solution.wordOfGame || null,
     rewards: (round.rewards && round.rewards.get(playerId)) || null,
     // Teams mode: this device's team for the round, and the result once the big screen has shown it.
     team: round.teams && round.teams.of.has(playerId) ? round.teams.of.get(playerId) : null,
@@ -197,7 +198,7 @@ export function roundRecord(round) {
   }
   return {
     roundNo: round.n,
-    settings: { seconds: settings.seconds, size: settings.size, minLen: settings.minLen, phSound: settings.phSound, phTicked: [...settings.phTicked], phBonus: settings.phBonus, hints: settings.hints !== false },
+    settings: { seconds: settings.seconds, size: settings.size, minLen: settings.minLen, phSound: settings.phSound, phTicked: [...settings.phTicked], phBonus: settings.phBonus, hints: settings.hints !== false, wordOfGame: S.wordOfGame || null },
     tiles: game.tiles, boardWords: S.list.length,
     longest: (S.longest || []).map(x => x.word).slice(0, 3),
     available, players,

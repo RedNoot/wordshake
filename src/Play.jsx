@@ -7,6 +7,7 @@ import { WordEffect, BURST_MS } from "./effects.jsx";
 import { wornEffect } from "./looks.js";
 import { RoundRewards, RoundSplash } from "./Trophies.jsx";
 import { TeamBadge, TeamResults, winnerLine } from "./Teams.jsx";
+import { WordOfGame } from "./components/WordOfGame.jsx";
 
 const HINT_AFTER_MS = 15000;   // matches the server (server/lib/round.js), which has the final say
 
@@ -217,6 +218,10 @@ export function Play({ round, name, avatar = "", guest = false, onRound }) {
         <div className="ws-display" style={{ width: dim, boxSizing: "border-box", background: T.amber, color: T.ink, borderRadius: 12, padding: "6px 14px", fontSize: 18, fontWeight: 700, textAlign: "center" }}>
           Today's sound {sound.lab} <span style={{ fontWeight: 500, opacity: 0.8 }}>· {round.phTicked.join(" · ")}{round.phBonus ? " · ⭐ +2" : ""}</span>
         </div>
+      )}
+
+      {round.wordOfGame && (
+        <WordOfGame word={round.wordOfGame} width={dim} found={round.words.some(w => w.word === round.wordOfGame)} />
       )}
 
       {hint && playing && (

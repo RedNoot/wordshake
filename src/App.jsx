@@ -5,6 +5,7 @@ import { Chip } from "./components/Chip.jsx";
 import { Toggle } from "./components/Toggle.jsx";
 import { Hi } from "./components/Hi.jsx";
 import { Board } from "./components/Board.jsx";
+import { WordOfGame } from "./components/WordOfGame.jsx";
 import { SoundCard } from "./components/SoundCard.jsx";
 import { signInConfigured, initAuth, signIn, signOut, authFetch, getIdToken } from "./auth.js";
 import { getSocket, call } from "./net.js";
@@ -26,7 +27,7 @@ const ROOM_ERRORS = {
 /* ================= main app ================= */
 export default function WordShakeWorkbook() {
   const [phase, setPhase] = useState(signInConfigured ? "loading" : "setup");
-  const [settings, setSettings] = useState({ seconds: 180, size: 4, minLen: 3, sound: true, showCount: true, phSound: null, phTicked: [], phBonus: false, hints: true, mode: signInConfigured ? "online" : "workbook", classId: null, ownLooks: true });
+  const [settings, setSettings] = useState({ seconds: 180, size: 4, minLen: 3, sound: true, showCount: true, phSound: null, phTicked: [], phBonus: false, hints: true, wordOfGame: false, mode: signInConfigured ? "online" : "workbook", classId: null, ownLooks: true });
   const [dict, setDict] = useState({ status: "loading", count: 0 });
   const [phStats, setPhStats] = useState({ words: 0, tags: 0 });
   const [busy, setBusy] = useState(false);
@@ -128,8 +129,8 @@ export default function WordShakeWorkbook() {
       const r = res.round, fresh = ["setup", "loading", "home"].includes(phaseRef.current);
       if (r && res.room.phase !== "lobby" && (fresh || liveRef.current !== r.n)) {
         // A refresh mid-round: bring the board and the clock back from the server.
-        const { seconds, size, minLen, phSound, phTicked, phBonus, hints = true } = r.settings;
-        setSettings(v => ({ ...v, seconds, size, minLen, phSound, phTicked, phBonus, hints }));
+        const { seconds, size, minLen, phSound, phTicked, phBonus, hints = true, wordOfGame = false } = r.settings;
+        setSettings(v => ({ ...v, seconds, size, minLen, phSound, phTicked, phBonus, hints, wordOfGame }));
         setGame(r.game);
         setLiveRound(r.n);
         setRoundTeams(r.teams || 0);
@@ -305,9 +306,9 @@ export default function WordShakeWorkbook() {
       // Students play on their devices: the server builds the board and checks their words.
       // First make sure the server knows how the last round ended (answers shown, or abandoned), so it's saved or not.
       await call("host:phase", { phase: roomPhaseFor(phaseRef.current) });
-      const { seconds, size, minLen, phSound, phTicked, phBonus, hints } = settings;
+      const { seconds, size, minLen, phSound, phTicked, phBonus, hints, wordOfGame } = settings;
       startingRef.current = true;
-      const res = await call("host:start", { settings: { seconds, size, minLen, phSound, phTicked, phBonus, hints } });
+      const res = await call("host:start", { settings: { seconds, size, minLen, phSound, phTicked, phBonus, hints, wordOfGame: !!wordOfGame } });
       if (!res.ok) {
         startingRef.current = false;
         setBusy(false);
@@ -327,7 +328,7 @@ export default function WordShakeWorkbook() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           size: settings.size, minLen: settings.minLen,
-          phSound: settings.phSound, phTicked: settings.phTicked,
+          phSound: settings.phSound, phTicked: settings.phTicked, wordOfGame: !!settings.wordOfGame,
         }),
       });
       g = await res.json();
@@ -664,6 +665,7 @@ export default function WordShakeWorkbook() {
             <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
               <Toggle on={settings.sound} onClick={() => setSettings(v => ({ ...v, sound: !v.sound }))} label="Sound effects" />
               <Toggle on={settings.showCount} onClick={() => setSettings(v => ({ ...v, showCount: !v.showCount }))} label="Show how many words are hiding" />
+              <Toggle on={!!settings.wordOfGame} onClick={() => setSettings(v => ({ ...v, wordOfGame: !v.wordOfGame }))} label="Word of the game: one easy word to find, shown at the top" />
               {settings.mode === "online" && (
                 <Toggle on={settings.hints} onClick={() => setSettings(v => ({ ...v, hints: !v.hints }))} label="Hints: a short word for anyone stuck for 15 seconds" />
               )}
@@ -722,6 +724,7 @@ export default function WordShakeWorkbook() {
 
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: "100%" }}>
             {soundDef && <div style={{ position: "relative", zIndex: 5, marginBottom: 14 }}><SoundCard soundDef={soundDef} ticked={settings.phTicked} bonus={settings.phBonus} /></div>}
+            {S && S.wordOfGame && phase !== "countdown" && <div style={{ marginBottom: 14 }}><WordOfGame word={S.wordOfGame} big /></div>}
             <div style={{ position: "relative" }}>
             <Board tiles={game.tiles} rots={game.rots} size={settings.size} dim={soundDef ? "min(90vw, 47vh)" : "min(90vw, 54vh)"} hidden={phase === "countdown"} tumble={phase === "playing"} targetSet={targetSet} />
             {phase === "countdown" && (

@@ -1,4 +1,5 @@
 import express from "express";
+import { pickWordOfGame } from "./lib/wordOfGame.js";
 import http from "http";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -68,7 +69,7 @@ app.get("/api/status", route(async (req, res) => {
 }));
 
 // Builds a board and its answers, or returns { error } for bad settings.
-async function makeGame({ size = 4, minLen = 3, phSound = null, phTicked = [] }) {
+async function makeGame({ size = 4, minLen = 3, phSound = null, phTicked = [], wordOfGame = false }) {
   if (![4, 5, 6].includes(size)) return { error: "invalid size" };
   if (![2, 3, 4].includes(minLen)) return { error: "invalid minLen" };
   const soundDef = resolveSound(phSound, phTicked);
@@ -85,7 +86,9 @@ async function makeGame({ size = 4, minLen = 3, phSound = null, phTicked = [] })
     quality = QUALITY[dict.status === "full" ? "full" : "fallback"][size];
   }
   const phon = soundDef && phTicked.length ? { soundId: phSound, ticked: new Set(phTicked) } : null;
-  return generateGame(size, minLen, words, quality, phon);
+  const game = generateGame(size, minLen, words, quality, phon);
+  if (wordOfGame === true) game.solution.wordOfGame = pickWordOfGame(game.solution, minLen);
+  return game;
 }
 
 // Any real word, used to tell a student "not on today's list" rather than "not a word" in a Sounds-Write round.
