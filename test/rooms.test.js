@@ -6,6 +6,8 @@ import { io as connect } from "socket.io-client";
 import { attachRooms } from "../server/lib/rooms.js";
 import { AuthError } from "../server/lib/auth.js";
 import { applyRound } from "../shared/rewards.js";
+import { ITEM_BY_ID, SLOTS, starsForRound } from "../shared/shop.js";
+import { buyIn, equipIn } from "../server/lib/wallet.js";
 
 const CLASS = { id: "class1", name: "3/4B", students: [{ id: "s1", name: "Ava" }, { id: "s2", name: "Ben" }, { id: "s3", name: "Chloe" }] };
 // C A T S on the top row, X everywhere else: "cat" and "cats" are the only answers.
@@ -20,6 +22,34 @@ let server, url, roomsApi, clock = 1_000_000;
 let saved = [], pending = [];   // rounds saved for progress tracking, and timers ({ fn, ms }) the rooms have set
 const summaries = new Map();     // class1 students' saved reward summaries
 const savedIds = new Set();
+// class1 students' shop wallets (spent, owned, equipped): in the same document as the summary, as in the database.
+const wallets = new Map(), versions = new Map();
+const studentData = sid => ({ ...(summaries.get(sid) || {}), ...(wallets.get(sid) || {}) });
+const bump = sid => versions.set(sid, (versions.get(sid) || 0) + 1);
+// A transaction as Firestore runs one: if a document it read has changed by the time it commits, it runs again.
+async function runTx(fn) {
+  for (;;) {
+    const seen = new Map(), writes = [];
+    const tx = {
+      get: async sid => { await new Promise(r => setImmediate(r)); seen.set(sid, versions.get(sid) || 0); return { exists: true, data: () => studentData(sid) }; },
+      set: (sid, data) => writes.push([sid, data]),
+    };
+    const out = await fn(tx);
+    await new Promise(r => setImmediate(r));   // the commit is a round trip too, so two transactions really overlap
+    if ([...seen].some(([sid, v]) => (versions.get(sid) || 0) !== v)) continue;
+    for (const [sid, data] of writes) { wallets.set(sid, { ...wallets.get(sid), ...data }); bump(sid); }
+    return out;
+  }
+}
+const buyItem = (tid, cid, sid, id, t) => runTx(tx => buyIn(tx, sid, id, t));
+// Made-up items, so these tests don't depend on what the shop happens to sell.
+Object.assign(ITEM_BY_ID, {
+  "test-fox": { id: "test-fox", slot: "avatar", name: "Fox", emoji: "🦊", price: 10 },
+  "test-owl": { id: "test-owl", slot: "avatar", name: "Owl", emoji: "🦉", price: 10 },
+  "test-dots": { id: "test-dots", slot: "dice", name: "Dots", emoji: "🎲", price: 50 },
+  "test-crown": { id: "test-crown", slot: "avatar", name: "Crown", emoji: "👑", price: 0, unlock: "weeks-10" },
+});
+const noLooks = Object.fromEntries(SLOTS.map(k => [k, null]));
 let failSaves = 0;               // the next N saves throw, as a database outage would
 // Runs the timers that are due (grace windows, the server's round clock, save retries) up to `ms` from now.
 const runTimers = (ms = Infinity) => {
@@ -47,13 +77,16 @@ before(async () => {
       for (const [sid, p] of Object.entries(record.players)) {
         const { summary, earned: e } = applyRound(summaries.get(sid), p, record, endedAt);
         summaries.set(sid, summary);
-        updates[sid] = { ...summary, name: p.name };
+        bump(sid);
+        updates[sid] = { ...summary, name: p.name, spent: (wallets.get(sid) || {}).spent || 0 };
         earned[sid] = e;
       }
       saved.push({ teacherId, classId, gameId, record, updates, endedAt });
       return { status: "saved", earned, summaries: updates };
     },
-    getStudent: async (tid, cid, sid) => ({ ...(summaries.get(sid) || {}), awards: [{ id: "x", emoji: "💪", label: "Great effort" }] }),
+    getStudent: async (tid, cid, sid) => ({ ...studentData(sid), awards: [{ id: "x", emoji: "💪", label: "Great effort" }] }),
+    buyItem,
+    equipItem: (tid, cid, sid, slot, id) => runTx(tx => equipIn(tx, sid, slot, id)),
     now: () => clock,
     later: (fn, ms) => pending.push({ fn, ms }),
   });
@@ -503,7 +536,7 @@ test("a round is saved even when the big screen's 'answers' message is lost", as
   const { room } = await call(host, "host:open", { idToken: "tok-a", classId: "class1" });
   const ava = await client();
   await call(ava, "player:join", { code: room.code, studentId: "s1" });
-  const roundsBefore = summaries.get("s1").rounds;
+  const roundsBefore = summaries.get("s1").rounds, starsBefore = summaries.get("s1").stars;
 
   // 1. Time runs out while the big screen is offline: the server's own clock ends and saves the round.
   const r1 = await call(host, "host:start", { settings: ROUND });
@@ -560,6 +593,7 @@ test("a round is saved even when the big screen's 'answers' message is lost", as
   assert.equal(failSaves, 0);
   // A retry of a save that already landed changes nothing.
   assert.equal(summaries.get("s1").rounds, roundsBefore + 4);
+  assert.equal(summaries.get("s1").stars, starsBefore + saved.reduce((n, x) => n + starsForRound(x.record.players.s1.score), 0), "nor its stars");
 
   // 5. The server is stopped mid-round (a deploy, or the free plan going to sleep): the round is saved as it stands.
   const r5 = await call(host, "host:start", { settings: ROUND });
@@ -639,20 +673,110 @@ test("guessing room codes gets throttled, whichever message is used", async () =
   for (const g of guesses) assert.deepEqual(await g(), { error: "too-many" });
 });
 
-test("theme: the teacher's look reaches the room and every device", async () => {
+test("own looks: the teacher's setting reaches the room and every device", async () => {
   clock += 60 * 60 * 1000; roomsApi.sweep();   // let the code-guessing throttle from the test before run out
   const host = await client();
-  const open = await call(host, "host:open", { idToken: "tok-a", classId: "class1", theme: "rednut" });
-  assert.equal(open.room.theme, "rednut");
+  const open = await call(host, "host:open", { idToken: "tok-a", classId: "class1", ownLooks: false, theme: "rednut" });
+  assert.equal(open.room.ownLooks, false);
+  assert.equal("theme" in open.room, false, "the room has no theme any more");
   const kid = await client();
-  assert.equal((await call(kid, "player:lookup", { code: open.room.code })).room.theme, "rednut");
+  assert.equal("theme" in (await call(kid, "player:lookup", { code: open.room.code })).room, false);
   const joined = await call(kid, "player:join", { code: open.room.code, studentId: "s1" });
-  assert.equal(joined.theme, "rednut");
-  const pushed = next(kid, "room:theme"), hostSees = next(host, "room:update");
-  assert.deepEqual(await call(host, "host:theme", { theme: "classic" }), { ok: true });
-  assert.equal(await pushed, "classic");
-  assert.equal((await hostSees).theme, "classic");
-  await call(host, "host:theme", { theme: "<script>" });
-  assert.equal((await call(host, "host:resume", { idToken: "tok-a" })).room.theme, "classic", "unknown looks fall back to classic");
+  assert.equal(joined.ownLooks, false);
+  const pushed = next(kid, "room:looks"), hostSees = next(host, "room:update");
+  assert.deepEqual(await call(host, "host:own-looks", { on: true }), { ok: true });
+  assert.deepEqual(await pushed, { ownLooks: true });
+  assert.equal((await hostSees).ownLooks, true);
+  assert.deepEqual(await call(host, "host:own-looks", { on: "yes" }), { error: "invalid" });
+  assert.deepEqual(await call(kid, "host:own-looks", { on: false }), { error: "no-room" }, "students can't change it");
+  assert.equal((await call(host, "host:resume", { idToken: "tok-a" })).room.ownLooks, true);
   await call(host, "host:close");
+  assert.equal((await call(host, "host:open", { idToken: "tok-a", classId: "class1" })).room.ownLooks, true, "on unless the teacher says");
+  await call(host, "host:close");
+});
+
+test("shop: buying and wearing looks, from the lobby only, never for guests", async () => {
+  saved = []; pending = [];
+  summaries.set("s3", { ...summaries.get("s3"), stars: 30 });
+  wallets.set("s3", {});
+  const host = await client();
+  const { room } = await call(host, "host:open", { idToken: "tok-a", classId: "class1" });
+  const chloe = await client(), guest = await client(), stranger = await client();
+  const joined = await call(chloe, "player:join", { code: room.code, studentId: "s3" });
+  assert.deepEqual(joined.looks, noLooks, "the device dresses itself from the join");
+  assert.equal(joined.ownLooks, true);
+  assert.equal(joined.balance, 30, "and shows its stars straight away");
+  const guestJoin = await call(guest, "player:join", { code: room.code, guestName: "Max" });
+  assert.equal(guestJoin.looks, null, "guests have no looks");
+  assert.equal(guestJoin.balance, null, "or stars");
+  for (const ev of ["player:shop", "player:buy", "player:equip"]) {
+    assert.deepEqual(await call(guest, ev, { id: "test-fox", slot: "avatar" }), { error: "guest" });
+    assert.deepEqual(await call(stranger, ev, { id: "test-fox", slot: "avatar" }), { error: "not-joined" });
+  }
+  const buy = id => { clock += 1000; return call(chloe, "player:buy", { id }); };
+  const equip = (slot, id) => { clock += 1000; return call(chloe, "player:equip", { slot, id }); };
+
+  const shop = await call(chloe, "player:shop");
+  assert.deepEqual(shop.wallet, { stars: 30, spent: 0, balance: 30, owned: {}, equipped: {} });
+  assert.deepEqual(shop.worn, noLooks);
+  assert.ok(shop.trophies["first-round"], "her trophies come too, for the unlock-only looks");
+  assert.deepEqual(await call(chloe, "player:shop"), { error: "slow-down" });
+
+  assert.deepEqual(await buy("test-dots"), { error: "not-enough" });
+  assert.deepEqual(await buy("test-crown"), { error: "unlock-only" });
+  assert.deepEqual(await buy("nope"), { error: "no-item" });
+  assert.deepEqual(await buy(42), { error: "no-item" });
+  const bought = await buy("test-fox");
+  assert.equal(bought.ok, true);
+  assert.deepEqual({ ...bought.wallet, owned: Object.keys(bought.wallet.owned) }, { stars: 30, spent: 10, balance: 20, owned: ["test-fox"], equipped: {} });
+  assert.equal(bought.worn.avatar, null, "bought isn't worn until she chooses");
+  assert.deepEqual(await buy("test-fox"), { error: "owned" });
+  assert.deepEqual(await call(chloe, "player:buy", { id: "test-owl" }), { error: "slow-down" }, "one buy a second");
+  assert.equal(summaries.get("s3").stars, 30, "buying never touches the summary");
+
+  assert.deepEqual(await equip("avatar", "test-owl"), { error: "not-owned" });
+  assert.deepEqual(await equip("dice", "test-fox"), { error: "no-item" }, "a fox isn't dice");
+  assert.deepEqual(await equip("hat", "test-fox"), { error: "no-slot" });
+  const lobby = next(host, "room:update");
+  const worn = await equip("avatar", "test-fox");
+  assert.deepEqual(worn, { ok: true, worn: { ...noLooks, avatar: "test-fox" } });
+  assert.equal((await lobby).players.find(p => p.studentId === "s3").avatar, "🦊", "the big-screen lobby shows it straight away");
+  const view = (await call(host, "host:resume", { idToken: "tok-a" })).room;
+  assert.equal(view.players.find(p => p.guest).avatar, null);
+
+  // Mid-round the shop is only for looking.
+  const r = await call(host, "host:start", { settings: ROUND });
+  await call(host, "host:clock", { n: r.n, state: "playing", remainingMs: 60000 });
+  assert.deepEqual(await buy("test-owl"), { error: "not-now" });
+  assert.deepEqual(await equip("avatar", null), { error: "not-now" });
+  clock += 2000;
+  assert.equal((await call(chloe, "player:shop")).wallet.balance, 20);
+  assert.equal((await call(chloe, "player:word", { n: r.n, word: "cats" })).result, "ok");
+  const rewards = next(chloe, "round:rewards");
+  await call(host, "host:phase", { phase: "reveal" });
+  runTimers();
+  const mine = await rewards;
+  const earned = starsForRound(saved.at(-1).record.players.s3.score);
+  assert.equal(mine.stars, earned, "the device hears the stars this round earned");
+  assert.equal(mine.balance, 20 + earned, "and what it can spend now");
+  assert.equal(wallets.get("s3").spent, 10, "a saved round never touches the wallet");
+
+  // Back on the device after a refresh: still wearing the fox.
+  const back = await call(await client(), "player:rejoin", { code: room.code, token: joined.token });
+  assert.equal(back.looks.avatar, "test-fox");
+  assert.equal(back.balance, 20 + earned);
+  await call(host, "host:phase", { phase: "lobby" });
+  clock += 1000;
+  assert.deepEqual(await call(chloe, "player:equip", { slot: "avatar", id: null }), { error: "not-joined" }, "the old device was replaced");
+  await call(host, "host:close");
+  pending = [];
+});
+
+test("shop: two buys at once can't spend the same stars", async () => {
+  summaries.set("s2", { ...summaries.get("s2"), stars: 15 });
+  wallets.set("s2", { spent: 0 });
+  const out = await Promise.all(["test-fox", "test-owl"].map(id => buyItem("teacherA", "class1", "s2", id, clock)));
+  assert.deepEqual(out.map(o => o.error || "ok").sort(), ["not-enough", "ok"]);
+  assert.equal(wallets.get("s2").spent, 10);
+  assert.equal(Object.keys(wallets.get("s2").owned).length, 1);
 });

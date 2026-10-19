@@ -117,7 +117,7 @@ export function TrophyGrid({ trophies, compact = false }) {
   const sel = picked && TROPHY_BY_ID[picked];
   return (
     <div style={{ display: "grid", gap: 10 }}>
-      <div style={{
+      <div className="ws-cabinet" style={{
         display: "grid", gridTemplateColumns: `repeat(auto-fill, minmax(${W}px, 1fr))`, gridAutoRows: H, padding: "0 10px",
         background: `${shelves}, var(--ws-cabinet)`, border: `${compact ? 5 : 8}px solid var(--ws-cabinet-edge)`, borderRadius: 14,
         boxShadow: "inset 0 0 26px rgba(0,0,0,.35), 0 8px 18px rgba(0,0,0,.25)",
@@ -139,7 +139,8 @@ export function TrophyGrid({ trophies, compact = false }) {
               <span className="ws-display" style={{
                 alignSelf: "center", maxWidth: "90%", overflow: "hidden", boxSizing: "border-box", textAlign: "center",
                 padding: compact ? "1px 5px" : "2px 7px", borderRadius: 3, fontSize: compact ? 9.5 : 11.5, fontWeight: 700, lineHeight: 1.1, marginBottom: 6, maxHeight: "2.3em",
-                background: got ? "linear-gradient(180deg,#FBE9AE,#C9A043)" : "rgba(0,0,0,.18)", color: got ? "#3B2A08" : "rgb(var(--ws-fg) / .55)",
+                // not won yet: pale text on a dark wash, so it reads on any shelf whatever the theme
+                background: got ? "linear-gradient(180deg,#FBE9AE,#C9A043)" : "rgba(0,0,0,.34)", color: got ? "#3B2A08" : "rgba(255,255,255,.82)",
                 boxShadow: got ? "0 1px 0 rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.6)" : "none",
                 animation: compact ? "none" : `ws-fade .4s ${0.03 * i}s ease both`,
               }}>{t.name}</span>
@@ -210,7 +211,7 @@ const Burst = ({ size = 200, children }) => (
 );
 
 // Step 1: how the round went, with the numbers counting up.
-function RoundStep({ name, words, points, best }) {
+function RoundStep({ name, avatar, stars, words, points, best }) {
   const w = useCountUp(words), pts = useCountUp(points, 1100, 450);
   const stat = (n, label, delay) => (
     <div style={{ display: "grid", justifyItems: "center", minWidth: 120, background: "rgb(var(--ws-fg) / .07)", borderRadius: 18, padding: "12px 18px", animation: `ws-pop .5s ${delay}s ease both` }}>
@@ -221,11 +222,17 @@ function RoundStep({ name, words, points, best }) {
   return (
     <>
       <span aria-hidden="true" style={{ fontSize: 84, lineHeight: 1, animation: "ws-slap .7s .05s ease both" }}>{best.length ? "⭐" : words ? "🎉" : "💪"}</span>
-      <div className="ws-display" style={{ fontSize: 32, fontWeight: 800 }}>{words ? `Great round, ${name}!` : `Good try, ${name}!`}</div>
+      <div className="ws-display" style={{ fontSize: 32, fontWeight: 800 }}>{avatar && <span aria-hidden="true">{avatar} </span>}{words ? `Great round, ${name}!` : `Good try, ${name}!`}</div>
       <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap" }}>
         {stat(w, words === 1 ? "word" : "words", 0.15)}
         {stat(pts, points === 1 ? "point" : "points", 0.3)}
       </div>
+      {/* Stars for the shop: every round earns some, even a round with no words. */}
+      {typeof stars === "number" && stars > 0 && (
+        <div className="ws-display" aria-label={`Plus ${stars} ${stars === 1 ? "star" : "stars"} for the shop`} style={{ fontSize: 30, fontWeight: 800, background: "rgb(var(--ws-fg) / .08)", border: "2px solid rgb(var(--ws-fg) / .18)", borderRadius: 999, padding: "6px 22px", animation: "ws-pop .5s 1s ease both" }}>
+          +{stars} ⭐
+        </div>
+      )}
       {best.map((b, k) => (
         <div key={b} className="ws-display" style={{ fontSize: 22, fontWeight: 700, color: T.amber, background: "rgb(var(--ws-amber-rgb) / .14)", border: "1px solid rgb(var(--ws-amber-rgb) / .5)", borderRadius: 999, padding: "6px 18px", animation: `ws-pop .5s ${1.3 + 0.2 * k}s ease both` }}>
           ⭐ {b === "score" ? "Your best score ever!" : "The most words you've ever found!"}
@@ -315,7 +322,7 @@ function CollectionStep({ summary, rewards }) {
  * personal bests), then each new trophy gets its own moment, then the new stickers are slapped down together,
  * and it always ends on the student's whole collection with what's new glowing. Tap anywhere to carry on.
  */
-export function RoundSplash({ rewards, name, words, points, onDone }) {
+export function RoundSplash({ rewards, name, avatar = "", stars = null, words, points, onDone }) {
   const steps = [{ kind: "round" }];
   rewards.trophies.map(id => TROPHY_BY_ID[id]).filter(Boolean).forEach(t => steps.push({ kind: "trophy", t }));
   if (rewards.stickers.length) steps.push({ kind: "stickers" });
@@ -337,7 +344,7 @@ export function RoundSplash({ rewards, name, words, points, onDone }) {
   if (step.kind === "round") {
     label = "Round complete!";
     party = words > 0 || rewards.best.length > 0;
-    body = <RoundStep name={name} words={words} points={points} best={rewards.best} />;
+    body = <RoundStep name={name} avatar={avatar} stars={stars} words={words} points={points} best={rewards.best} />;
   } else if (step.kind === "trophy") {
     label = "New trophy!";
     body = (
@@ -398,9 +405,12 @@ export function RoundSplash({ rewards, name, words, points, onDone }) {
 }
 
 // What this round earned, kept under "Time's up!" after the pop-up closes.
-export function RoundRewards({ rewards }) {
-  if (!hasRewards(rewards)) return null;
+// stars: the shop stars this round earned (class-list students only; null shows none).
+export function RoundRewards({ rewards, stars = null }) {
+  const hasStars = typeof stars === "number" && stars > 0;
+  if (!hasRewards(rewards) && !hasStars) return null;
   const items = [
+    ...(hasStars ? [{ key: "stars", icon: <span style={{ fontSize: 34 }}>⭐</span>, title: `+${stars} ${stars === 1 ? "star" : "stars"} for the shop`, sub: "" }] : []),
     ...rewards.best.map(b => ({ key: "best-" + b, icon: <span style={{ fontSize: 34 }}>⭐</span>, title: b === "score" ? "New personal best score!" : "Most words you've ever found!", sub: "" })),
     ...rewards.trophies.map(id => TROPHY_BY_ID[id]).filter(Boolean).map(t => ({ key: t.id, icon: <span style={{ fontSize: 34 }}>{t.emoji}</span>, title: `Trophy: ${t.name}`, sub: t.desc })),
     ...rewards.stickers.map(s => ({ key: `${s.sound}-${s.g}`, icon: <Sticker g={s.g} tier={s.tier} sound={s.sound} size={42} />, title: s.tier === 1 ? `New sticker: ${s.g}` : `${cap(TIER_NAMES[s.tier])} sticker: ${s.g}`, sub: `for the sound ${soundLab(s.sound)}` })),

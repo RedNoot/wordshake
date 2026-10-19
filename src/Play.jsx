@@ -3,6 +3,8 @@ import { T } from "./theme.js";
 import { call } from "./net.js";
 import { SOUND_BY_ID } from "./sounds.js";
 import { PlayBoard } from "./components/PlayBoard.jsx";
+import { WordEffect, BURST_MS } from "./effects.jsx";
+import { wornEffect } from "./looks.js";
 import { RoundRewards, RoundSplash } from "./Trophies.jsx";
 import { TeamBadge, TeamResults, winnerLine } from "./Teams.jsx";
 
@@ -43,16 +45,17 @@ function useLeft(round) {
   return left;
 }
 
-export function Play({ round, name, onRound }) {
+export function Play({ round, name, avatar = "", guest = false, onRound }) {
   const left = useLeft(round);
   const [trace, setTrace] = useState("");
   const [typed, setTyped] = useState("");
   const [feedback, setFeedback] = useState(null);
   const [flash, setFlash] = useState(null);
+  const [burst, setBurst] = useState(null);   // the found-word effect being drawn (see effects.jsx)
   const timers = useRef({});
   const typeRef = useRef(null);
 
-  useEffect(() => () => { clearTimeout(timers.current.f); clearTimeout(timers.current.b); }, []);
+  useEffect(() => () => { clearTimeout(timers.current.f); clearTimeout(timers.current.b); clearTimeout(timers.current.e); }, []);
   useEffect(() => { setFeedback(null); setFlash(null); setTyped(""); }, [round.n]);
 
   const playing = round.state === "playing" && left > 0 && round.eligible;
@@ -101,6 +104,13 @@ export function Play({ round, name, onRound }) {
     if (r.result === "ok") {
       idleFrom.current = Date.now();
       if (r.word === hint) setHint(null);
+      const end = path && path.length ? path[path.length - 1] : null;
+      setBurst({
+        key: Date.now(), path: path || [], size: round.size, word: r.word, colour: T.amber,
+        x: end == null ? 50 : ((end % round.size) + 0.5) / round.size * 100, y: end == null ? 50 : (Math.floor(end / round.size) + 0.5) / round.size * 100,
+      });
+      clearTimeout(timers.current.e);
+      timers.current.e = setTimeout(() => setBurst(null), BURST_MS);
       try { navigator.vibrate && navigator.vibrate(20); } catch { /* not supported */ }
       onRound(cur => cur && cur.n === round.n && !cur.words.some(w => w.word === r.word)
         ? { ...cur, words: [...cur.words, { word: r.word, pts: r.pts, bonus: r.bonus }], total: r.total } : cur);
@@ -170,7 +180,7 @@ export function Play({ round, name, onRound }) {
             <TeamResults result={round.teamResult} mine={round.team} />
           </section>
         )}
-        <RoundRewards rewards={round.rewards} />
+        <RoundRewards rewards={round.rewards} stars={guest || !r ? null : r.stars} />
         {r && r.summary && (
           <button type="button" className="ws-btn ws-display" onClick={() => setReplay(true)}
             style={{ fontSize: 19, fontWeight: 700, background: "none", color: T.amber, border: `2px solid ${T.amber}`, borderRadius: 14, padding: "10px 22px", cursor: "pointer" }}>
@@ -179,7 +189,7 @@ export function Play({ round, name, onRound }) {
         )}
         {wordList}
         {rewardSig && (seen !== rewardSig || replay) && (
-          <RoundSplash rewards={r} name={name} words={round.words.length} points={round.total} onDone={closePopup} />
+          <RoundSplash rewards={r} name={name} avatar={avatar} stars={guest ? null : r.stars} words={round.words.length} points={round.total} onDone={closePopup} />
         )}
       </div>
     );
@@ -231,7 +241,10 @@ export function Play({ round, name, onRound }) {
         )}
       </div>
 
-      <PlayBoard tiles={round.tiles} size={round.size} dim={dim} disabled={!playing} onWord={send} onTrace={setTrace} flash={flash} />
+      <div style={{ position: "relative" }}>
+        <PlayBoard tiles={round.tiles} size={round.size} dim={dim} disabled={!playing} onWord={send} onTrace={setTrace} flash={flash} />
+        <WordEffect effect={wornEffect()} burst={burst} />
+      </div>
 
       <form onSubmit={submitTyped} style={{ width: dim, display: "flex", gap: 8 }}>
         <label htmlFor="typed" style={{ position: "absolute", left: -9999 }}>Type a word</label>

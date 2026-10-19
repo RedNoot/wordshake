@@ -23,14 +23,10 @@ const ROOM_ERRORS = {
   "token-expired": "Your sign-in has expired. Sign out and sign in again.",
 };
 
-// The teacher's last look, remembered on this computer so the screen doesn't flash the other theme before sign-in.
-const THEME_KEY = "wordshake-theme";
-const savedTheme = () => { try { return localStorage.getItem(THEME_KEY) || "classic"; } catch { return "classic"; } };
-
 /* ================= main app ================= */
 export default function WordShakeWorkbook() {
   const [phase, setPhase] = useState(signInConfigured ? "loading" : "setup");
-  const [settings, setSettings] = useState({ seconds: 180, size: 4, minLen: 3, sound: true, showCount: true, phSound: null, phTicked: [], phBonus: false, hints: true, mode: signInConfigured ? "online" : "workbook", classId: null, theme: savedTheme() });
+  const [settings, setSettings] = useState({ seconds: 180, size: 4, minLen: 3, sound: true, showCount: true, phSound: null, phTicked: [], phBonus: false, hints: true, mode: signInConfigured ? "online" : "workbook", classId: null, ownLooks: true });
   const [dict, setDict] = useState({ status: "loading", count: 0 });
   const [phStats, setPhStats] = useState({ words: 0, tags: 0 });
   const [busy, setBusy] = useState(false);
@@ -94,7 +90,8 @@ export default function WordShakeWorkbook() {
     setAccount(user);
     const body = await res.json();
     if (res.ok) {
-      if (body.settings) setSettings(v => ({ ...v, ...body.settings }));
+      // Settings saved before the shop may still hold a theme: the big screen is always classic now, so it's dropped.
+      if (body.settings) { const { theme, ...saved } = body.settings; setSettings(v => ({ ...v, ...saved })); } // eslint-disable-line no-unused-vars
       setIsNew(body.isNew);
     } else {
       setAccountNote("You're signed in, but your saved settings and classes aren't available right now.");
@@ -194,14 +191,18 @@ export default function WordShakeWorkbook() {
     };
   }, [account]); // eslint-disable-line
 
-  // The look follows the teacher's setting here, and on every device in the room.
+  // The big screen is always the classic look; shop looks only ever show on a student's own device.
+  useEffect(() => { applyTheme(); }, []);
+  // "Let students use their own looks": sent with host:open, and changed live when the teacher flips it.
+  // room changes on every roster update, so only send when the value really differs from what the room has.
+  const sentOwnLooks = useRef(null);
   useEffect(() => {
-    applyTheme(settings.theme);
-    try { localStorage.setItem(THEME_KEY, settings.theme); } catch { /* private mode */ }
-  }, [settings.theme]);
-  useEffect(() => {
-    if (room && room.theme && room.theme !== settings.theme) call("host:theme", { theme: settings.theme });
-  }, [settings.theme, room]);
+    if (!room) { sentOwnLooks.current = null; return; }
+    const has = typeof room.ownLooks === "boolean" ? room.ownLooks : sentOwnLooks.current;
+    if (has === settings.ownLooks) return;
+    sentOwnLooks.current = settings.ownLooks;
+    call("host:own-looks", { on: settings.ownLooks }).then(res => { if (!res.ok) sentOwnLooks.current = null; });
+  }, [settings.ownLooks, room]);
 
   // Tell joined devices whether a round is on. A message that doesn't get through (wifi blip) is sent again.
   // While a round is starting, the server has already moved the room to "playing" but this screen is still on the lobby:
@@ -243,9 +244,10 @@ export default function WordShakeWorkbook() {
     setRoomNote("");
     saveSettingsNow();
     const classId = settings.classId && classes && classes.some(c => c.id === settings.classId) ? settings.classId : null;
-    const res = await call("host:open", { idToken: await getIdToken().catch(() => ""), classId, theme: settings.theme });
+    const res = await call("host:open", { idToken: await getIdToken().catch(() => ""), classId, ownLooks: settings.ownLooks !== false });
     setBusy(false);
     if (!res.ok) return setRoomNote(ROOM_ERRORS[res.error] || "The room didn't open. Please try again.");
+    sentOwnLooks.current = settings.ownLooks !== false;
     setRoom(res.room);
     setPhase("lobby");
   };
@@ -665,7 +667,9 @@ export default function WordShakeWorkbook() {
               {settings.mode === "online" && (
                 <Toggle on={settings.hints} onClick={() => setSettings(v => ({ ...v, hints: !v.hints }))} label="Hints: a short word for anyone stuck for 15 seconds" />
               )}
-              <Toggle on={settings.theme === "rednut"} onClick={() => setSettings(v => ({ ...v, theme: v.theme === "rednut" ? "classic" : "rednut" }))} label="RedNut look (students' devices too)" />
+              {settings.mode === "online" && (
+                <Toggle on={settings.ownLooks !== false} onClick={() => setSettings(v => ({ ...v, ownLooks: v.ownLooks === false }))} label="Let students use their own looks" />
+              )}
             </div>
           </div>
 

@@ -3,7 +3,8 @@ import { cleanGuestName, uniqueName } from "./names.js";
 import { pickRoundSettings } from "./settings.js";
 import { newRound, setClock, remainingMs, playerView, checkWord, giveHint, roundRecord, teamResults, GRACE_MS } from "./round.js";
 import { emptySummary } from "../../shared/rewards.js";
-import { pickTheme } from "./settings.js";
+import { ITEM_BY_ID, balanceOf, wornLooks } from "../../shared/shop.js";
+import { walletOut } from "./wallet.js";
 import { MIN_TEAMS, MAX_TEAMS } from "../../shared/teams.js";
 import { snapshotRoom, restoreRoom } from "./snapshot.js";
 
@@ -28,13 +29,13 @@ const obj = d => (d && typeof d === "object" ? d : {});
 /*
  * Live rooms, held in server memory and copied to the database (liveStore), so a server restart doesn't close them.
  * room = { code, teacherId, hostSocket, classId, className, roster: [{ id, name }] | null,
- *          players: Map<playerId, { id, name, studentId, token, socketId }>, phase, createdAt, hostSeenAt,
- *          round: see round.js | null, roundNo, teams: null | { count, of: Map<playerId, team number> } }
+ *          players: Map<playerId, { id, name, studentId, token, socketId, avatar: emoji | null }>, phase, createdAt, hostSeenAt,
+ *          round: see round.js | null, roundNo, teams: null | { count, of: Map<playerId, team number> }, ownLooks }
  * Socket.IO rooms: host:CODE (the big screen), players:CODE (joined devices), lookup:CODE (devices on the name grid).
  */
 export function attachRooms(io, {
   verifyTeacher, getClass, makeGame, isRealWord,
-  saveRound = null, getStudent = null, liveStore = null,
+  saveRound = null, getStudent = null, buyItem = null, equipItem = null, liveStore = null,
   now = Date.now, later = (fn, ms) => setTimeout(fn, ms),
 }) {
   const rooms = new Map();
@@ -145,12 +146,12 @@ export function attachRooms(io, {
   const players = room => [...room.players.values()];
   const teamOf = (room, playerId) => (room.teams && room.teams.of.has(playerId) ? room.teams.of.get(playerId) : null);
   const hostView = room => ({
-    code: room.code, className: room.className, phase: room.phase, theme: room.theme, teams: room.teams ? room.teams.count : 0,
+    code: room.code, className: room.className, phase: room.phase, ownLooks: room.ownLooks, teams: room.teams ? room.teams.count : 0,
     roster: room.roster && room.roster.map(s => ({ id: s.id, name: s.name })),
-    players: players(room).map(p => ({ id: p.id, name: p.name, studentId: p.studentId, guest: !p.studentId, connected: !!p.socketId, team: teamOf(room, p.id) })),
+    players: players(room).map(p => ({ id: p.id, name: p.name, studentId: p.studentId, guest: !p.studentId, connected: !!p.socketId, team: teamOf(room, p.id), avatar: p.avatar || null })),
   });
   const lookupView = room => ({
-    code: room.code, className: room.className, phase: room.phase, theme: room.theme,
+    code: room.code, className: room.className, phase: room.phase,
     roster: room.roster && room.roster.map(s => ({
       id: s.id, name: s.name, taken: players(room).some(p => p.studentId === s.id && p.socketId),
     })),
@@ -240,7 +241,8 @@ export function attachRooms(io, {
     round.rewards = new Map();
     for (const [playerId, who] of round.who || []) {
       if (!who.studentId || !bySid[who.studentId] || !round.eligible.has(playerId)) continue;
-      const mine = { ...bySid[who.studentId], summary: summaries[who.studentId] || null };
+      const summary = summaries[who.studentId] || null;
+      const mine = { ...bySid[who.studentId], summary, balance: balanceOf(summary) };
       round.rewards.set(playerId, mine);
       const p = rooms.get(room.code) === room && room.players.get(playerId), s = p && p.socketId && io.sockets.sockets.get(p.socketId);
       if (s) s.emit("round:rewards", { n: round.n, ...mine });
@@ -322,7 +324,16 @@ export function attachRooms(io, {
     if (p && p.socketId === socket.id) { p.socketId = null; notify(room); }
   }
 
-  function attachPlayer(socket, room, p) {
+  // A class-list student's saved wallet and trophies, read as they join so the device dresses itself before it draws.
+  // The lesson never waits on a broken database: the default looks will do until the next join.
+  // undefined = couldn't be read (so the avatar the room already knows stays); null = nothing saved yet.
+  const loadStudent = (room, studentId) => (getStudent && room.classId && studentId
+    ? Promise.resolve().then(() => getStudent(room.teacherId, room.classId, studentId)).catch(() => undefined) : Promise.resolve(undefined));
+  const avatarOf = worn => (worn && worn.avatar && ITEM_BY_ID[worn.avatar] ? ITEM_BY_ID[worn.avatar].emoji : null);
+  function attachPlayer(socket, room, p, saved) {
+    const guest = !p.studentId || !room.classId;
+    const looks = guest ? null : wornLooks(saved, saved && saved.trophies);
+    if (!guest && saved !== undefined) p.avatar = avatarOf(looks);
     detachPlayer(socket);
     const old = p.socketId && p.socketId !== socket.id && io.sockets.sockets.get(p.socketId);
     if (old) { old.emit("room:replaced"); old.leave(`players:${room.code}`); old.data.player = null; }
@@ -332,7 +343,12 @@ export function attachRooms(io, {
     socket.join(`players:${room.code}`);
     notify(room);
     addToTeam(room, p.id);
-    return { ok: true, token: p.token, name: p.name, guest: !p.studentId || !room.classId, phase: room.phase, theme: room.theme, className: room.className, team: teamOf(room, p.id), round: roundFor(room, p.id) };
+    return {
+      ok: true, token: p.token, name: p.name, guest, phase: room.phase, className: room.className, team: teamOf(room, p.id), round: roundFor(room, p.id),
+      looks, ownLooks: room.ownLooks,
+      // stars to spend, for the lobby (null: a guest, or the wallet couldn't be read)
+      balance: guest || saved === undefined ? null : balanceOf(saved),
+    };
   }
 
   // The round a device should see: none in the lobby, otherwise its own view of the current round.
@@ -400,7 +416,7 @@ export function attachRooms(io, {
     });
 
     /* ---- the teacher's big screen ---- */
-    on("host:open", async ({ idToken, classId, theme }, ack) => {
+    on("host:open", async ({ idToken, classId, ownLooks }, ack) => {
       const teacher = await verifyTeacher(String(idToken || ""));
       let cls = null;
       if (classId != null) {
@@ -418,7 +434,7 @@ export function attachRooms(io, {
         code, teacherId: teacher.id, hostSocket: null, classId: cls ? classId : null, className: cls ? cls.name : null,
         roster: cls ? cls.students.map(s => ({ id: s.id, name: s.name })) : null,
         players: new Map(), phase: "lobby", createdAt: now(), hostSeenAt: now(), round: null, roundNo: 0,
-        theme: pickTheme(theme), teams: null,
+        ownLooks: ownLooks !== false, teams: null,
       };
       rooms.set(code, room);
       byTeacher.set(teacher.id, code);
@@ -492,12 +508,13 @@ export function attachRooms(io, {
       ack({ ok: true });
     });
 
-    // The teacher switched the look in Settings: every device in the room follows.
-    on("host:theme", async ({ theme }, ack) => {
+    // The teacher switched "Let students use their own looks" in Settings: every device follows straight away.
+    on("host:own-looks", async ({ on: ownLooks }, ack) => {
       const room = hostRoom(socket);
       if (!room) return ack({ error: "no-room" });
-      room.theme = pickTheme(theme);
-      io.to(`players:${room.code}`).to(`lookup:${room.code}`).emit("room:theme", room.theme);
+      if (typeof ownLooks !== "boolean") return ack({ error: "invalid" });
+      room.ownLooks = ownLooks;
+      io.to(`players:${room.code}`).emit("room:looks", { ownLooks });
       notify(room);
       ack({ ok: true });
     });
@@ -574,29 +591,35 @@ export function attachRooms(io, {
       if (studentId != null) {
         const student = room.roster && room.roster.find(s => s.id === studentId);
         if (!student) return ack({ error: "no-student" });
+        const saved = await loadStudent(room, student.id);
+        if (rooms.get(room.code) !== room) return ack({ error: "no-room" });   // closed while it was being read
         const existing = players(room).find(p => p.studentId === student.id);
         // One device per name. A device that dropped out can be replaced by a new one, which takes over the name.
         if (existing && existing.socketId && existing.socketId !== socket.id) return ack({ error: "already-in" });
-        if (existing) { existing.token = newToken(); return ack(attachPlayer(socket, room, existing)); }
-        const p = { id: newToken(), name: student.name, studentId: student.id, token: newToken(), socketId: null };
+        if (existing) { existing.token = newToken(); return ack(attachPlayer(socket, room, existing, saved)); }
+        const p = { id: newToken(), name: student.name, studentId: student.id, token: newToken(), socketId: null, avatar: null };
         room.players.set(p.id, p);
-        return ack(attachPlayer(socket, room, p));
+        return ack(attachPlayer(socket, room, p, saved));
       }
       const clean = cleanGuestName(guestName);
       if (!clean) return ack({ error: "bad-name" });
       const taken = [...players(room).map(p => p.name), ...(room.roster || []).map(s => s.name)];
-      const p = { id: newToken(), name: uniqueName(clean, taken), studentId: null, token: newToken(), socketId: null };
+      const p = { id: newToken(), name: uniqueName(clean, taken), studentId: null, token: newToken(), socketId: null, avatar: null };
       room.players.set(p.id, p);
-      ack(attachPlayer(socket, room, p));
+      ack(attachPlayer(socket, room, p, null));
     });
 
     // A device that joined before (saved token) comes straight back, e.g. after the iPad slept.
     on("player:rejoin", async ({ code, token }, ack) => {
       const { room, error } = await studentRoom(socket, code);
       if (error) return ack({ error });
-      const p = typeof token === "string" && players(room).find(x => x.token === token);
+      const find = () => typeof token === "string" && players(room).find(x => x.token === token);
+      const p = find();
       if (!p) return ack({ error: "no-player" });
-      ack(attachPlayer(socket, room, p));
+      const saved = await loadStudent(room, p.studentId);
+      // Closed, kicked, or taken over by another device while the wallet was being read.
+      if (rooms.get(room.code) !== room || find() !== p) return ack({ error: "no-player" });
+      ack(attachPlayer(socket, room, p, saved));
     });
 
     on("player:word", async ({ n, word }, ack) => {
@@ -628,6 +651,52 @@ export function attachRooms(io, {
       socket.data.trophiesAt = now();
       const saved = getStudent ? await Promise.resolve().then(() => getStudent(room.teacherId, room.classId, p.studentId)).catch(() => null) : null;
       ack({ ok: true, summary: { ...emptySummary(), ...(saved || {}), awards: (saved && saved.awards) || [] } });
+    });
+
+    /*
+     * The shop (docs/SHOP.md). Only a class-list student has a wallet; the database decides every buy and equip in
+     * one transaction, so this only checks who's asking and when. Buying and wearing are for the lobby, not mid-round.
+     * Each message has its own limit, so buying something and then wearing it straight away isn't held up.
+     */
+    const shopper = (key, ms) => {
+      const ref = socket.data.player;
+      const room = ref && rooms.get(ref.code);
+      const p = room && room.players.get(ref.id);
+      if (!p) return { error: "not-joined" };
+      if (!p.studentId || !room.classId) return { error: "guest" };
+      if (key !== "shopAt" && room.phase !== "lobby") return { error: "not-now" };
+      if (socket.data[key] && now() - socket.data[key] < ms) return { error: "slow-down" };
+      socket.data[key] = now();
+      return { room, p };
+    };
+
+    on("player:shop", async (_, ack) => {
+      const { room, p, error } = shopper("shopAt", 2000);
+      if (error) return ack({ error });
+      const saved = getStudent ? await getStudent(room.teacherId, room.classId, p.studentId) : null;
+      const trophies = (saved && saved.trophies) || {};
+      ack({ ok: true, wallet: walletOut(saved || {}), trophies, worn: wornLooks(saved, trophies) });
+    });
+
+    // A bought item isn't worn until the student chooses to wear it.
+    on("player:buy", async ({ id }, ack) => {
+      const { room, p, error } = shopper("buyAt", 1000);
+      if (error) return ack({ error });
+      if (typeof id !== "string" || !ITEM_BY_ID[id] || !buyItem) return ack({ error: "no-item" });
+      ack(await buyItem(room.teacherId, room.classId, p.studentId, id, now()));
+    });
+
+    // Wearing something (or null: the default look). A new avatar shows in the big-screen lobby straight away.
+    on("player:equip", async ({ slot, id }, ack) => {
+      const { room, p, error } = shopper("equipAt", 500);
+      if (error) return ack({ error });
+      if ((id !== null && typeof id !== "string") || !equipItem) return ack({ error: "no-item" });
+      const out = await equipItem(room.teacherId, room.classId, p.studentId, slot, id);
+      if (out.ok) {
+        const avatar = avatarOf(out.worn);
+        if (p.avatar !== avatar) { p.avatar = avatar; notify(room); }
+      }
+      ack(out);
     });
 
     // "That's not me": frees the name for its owner.

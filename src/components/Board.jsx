@@ -14,7 +14,7 @@ export function Board({ tiles, rots, size, dim, hidden, tumble, path, pathKey, t
               "--rt": `${rots[i]}deg`,
               display: "flex", alignItems: "center", justifyContent: "center",
               background: hidden ? "rgb(var(--ws-fg) / 0.05)"
-                : isTarget ? `linear-gradient(to top, ${T.amber} 0%, ${T.amber} 9%, ${T.dice} 9%)` : T.dice,
+                : isTarget ? `linear-gradient(to top, ${T.amber} 0%, ${T.amber} 9%, transparent 9%), ${T.diceTexture}, ${T.dice}` : `${T.diceTexture}, ${T.dice}`,
               color: T.letter, borderRadius: `calc(${dim} * 0.018)`,
               transform: `rotate(${rots[i]}deg)`,
               boxShadow: hidden ? "none" : `inset 0 -5px 0 ${T.diceEdge}, inset 0 2px 6px rgba(255,255,255,.8), 0 3px 6px rgba(0,0,0,.35)`,

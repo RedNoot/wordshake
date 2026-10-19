@@ -5,6 +5,11 @@ import { Server } from "socket.io";
 import { io as connect } from "socket.io-client";
 import { attachRooms } from "../server/lib/rooms.js";
 import { AuthError } from "../server/lib/auth.js";
+import { restoreRoom } from "../server/lib/snapshot.js";
+import { ITEM_BY_ID, SLOTS } from "../shared/shop.js";
+
+// A made-up avatar, so this doesn't depend on what the shop happens to sell.
+ITEM_BY_ID["test-fox"] = { id: "test-fox", slot: "avatar", name: "Fox", emoji: "🦊", price: 10 };
 
 // Rooms survive a server restart: a deploy, Render's free plan sleeping, or a crash.
 const CLASS = { id: "class1", name: "3/4B", students: [{ id: "s1", name: "Ava" }, { id: "s2", name: "Ben" }] };
@@ -51,6 +56,7 @@ async function startServer(db) {
     makeGame: async () => GAME(),
     isRealWord: async () => false,
     saveRound: (...a) => db.saveRound(...a),
+    equipItem: async (tid, cid, sid, slot, id) => ({ ok: true, worn: { ...Object.fromEntries(SLOTS.map(k => [k, null])), [slot]: id } }),
     liveStore: db.liveStore,
     now: () => clock,
     later: (fn, ms) => pending.push({ fn, ms }),
@@ -214,4 +220,27 @@ test("an old copy is never kept over a newer one", async () => {
   const back = await call(ava2, "player:rejoin", { code, token: tokens.ava });
   assert.deepEqual(back.round.words.map(w => w.word), ["cat", "cats"]);
   B.stop();
+});
+
+test("own looks and avatars come through a restart", async () => {
+  const db = fakeDb();
+  const A = await startServer(db);
+  const host = await client(A.url);
+  const { room } = await call(host, "host:open", { idToken: "tok-a", classId: "class1", ownLooks: false });
+  const ava = await client(A.url);
+  await call(ava, "player:join", { code: room.code, studentId: "s1" });
+  assert.equal((await call(ava, "player:equip", { slot: "avatar", id: "test-fox" })).ok, true);
+  await A.api.shutdown();
+  A.stop();
+
+  const B = await startServer(db);
+  const res = await call(await client(B.url), "host:resume", { idToken: "tok-a" });
+  assert.equal(res.room.ownLooks, false, "the teacher's choice is kept");
+  assert.equal(res.room.players[0].avatar, "🦊", "the lobby still shows her avatar");
+  B.stop();
+
+  // A room kept before the shop had a theme: it's left behind, and own looks are on.
+  const old = restoreRoom({ ...JSON.parse(db.kept.get("teacherA").data), ownLooks: undefined, theme: "rednut" });
+  assert.equal(old.ownLooks, true);
+  assert.equal("theme" in old, false);
 });
