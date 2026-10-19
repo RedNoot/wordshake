@@ -98,7 +98,7 @@ export function Preview({ store = null } = {}) {
   const [notes, setNotes] = useState(loadNotes);
   const [copied, setCopied] = useState(false);
   useEffect(() => { applyTheme(); }, []);
-  useEffect(() => store && store.subscribe(remote => setNotes(cur => ({ ...cur, ...remote }))), [store]);
+  useEffect(() => { if (store) return store.subscribe(remote => setNotes(cur => ({ ...cur, ...remote }))); }, [store]);
   const setNote = (id, n) => setNotes(cur => {
     const next = { ...cur, [id]: n };
     try { localStorage.setItem(NOTES_KEY, JSON.stringify(next)); } catch { /* private mode */ }
