@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { T, CSS, applyTheme } from "./theme.js";
 import { SOUNDS, SOUND_BY_ID } from "./sounds.js";
 import { Chip } from "./components/Chip.jsx";
-import { Toggle } from "./components/Toggle.jsx";
+import { GameSettings, settingsSummary, loadOpen, saveOpen } from "./GameSettings.jsx";
 import { Hi } from "./components/Hi.jsx";
 import { Board } from "./components/Board.jsx";
 import { WordOfGame } from "./components/WordOfGame.jsx";
@@ -28,10 +28,15 @@ const ROOM_ERRORS = {
 /* ================= main app ================= */
 export default function WordShakeWorkbook() {
   const [phase, setPhase] = useState(signInConfigured ? "loading" : "setup");
-  const [settings, setSettings] = useState({ seconds: 180, size: 4, minLen: 3, sound: true, showCount: true, phSound: null, phTicked: [], phBonus: false, hints: true, wordOfGame: false, mode: signInConfigured ? "online" : "workbook", classId: null, ownLooks: true });
+  const [settings, setSettings] = useState({ seconds: 180, size: 4, minLen: 3, sound: true, showCount: true, phSound: null, phTicked: [], phBonus: false, hints: true, hintSeconds: 15, wordOfGame: false, mode: signInConfigured ? "online" : "workbook", classId: null, ownLooks: true });
   const [dict, setDict] = useState({ status: "loading", count: 0 });
   const [phStats, setPhStats] = useState({ words: 0, tags: 0 });
   const [busy, setBusy] = useState(false);
+  // The settings drawer and which of its sections are open: remembered on this computer (see GameSettings.jsx).
+  const [drawer, setDrawerNow] = useState(() => { try { return localStorage.getItem("ws-settings-drawer") !== "0"; } catch { return true; } });
+  const setDrawer = on => { setDrawerNow(on); try { localStorage.setItem("ws-settings-drawer", on ? "1" : "0"); } catch { /* private mode */ } };
+  const [openSecs, setOpenSecsNow] = useState(loadOpen);
+  const setOpenSecs = f => setOpenSecsNow(o => { const next = f(o); saveOpen(next); return next; });
   const [game, setGame] = useState(null);
   const [count, setCount] = useState(3);
   const [remaining, setRemaining] = useState(180);
@@ -320,9 +325,9 @@ export default function WordShakeWorkbook() {
       // Students play on their devices: the server builds the board and checks their words.
       // First make sure the server knows how the last round ended (answers shown, or abandoned), so it's saved or not.
       await call("host:phase", { phase: roomPhaseFor(phaseRef.current) });
-      const { seconds, size, minLen, phSound, phTicked, phBonus, hints, wordOfGame } = settings;
+      const { seconds, size, minLen, phSound, phTicked, phBonus, hints, hintSeconds, wordOfGame } = settings;
       startingRef.current = true;
-      const res = await call("host:start", { settings: { seconds, size, minLen, phSound, phTicked, phBonus, hints, wordOfGame: !!wordOfGame } });
+      const res = await call("host:start", { settings: { seconds, size, minLen, phSound, phTicked, phBonus, hints, hintSeconds, wordOfGame: !!wordOfGame } });
       if (!res.ok) {
         startingRef.current = false;
         setBusy(false);
@@ -534,189 +539,112 @@ export default function WordShakeWorkbook() {
       )}
 
       {/* ---------- SETUP ---------- */}
-      {phase === "setup" && (
-        <main className="ws-fade" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 26, padding: "18px 24px 40px", overflowY: "auto" }}>
-          {accountNote && (
-            <div role="status" style={{ maxWidth: 680, background: "rgb(var(--ws-amber-rgb) / .1)", border: "1px solid rgb(var(--ws-amber-rgb) / .4)", borderRadius: 12, padding: "10px 14px", fontSize: 14.5, color: T.mist }}>
-              {accountNote}
-            </div>
-          )}
-          {account && showGuide && (
-            <Guide name={(account.displayName || "").split(" ")[0]} isNew={isNew} classes={classes} onAddClass={() => setPhase("classes")} onClose={hideGuide} />
-          )}
-          {roomNote && (
-            <div role="alert" style={{ maxWidth: 680, background: "rgb(var(--ws-red-rgb) / .1)", border: "1px solid rgb(var(--ws-red-rgb) / .45)", borderRadius: 12, padding: "10px 14px", fontSize: 14.5 }}>{roomNote}</div>
-          )}
-          {room && (
-            <div style={{ width: "min(760px, 94vw)", boxSizing: "border-box", background: "rgb(var(--ws-amber-rgb) / .08)", border: "1px solid rgb(var(--ws-amber-rgb) / .4)", borderRadius: 14, padding: "12px 18px", display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", fontSize: 15.5 }}>
-              <span style={{ flex: 1 }}>Room <b className="ws-display" style={{ color: T.amber, letterSpacing: 2 }}>{room.code}</b> is open with {room.players.length} player{room.players.length === 1 ? "" : "s"}. New settings apply from the next round.</span>
-              <button className="ws-btn" onClick={() => setPhase("lobby")} style={{ background: T.amber, color: T.ink, border: "none", borderRadius: 10, padding: "8px 14px", cursor: "pointer", fontSize: 15, fontWeight: 700 }}>Back to the lobby</button>
-            </div>
-          )}
-          <div style={{ textAlign: "center", maxWidth: 680 }}>
-            <h1 className="ws-display" style={{ fontSize: 42, fontWeight: 700, margin: 0 }}>Ready to shake the dice?</h1>
-            <p style={{ color: T.mist, fontSize: 17, marginTop: 8 }}>
-              Project this screen. Students write every word they can find in their books —
-              letters must connect, and no tile can be used twice in one word.
-            </p>
-          </div>
-
-          <div style={{ display: "grid", gap: 20, width: "min(760px, 94vw)" }}>
-            <div>
-              <div style={{ color: T.mist, fontSize: 13, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1.2 }}>How students play</div>
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <Chip active={settings.mode === "online"} onClick={() => setSettings(v => ({ ...v, mode: "online" }))}>Online: students join on devices</Chip>
-                <Chip active={settings.mode === "workbook"} onClick={() => setSettings(v => ({ ...v, mode: "workbook" }))}>Workbook: paper only</Chip>
-              </div>
-              {settings.mode === "online" && !account && (
-                <div style={{ marginTop: 10, fontSize: 14.5, color: T.mist }}>
-                  Online games need a teacher account.{" "}
-                  {accountsReady && <button className="ws-btn" onClick={signInHere} style={{ background: "none", border: "none", color: T.amber, textDecoration: "underline", cursor: "pointer", fontSize: 14.5, padding: 0 }}>Sign in with Google</button>}
+      {phase === "setup" && (() => {
+        const online = settings.mode === "online";
+        const showSettings = id => { setDrawer(true); if (id) setOpenSecs(o => ({ ...o, [id]: true })); };
+        const [label, action, busyLabel] = !online ? ["Shake the dice →", start, "Shaking the dice…"]
+          : room ? ["Back to the lobby →", () => { saveSettingsNow(); setPhase("lobby"); }, ""]
+          : ["Open the room →", openRoom, "Opening the room…"];
+        const link = { background: "none", border: "none", color: T.mist, textDecoration: "underline", cursor: "pointer", fontSize: 15, minHeight: 44 };
+        return (
+          <div style={{ flex: 1, display: "flex", flexWrap: "wrap", alignItems: "stretch" }}>
+            <main className="ws-fade" style={{ flex: "999 1 560px", minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start", gap: 24, padding: "min(9vh, 90px) 24px 40px", boxSizing: "border-box" }}>
+              {accountNote && (
+                <div role="status" style={{ maxWidth: 680, background: "rgb(var(--ws-amber-rgb) / .1)", border: "1px solid rgb(var(--ws-amber-rgb) / .4)", borderRadius: 12, padding: "10px 14px", fontSize: 14.5, color: T.mist }}>
+                  {accountNote}
                 </div>
               )}
-            </div>
+              {account && showGuide && (
+                <Guide name={(account.displayName || "").split(" ")[0]} isNew={isNew} classes={classes} onAddClass={() => setPhase("classes")} onClose={hideGuide} />
+              )}
+              {roomNote && (
+                <div role="alert" style={{ maxWidth: 680, background: "rgb(var(--ws-red-rgb) / .1)", border: "1px solid rgb(var(--ws-red-rgb) / .45)", borderRadius: 12, padding: "10px 14px", fontSize: 14.5 }}>{roomNote}</div>
+              )}
+              {room && (
+                <div style={{ width: "min(760px, 94vw)", boxSizing: "border-box", background: "rgb(var(--ws-amber-rgb) / .08)", border: "1px solid rgb(var(--ws-amber-rgb) / .4)", borderRadius: 14, padding: "12px 18px", display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", fontSize: 15.5 }}>
+                  <span style={{ flex: 1 }}>Room <b className="ws-display" style={{ color: T.amber, letterSpacing: 2 }}>{room.code}</b> is open with {room.players.length} player{room.players.length === 1 ? "" : "s"}. New settings apply from the next round.</span>
+                  <button className="ws-btn" onClick={() => setPhase("lobby")} style={{ background: T.amber, color: T.ink, border: "none", borderRadius: 10, padding: "8px 14px", cursor: "pointer", fontSize: 15, fontWeight: 700 }}>Back to the lobby</button>
+                </div>
+              )}
+              <div style={{ textAlign: "center", maxWidth: 680 }}>
+                <h1 className="ws-display" style={{ fontSize: 46, fontWeight: 700, margin: 0 }}>Ready to shake the dice?</h1>
+                {!online && (
+                  <p style={{ color: T.mist, fontSize: 17, marginTop: 8 }}>
+                    Project this screen. Students write every word they can find in their books —
+                    letters must connect, and no tile can be used twice in one word.
+                  </p>
+                )}
+              </div>
 
-            {settings.mode === "online" && account && (
-              <div>
-                <div style={{ color: T.mist, fontSize: 13, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1.2 }}>Class</div>
-                {room ? (
-                  <div style={{ fontSize: 15, color: T.mist }}>{room.className || "Guests only"} — close the room in the lobby to switch class.</div>
-                ) : (
-                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+              {online && !account && (
+                <div style={{ fontSize: 16, color: T.mist, textAlign: "center" }}>
+                  Online games need a teacher account.{" "}
+                  {accountsReady && <button className="ws-btn" onClick={signInHere} style={{ ...link, color: T.amber, fontSize: 16, padding: 0, minHeight: 0 }}>Sign in with Google</button>}
+                </div>
+              )}
+
+              {online && account && (room ? (
+                <div style={{ fontSize: 16, color: T.mist }}>{room.className || "Guests only"} — close the room in the lobby to switch class.</div>
+              ) : (
+                <div style={{ display: "grid", justifyItems: "center", gap: 8 }}>
+                  <div role="group" aria-label="Class" style={{ display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
                     {(classes || []).map(c => (
-                      <Chip key={c.id} active={settings.classId === c.id} onClick={() => setSettings(v => ({ ...v, classId: c.id }))}>{c.name}</Chip>
+                      <Chip key={c.id} big active={settings.classId === c.id} onClick={() => setSettings(v => ({ ...v, classId: c.id }))}>{c.name}</Chip>
                     ))}
-                    <Chip active={!classes || !classes.some(c => c.id === settings.classId)} onClick={() => setSettings(v => ({ ...v, classId: null }))}>Guests only</Chip>
-                    <button className="ws-btn" onClick={() => setPhase("classes")} style={{ background: "none", border: "none", color: T.mist, textDecoration: "underline", cursor: "pointer", fontSize: 14 }}>
+                    <Chip big active={!classes || !classes.some(c => c.id === settings.classId)} onClick={() => setSettings(v => ({ ...v, classId: null }))}>Guests only</Chip>
+                  </div>
+                  <div style={{ fontSize: 13.5, color: T.mist, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", justifyContent: "center" }}>
+                    Students tap their name from the class list. Anyone not on it can join as a guest.
+                    <button className="ws-btn" onClick={() => setPhase("classes")} style={{ ...link, fontSize: 13.5 }}>
                       {classes && classes.length ? "Manage classes" : "Add a class list"}
                     </button>
                   </div>
-                )}
-                {!room && <div style={{ marginTop: 8, fontSize: 13, color: "rgb(var(--ws-fg) / .45)" }}>Students tap their name from the class list. Anyone not on it can join as a guest.</div>}
-              </div>
-            )}
-            <div>
-              <div style={{ color: T.mist, fontSize: 13, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1.2 }}>Round time</div>
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                {[60, 120, 180, 240, 300].map(s => (
-                  <Chip key={s} active={settings.seconds === s} onClick={() => setSettings(v => ({ ...v, seconds: s }))}>{s / 60} min</Chip>
-                ))}
-              </div>
-            </div>
-            <div>
-              <div style={{ color: T.mist, fontSize: 13, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1.2 }}>Board size</div>
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                {[[4, "4 × 4 Classic"], [5, "5 × 5 Big"], [6, "6 × 6 Super"]].map(([n, label]) => (
-                  <Chip key={n} active={settings.size === n} onClick={() => setSettings(v => ({ ...v, size: n }))}>{label}</Chip>
-                ))}
-              </div>
-            </div>
-            <div>
-              <div style={{ color: T.mist, fontSize: 13, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1.2 }}>Shortest word allowed</div>
-              <div style={{ display: "flex", gap: 10 }}>
-                {[2, 3, 4].map(n => (
-                  <Chip key={n} active={settings.minLen === n} onClick={() => setSettings(v => ({ ...v, minLen: n }))}>{n} letters</Chip>
-                ))}
-              </div>
-            </div>
-
-            {/* ---- Sounds-Write target sound ---- */}
-            <div style={{ border: `1px solid ${T.faint}`, borderRadius: 16, padding: "16px 18px", background: "rgb(var(--ws-fg) / .03)" }}>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
-                <div style={{ color: T.mist, fontSize: 13, textTransform: "uppercase", letterSpacing: 1.2 }}>Today's sound</div>
-                <div style={{ color: "rgb(var(--ws-fg) / .35)", fontSize: 12 }}>Sounds-Write</div>
-              </div>
-              <div style={{ marginBottom: 12, borderRadius: 12, padding: "10px 14px", fontSize: 14.5, lineHeight: 1.45, color: T.mist, background: soundDef ? "rgb(var(--ws-amber-rgb) / .08)" : "rgb(var(--ws-fg) / .04)", border: `1px solid ${soundDef ? "rgb(var(--ws-amber-rgb) / .4)" : T.faint}` }}>
-                {soundDef ? (
-                  <><b style={{ color: T.amber }}>Sounds-Write words only.</b> The board, the answers and the scoring use just the Sounds-Write high-frequency word list{phStats.words ? ` (${phStats.words.toLocaleString()} words)` : ""}. Other dictionary words don't count this round.</>
-                ) : (
-                  <><b style={{ color: "var(--ws-text)" }}>Full dictionary.</b> Every word in the classroom-safe dictionary counts{dict.status === "full" ? ` (${dict.count.toLocaleString()} words)` : ""}. Pick a sound below to play with Sounds-Write high-frequency words only.</>
-                )}
-              </div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: soundDef ? 6 : 0 }}>
-                <Chip active={!settings.phSound} onClick={() => pickSound(null)}>Off</Chip>
-              </div>
-              {[["icv", "Initial Code — vowels"], ["ecv", "Extended Code — vowels"], ["con", "Consonant sounds"]].map(([grp, label]) => (
-                <div key={grp} style={{ marginTop: 10 }}>
-                  <div style={{ color: "rgb(var(--ws-fg) / .4)", fontSize: 12, marginBottom: 6 }}>{label}</div>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    {SOUNDS.filter(s => s.grp === grp).map(s => (
-                      <button key={s.id} title={s.eg} onClick={() => pickSound(s.id)} className="ws-btn ws-display"
-                        style={{ padding: "6px 12px", borderRadius: 999, fontSize: 15, fontWeight: 600, cursor: "pointer", border: `2px solid ${settings.phSound === s.id ? T.amber : "rgb(var(--ws-fg) / 0.14)"}`, background: settings.phSound === s.id ? T.amber : "transparent", color: settings.phSound === s.id ? T.ink : T.mist }}>
-                        {s.lab}
-                      </button>
-                    ))}
-                  </div>
                 </div>
               ))}
-              {soundDef && (
-                <div className="ws-fade" style={{ marginTop: 14, borderTop: `1px solid ${T.faint}`, paddingTop: 12 }}>
-                  <div style={{ fontSize: 15, color: T.mist, marginBottom: 8 }}>
-                    Sound <b className="ws-display" style={{ color: T.amber }}>{soundDef.lab}</b> as in <i>{soundDef.eg}</i> — tick today's spellings:
-                  </div>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    {soundDef.sp.map(([g, eg]) => {
-                      const on = settings.phTicked.includes(g);
-                      return (
-                        <button key={g} onClick={() => toggleSpelling(g)} className="ws-btn"
-                          style={{ cursor: "pointer", borderRadius: 12, padding: "7px 12px", textAlign: "center", border: `2px solid ${on ? T.amber : "rgb(var(--ws-fg) / 0.14)"}`, background: on ? "rgb(var(--ws-amber-rgb) / .15)" : "transparent", color: on ? "var(--ws-amber-soft)" : T.mist }}>
-                          <span className="ws-display" style={{ fontWeight: 700, fontSize: 17 }}>{g}</span>
-                          <span style={{ display: "block", fontSize: 11, opacity: 0.8 }}>{eg}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {settings.size === 4 && settings.phTicked.length > 4 && (
-                    <div style={{ marginTop: 10, fontSize: 12.5, color: T.amber }}>
-                      Heads up: guaranteeing {settings.phTicked.length} spellings on a 4 × 4 board gets tight — a bigger board (or fewer ticks) covers every spelling more reliably.
-                    </div>
-                  )}
-                  <div style={{ marginTop: 12, display: "flex", gap: 24, flexWrap: "wrap", alignItems: "center" }}>
-                    <Toggle on={settings.phBonus} onClick={() => setSettings(v => ({ ...v, phBonus: !v.phBonus }))} label="+2 bonus points for target-sound words" />
-                  </div>
-                  <div style={{ marginTop: 10, fontSize: 12.5, color: "rgb(var(--ws-fg) / .45)" }}>
-                    Every word on the board comes from the Sounds-Write list, so every answer with {soundDef.lab} in a ticked spelling is highlighted{settings.phBonus ? " and earns the +2 bonus" : ""}.
-                  </div>
-                </div>
-              )}
-            </div>
 
-            <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
-              <Toggle on={settings.sound} onClick={() => setSettings(v => ({ ...v, sound: !v.sound }))} label="Sound effects" />
-              <Toggle on={settings.showCount} onClick={() => setSettings(v => ({ ...v, showCount: !v.showCount }))} label="Show how many words are hiding" />
-              <Toggle on={!!settings.wordOfGame} onClick={() => setSettings(v => ({ ...v, wordOfGame: !v.wordOfGame }))} label="Word of the game: one easy word to find, shown at the top" />
-              {settings.mode === "online" && (
-                <Toggle on={settings.hints} onClick={() => setSettings(v => ({ ...v, hints: !v.hints }))} label="Hints: a short word for anyone stuck for 15 seconds" />
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", maxWidth: 640 }}>
+                {settingsSummary(settings, soundDef, online).map(([text, id]) => (
+                  <button key={text} className="ws-btn ws-display" onClick={() => showSettings(id)} title="Change in game settings"
+                    style={{ fontSize: 15.5, fontWeight: 600, padding: "8px 14px", minHeight: 40, borderRadius: 999, border: "none", background: "rgb(var(--ws-fg) / .08)", color: "var(--ws-text)", cursor: "pointer" }}>
+                    {text}
+                  </button>
+                ))}
+                {!drawer && (
+                  <button className="ws-btn ws-display" onClick={() => showSettings()} aria-expanded={false}
+                    style={{ fontSize: 15.5, fontWeight: 600, padding: "8px 14px", minHeight: 40, borderRadius: 999, border: `1px solid ${T.faint}`, background: "none", color: T.amber, cursor: "pointer" }}>
+                    Game settings
+                  </button>
+                )}
+              </div>
+
+              {(!online || account) && (
+                <button className="ws-btn ws-display" onClick={action} disabled={busy}
+                  style={{ fontSize: 32, fontWeight: 700, background: T.amber, color: T.ink, border: "none", borderRadius: 18, padding: "22px 58px", cursor: "pointer", boxShadow: "0 7px 0 var(--ws-amber-edge)", opacity: busy ? 0.7 : 1 }}>
+                  {busy ? busyLabel : label}
+                </button>
               )}
-              {settings.mode === "online" && (
-                <Toggle on={settings.ownLooks !== false} onClick={() => setSettings(v => ({ ...v, ownLooks: v.ownLooks === false }))} label="Let students use their own looks" />
+
+              {!room && (
+                <button className="ws-btn" onClick={() => setSettings(v => ({ ...v, mode: online ? "workbook" : "online" }))} style={link}>
+                  {online ? "Playing on paper? Start a workbook game" : "Students on devices? Play online instead"}
+                </button>
               )}
-            </div>
+
+              <div style={{ fontSize: 13, color: T.mist, display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: dict.status === "loading" ? T.mist : soundDef || dict.status === "full" ? T.green : T.amber }} />
+                {dict.status === "loading" && "Loading the word lists…"}
+                {dict.status !== "loading" && soundDef && `Sounds-Write words only — ${phStats.words.toLocaleString()} words`}
+                {!soundDef && dict.status === "full" && `Full dictionary ready — ${dict.count.toLocaleString()} words (classroom-filtered)`}
+                {!soundDef && dict.status === "fallback" && `Offline — using the built-in starter list (${dict.count.toLocaleString()} common words)`}
+              </div>
+            </main>
+            {drawer && (
+              <GameSettings settings={settings} setSettings={setSettings} soundDef={soundDef} pickSound={pickSound} toggleSpelling={toggleSpelling}
+                phStats={phStats} dict={dict} online={online} open={openSecs} setOpen={setOpenSecs} onClose={() => setDrawer(false)} />
+            )}
           </div>
-
-          {(() => {
-            const online = settings.mode === "online";
-            if (online && !account) return null;
-            const [label, action, busyLabel] = !online ? ["Shake the dice →", start, "Shaking the dice…"]
-              : room ? ["Back to the lobby →", () => { saveSettingsNow(); setPhase("lobby"); }, ""]
-              : ["Open the room →", openRoom, "Opening the room…"];
-            return (
-              <button className="ws-btn ws-display" onClick={action} disabled={busy}
-                style={{ fontSize: 28, fontWeight: 700, background: T.amber, color: T.ink, border: "none", borderRadius: 16, padding: "18px 46px", cursor: "pointer", boxShadow: "0 6px 0 var(--ws-amber-edge)", opacity: busy ? 0.7 : 1 }}>
-                {busy ? busyLabel : label}
-              </button>
-            );
-          })()}
-
-          <div style={{ fontSize: 13, color: T.mist, display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ width: 8, height: 8, borderRadius: "50%", background: dict.status === "loading" ? T.mist : soundDef || dict.status === "full" ? T.green : T.amber }} />
-            {dict.status === "loading" && "Loading the word lists…"}
-            {dict.status !== "loading" && soundDef && `Sounds-Write words only — ${phStats.words.toLocaleString()} words`}
-            {!soundDef && dict.status === "full" && `Full dictionary ready — ${dict.count.toLocaleString()} words (classroom-filtered)`}
-            {!soundDef && dict.status === "fallback" && `Offline — using the built-in starter list (${dict.count.toLocaleString()} common words)`}
-          </div>
-        </main>
-      )}
+        );
+      })()}
 
       {/* ---------- COUNTDOWN + PLAYING ---------- */}
       {(phase === "countdown" || phase === "playing") && game && (

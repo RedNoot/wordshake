@@ -731,6 +731,15 @@ test("hints: a shortest unfound word after 15 seconds without finding one", asyn
   clock += 20000;
   assert.equal((await call(kid2, "player:hint", { n: off.n })).result, "off");
   assert.equal((await call(kid2, "player:rejoin", { code: room.code, token: joined.token })).round.hints, false);
+
+  // The teacher's own hint time.
+  const quick = await call(host, "host:start", { settings: { ...ROUND, hintSeconds: 10 } });
+  await call(host, "host:clock", { n: quick.n, state: "playing", remainingMs: 60000 });
+  assert.equal((await call(kid2, "player:rejoin", { code: room.code, token: joined.token })).round.hintAfterMs, 10000);
+  assert.equal((await call(kid2, "player:hint", { n: quick.n })).waitMs, 10000);
+  clock += 10000;
+  assert.equal((await call(kid2, "player:hint", { n: quick.n })).result, "hint");
+  assert.equal((await call(host, "host:start", { settings: { ...ROUND, hintSeconds: 3 } })).error !== undefined, true, "only 10, 15, 20 or 30");
   await call(host, "host:close");
   pending = [];
 });

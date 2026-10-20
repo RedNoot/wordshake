@@ -6,7 +6,8 @@ import { wordPoints, BONUS } from "../../shared/scoring.js";
 export { wordPoints, BONUS };
 export const GRACE_MS = 1500;         // a word swiped in the final second still counts if it arrives just after zero
 const MAX_SUBMITS = 1000;      // per player per round; stops a script hammering the server
-export const HINT_AFTER_MS = 15000;   // a student who hasn't found a word for this long can be shown one
+// A student who hasn't found a word for this long can be shown one (the teacher picks it; a round kept before then had 15 s).
+export const hintAfterMs = settings => (settings.hintSeconds || 15) * 1000;
 
 /*
  * One live round in a room. The answers stay on the server; devices only ever get the letters.
@@ -64,7 +65,7 @@ export function playerView(round, playerId, t) {
     state: round.state, remainingMs: remainingMs(round, t), eligible: round.eligible.has(playerId),
     words: [...(round.found.get(playerId) || new Map())].map(([word, s]) => ({ word, ...s })),
     total: playerTotal(round, playerId),
-    hints: settings.hints !== false, hint: currentHint(round, playerId),
+    hints: settings.hints !== false, hintAfterMs: hintAfterMs(settings), hint: currentHint(round, playerId),
     wordOfGame: game.solution.wordOfGame || null,
     rewards: (round.rewards && round.rewards.get(playerId)) || null,
     // Teams mode: this device's team for the round, and the result once the big screen has shown it.
@@ -151,7 +152,7 @@ function currentHint(round, playerId) {
 }
 
 /*
- * A stuck student asks for a hint: after HINT_AFTER_MS of play without finding a word (or since the last hint),
+ * A stuck student asks for a hint: after hintAfterMs of play without finding a word (or since the last hint),
  * the server picks one of the shortest words on the board they haven't found yet, avoiding earlier hints where it can.
  * Results: { result: "hint", word } · { result: "wait", waitMs } · { result: "off" } · { result: "none" } · { result: "late" }
  */
@@ -159,7 +160,8 @@ export function giveHint(round, playerId, t, pick = list => list[Math.floor(Math
   if (round.settings.hints === false) return { result: "off" };
   if (!round.eligible.has(playerId) || round.state !== "playing" || t >= round.endsAt) return { result: "late" };
   const since = Math.max(round.idleFrom.get(playerId) || 0, round.resumedAt);
-  if (t - since < HINT_AFTER_MS - 500) return { result: "wait", waitMs: HINT_AFTER_MS - (t - since) };
+  const after = hintAfterMs(round.settings);
+  if (t - since < after - 500) return { result: "wait", waitMs: after - (t - since) };
   const mine = round.found.get(playerId) || new Map();
   const left = [...round.words].filter(w => w.length >= round.settings.minLen && !mine.has(w));
   if (!left.length) return { result: "none" };
@@ -220,7 +222,7 @@ export function roundRecord(round) {
   }
   return {
     roundNo: round.n,
-    settings: { seconds: settings.seconds, size: settings.size, minLen: settings.minLen, phSound: settings.phSound, phTicked: [...settings.phTicked], phBonus: settings.phBonus, hints: settings.hints !== false, wordOfGame: S.wordOfGame || null },
+    settings: { seconds: settings.seconds, size: settings.size, minLen: settings.minLen, phSound: settings.phSound, phTicked: [...settings.phTicked], phBonus: settings.phBonus, hints: settings.hints !== false, hintSeconds: settings.hintSeconds || 15, wordOfGame: S.wordOfGame || null },
     tiles: game.tiles, boardWords: S.list.length,
     longest: (S.longest || []).map(x => x.word).slice(0, 3),
     available, players,

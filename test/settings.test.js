@@ -16,3 +16,10 @@ test("settings: a theme saved before the shop is ignored, not an error", () => {
   assert.equal("theme" in s, false);
   assert.ok(pickSettings({ ...SAVED, theme: "<script>" }), "whatever it was");
 });
+
+test("settings: the hint timer is 15 seconds unless the teacher picks 10, 20 or 30", () => {
+  assert.equal(pickSettings(SAVED).hintSeconds, 15);
+  assert.equal(pickSettings({ ...SAVED, hintSeconds: 30 }).hintSeconds, 30);
+  assert.equal(pickSettings({ ...SAVED, hintSeconds: 1 }), null);
+  assert.equal(pickSettings({ ...SAVED, hintSeconds: "15" }), null);
+});

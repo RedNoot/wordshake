@@ -15,7 +15,7 @@ export function Guide({ name, isNew, classes, onAddClass, onClose }) {
       done: hasClass && `${classes.length} class${classes.length === 1 ? "" : "es"} ready`,
       action: !hasClass && ["Add a class list", onAddClass],
     },
-    { title: "Open a room", body: "Below, choose Online and your class, pick the round time and board, then press Open the room. Put this screen on the projector." },
+    { title: "Open a room", body: "Below, pick your class and press Open the room. Round time, board size, today's sound and the rest are in Game settings on the right. Put this screen on the projector." },
     { title: "Students join", body: <>On their devices they go to <b style={{ color: T.text }}>{host}/join</b> and type the room code, or scan the QR code on the big screen. Then they tap their name.</> },
     { title: "Shake and play", body: "Press Start. Students swipe words on their devices; when time's up, the big screen shows the answers and everyone's points are saved." },
   ];
