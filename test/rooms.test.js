@@ -464,10 +464,18 @@ test("class together: one shared list, live on the big screen, compared with the
   // The class's total once late words have had their grace window: a first best.
   await call(host, "host:phase", { phase: "reveal" });
   const result = next(host, "round:coop-result"), avaResult = next(ava2, "round:coop-result");
+  // The big screen's celebration gets every different word the class found (guests-only rooms too), once.
+  const found = next(host, "round:class-found");
+  await call(host, "host:phase", { phase: "reveal" });
+  let sentFound = 0;
+  host.on("round:class-found", () => sentFound++);
   runTimers();
   const res = await result;
   assert.deepEqual(res, { n: r.n, words: 2, of: 2, points: 3, key: "4-3-all", best: null, newBest: true });
   assert.deepEqual(await avaResult, res);
+  assert.deepEqual(await found, { n: r.n, words: ["cat", "cats"] });
+  assert.equal(sentFound, 1, "a repeated 'answers' message doesn't send it twice");
+  assert.deepEqual((await call(host, "host:resume", { idToken: "tok-b" })).round.classFound, ["cat", "cats"]);
 
   // Next time the class is compared with that best (and only that).
   const r2 = await call(host, "host:start", { settings: ROUND });
@@ -507,7 +515,7 @@ test("progress: finished class-list rounds are saved once, after the grace windo
 
   pending = [];   // the server's own round clock (tested below)
   await call(host, "host:phase", { phase: "reveal" });
-  assert.deepEqual(pending.map(t => t.ms), [1600], "save scheduled after the grace window");
+  assert.deepEqual(pending.map(t => t.ms), [1600, 1600], "save (and the class's found words) scheduled after the grace window");
   assert.equal(saved.length, 0, "not before the grace window ends");
   clock += 1000;
   assert.equal((await call(ava, "player:word", { n: r.n, word: "cats" })).result, "ok", "word inside the grace");

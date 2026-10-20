@@ -15,6 +15,7 @@ import { Lobby } from "./Lobby.jsx";
 import { TeamResults, winnerLine } from "./Teams.jsx";
 import { Progress } from "./Progress.jsx";
 import { Guide, guideDone, markGuideDone } from "./Guide.jsx";
+import { Opener, Celebrate, Highlights } from "./RoundEnd.jsx";
 
 import { wordPoints, BONUS } from "../shared/scoring.js";
 // What joined devices are told about the big screen: in a round (countdown or playing), showing answers, or in the lobby.
@@ -63,6 +64,7 @@ export default function WordShakeWorkbook() {
   const [teamResult, setTeamResult] = useState(null);      // the team scores, once the server has added them up
   const [wall, setWall] = useState(null);                  // Class together: { words, counts, of } found by the class so far (null: not this round)
   const [coopResult, setCoopResult] = useState(null);      // Class together: the class's total once the round is over
+  const [classFound, setClassFound] = useState(null);      // { n, words }: every different word the class found, once the round is over
   const [saveStatus, setSaveStatus] = useState(null);  // { n, ok, retrying }: whether this round reached the class's progress
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
@@ -149,6 +151,7 @@ export default function WordShakeWorkbook() {
         setTeamResult(r.teamResult || null);
         setWall(r.wall ? { words: r.wall.words, counts: r.wall.counts, of: r.wall.of } : null);
         setCoopResult(r.coopResult || null);
+        setClassFound(r.classFound ? { n: r.n, words: r.classFound } : null);
         setRemaining(r.remainingMs / 1000);
         if (r.state === "over" || res.room.phase === "reveal") { setStep(0); setPhase("reveal"); }
         else {
@@ -194,8 +197,10 @@ export default function WordShakeWorkbook() {
     s.on("round:teams", onTeams);
     const onWall = w => { if (w.n === liveRef.current) setWall({ words: w.words, counts: w.counts, of: w.of }); };
     const onCoopResult = r => { if (r.n === liveRef.current) setCoopResult(r); };
+    const onClassFound = f => { if (f.n === liveRef.current) setClassFound(f); };
     s.on("round:wall", onWall);
     s.on("round:coop-result", onCoopResult);
+    s.on("round:class-found", onClassFound);
     // A warning stays up until that round is saved, even if the next round has started.
     const onSaved = st => setSaveStatus(prev => (st.n === liveRef.current || !st.ok || (prev && prev.n === st.n) ? st : prev));
     s.on("room:update", onUpdate);
@@ -205,7 +210,7 @@ export default function WordShakeWorkbook() {
     s.io.on("reconnect", onReconnect);
     return () => {
       s.off("room:update", onUpdate); s.off("host:replaced", onReplaced); s.off("round:rewards-summary", onTally); s.off("round:saved", onSaved);
-      s.off("round:teams", onTeams); s.off("round:wall", onWall); s.off("round:coop-result", onCoopResult);
+      s.off("round:teams", onTeams); s.off("round:wall", onWall); s.off("round:coop-result", onCoopResult); s.off("round:class-found", onClassFound);
       s.io.off("reconnect", onReconnect);
     };
   }, [account]); // eslint-disable-line
@@ -340,6 +345,7 @@ export default function WordShakeWorkbook() {
       setTeamResult(null);
       setWall(res.coop ? { words: [], counts: [], of: res.game.solution.total } : null);
       setCoopResult(null);
+      setClassFound(null);
       setSaveStatus(st => (st && !st.ok ? st : null));
       setLiveRound(res.n);
       setRoomNote("");
@@ -356,6 +362,7 @@ export default function WordShakeWorkbook() {
       setLiveRound(null);
       setRoundTeams(0);
       setWall(null);
+      setClassFound(null);
     }
     setGame(g);
     setBusy(false);
@@ -408,21 +415,36 @@ export default function WordShakeWorkbook() {
   };
   const endNow = () => { gong(); setPhase("reveal"); setStep(0); };
 
-  /* ---- reveal steps ---- */
-  const coopOn = !!wall;
+  /* ---- reveal steps ----
+   * Time's up (with the class's total), the class's celebration (device rounds only), which team won, then the
+   * highlights on one screen. After that, for going through the answers: today's sound, each word length, the longest
+   * word, and how to add up a paper score.
+   */
+  const live = !!liveRound;
   const steps = useMemo(() => {
     if (!game) return [];
     const S = game.solution;
-    const arr = [{ t: "pens" }, { t: "stats" }];
+    const arr = [{ t: "open" }];
+    if (live) arr.push({ t: "cheer" });
+    if (roundTeams) arr.push({ t: "teams" });
+    arr.push({ t: "sum" });
     if (S.phonics) arr.push({ t: "phonics" });
     for (const L of S.lens) arr.push({ t: "group", L });
-    arr.push({ t: "longest" }, { t: "score" });
-    if (roundTeams) arr.push({ t: "teams" });
-    if (coopOn) arr.push({ t: "coop" });
+    arr.push({ t: "longest" });
+    if (!live) arr.push({ t: "score" });
     return arr;
-  }, [game, roundTeams, coopOn]);
+  }, [game, roundTeams, live]);
   const next = useCallback(() => setStep(s => Math.min(s + 1, steps.length - 1)), [steps.length]);
   const back = useCallback(() => setStep(s => Math.max(s - 1, 0)), []);
+
+  // The opener moves on by itself once the class's total has drummed up (or after a few seconds if it never comes).
+  const foundNow = live && classFound && classFound.n === liveRound ? classFound.words : null;
+  const foundReady = !live || !!foundNow;
+  useEffect(() => {
+    if (phase !== "reveal" || step !== 0 || !steps[0] || steps[0].t !== "open") return;
+    const t = setTimeout(() => setStep(s => (s === 0 ? 1 : s)), foundReady ? 3400 : 5000);
+    return () => clearTimeout(t);
+  }, [phase, step, steps, foundReady]);
 
   useEffect(() => {
     if (phase !== "reveal") return;
@@ -446,6 +468,46 @@ export default function WordShakeWorkbook() {
   const mmss = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
   const S = game && game.solution;
   const PH = S && S.phonics;
+
+  // What the celebration and highlights show: class totals only. A class-list room adds this round's trophies,
+  // stickers and personal bests once the round is saved; a guests-only room shows what the class found instead.
+  const foundSet = foundNow ? new Set(foundNow) : wall ? new Set(wall.words) : null;
+  const tallyNow = live && rewardsTally && rewardsTally.n === liveRound ? rewardsTally : null;
+  const classRoom = live && !!(room && room.roster);
+  const longestFound = foundNow ? foundNow.reduce((m, w) => Math.max(m, w.length), 0) : null;
+  const soundFound = foundNow && PH ? foundNow.filter(w => PH.tagMap[w]).length : null;
+  const counters = !live ? [] : classRoom ? [
+    { n: tallyNow ? tallyNow.trophies : null, label: tallyNow && tallyNow.trophies === 1 ? "new trophy" : "new trophies", colour: T.amber },
+    { n: tallyNow ? tallyNow.stickers : null, label: tallyNow && tallyNow.stickers === 1 ? "new sticker" : "new stickers", colour: T.green },
+    { n: tallyNow ? tallyNow.bests : null, label: tallyNow && tallyNow.bests === 1 ? "personal best" : "personal bests", colour: T.amberSoft },
+    { n: longestFound, label: "letters in the longest word found", colour: T.text },
+  ] : [
+    { n: longestFound, label: "letters in the longest word found", colour: T.amber },
+    { n: foundNow ? foundNow.filter(w => w.length >= 5).length : null, label: "words with 5 or more letters", colour: T.green },
+    ...(PH ? [{ n: soundFound, label: "words with today's sound", colour: T.amberSoft }] : []),
+  ];
+  const sumStats = !live ? {
+    title: "How words score",
+    rows: [0, 1, 2].map(extra => [wordPoints(settings.minLen + extra, settings.minLen), `${settings.minLen + extra}-letter words`])
+      .concat(PH && settings.phBonus ? [[`+${BONUS}`, "for today's sound"]] : []),
+    note: "Only ticked words count. The word lists come next.",
+  } : {
+    title: "This round, between you",
+    rows: classRoom
+      ? [[tallyNow ? tallyNow.trophies : null, "new trophies"], [tallyNow ? tallyNow.stickers : null, "new stickers"], [tallyNow ? tallyNow.bests : null, "personal bests"]]
+        .concat(PH ? [[soundFound, `words with today's sound ${soundDef ? soundDef.lab : ""}`]] : [])
+      : [[foundNow ? foundNow.length : null, "different words found"], [longestFound, "letters in the longest word found"]]
+        .concat(PH ? [[soundFound, "words with today's sound"]] : []),
+    note: room && room.roster && saveStatus && saveStatus.n === liveRound ? (saveStatus.ok ? `Saved to ${room.className || "class"} progress` : null) : null,
+    noteColour: T.green,
+  };
+  const endButtons = (
+    <>
+      <button className="ws-btn ws-display" onClick={start} style={{ fontSize: 21, fontWeight: 700, background: T.amber, color: T.ink, border: "none", borderRadius: 14, padding: "12px 28px", cursor: "pointer", boxShadow: "0 5px 0 var(--ws-amber-edge)" }}>Play again ↻</button>
+      {room && <button className="ws-btn ws-display" onClick={() => setPhase("lobby")} style={{ fontSize: 21, fontWeight: 600, background: "none", color: T.mist, border: `2px solid ${T.faint}`, borderRadius: 14, padding: "12px 28px", cursor: "pointer" }}>Back to the lobby</button>}
+      <button className="ws-btn ws-display" onClick={() => setPhase("setup")} style={{ fontSize: 21, fontWeight: 600, background: "none", color: T.mist, border: `2px solid ${T.faint}`, borderRadius: 14, padding: "12px 28px", cursor: "pointer" }}>Change settings</button>
+    </>
+  );
 
   return (
     <div className="ws-root" style={{ minHeight: "100vh", background: `radial-gradient(1200px 700px at 50% -10%, var(--ws-glow) 0%, ${T.ink} 55%)`, color: "var(--ws-text)", display: "flex", flexDirection: "column" }}>
@@ -708,30 +770,19 @@ export default function WordShakeWorkbook() {
         <main style={{ flex: 1, display: "flex", flexDirection: "column", padding: "8px 24px 16px", overflow: "hidden" }}>
           <div key={step} className="ws-fade" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, overflow: "hidden", minHeight: 0 }}>
 
-            {steps[step].t === "pens" && (
-              <div style={{ textAlign: "center" }}>
-                <div className="ws-display" style={{ fontSize: "min(14vw,110px)", fontWeight: 700, color: T.red }}>{liveRound ? "Time's up!" : "Pens down!"}</div>
-                <p style={{ color: T.mist, fontSize: 20, marginTop: 12 }}>{liveRound ? "Devices down — let's see how this board scored." : "Time's up. Swap books with a partner — let's see how this board scored."}</p>
-              </div>
+            {steps[step].t === "open" && <Opener live={live} found={foundNow ? foundNow.length : null} total={S.total} />}
+
+            {steps[step].t === "cheer" && (
+              <Celebrate className={room && room.className} found={foundNow ? foundNow.length : null} total={S.total}
+                coopLine={coopResult ? bestLine(coopResult) : null} counters={counters} onNext={next} />
             )}
 
-            {steps[step].t === "stats" && (
-              <div style={{ textAlign: "center", width: "min(720px,94vw)" }}>
-                <div className="ws-display" style={{ fontSize: 30, color: T.mist }}>{soundDef ? "Sounds-Write words hiding in this grid…" : "Hiding in this grid…"}</div>
-                <div className="ws-display" style={{ fontSize: "min(16vw,110px)", fontWeight: 700, color: T.amber, lineHeight: 1.05 }}>{S.total} words</div>
-                {PH && <div className="ws-display" style={{ fontSize: 22, color: T.mist }}>including <b style={{ color: T.amber }}>{PH.count}</b> with today's sound {soundDef && soundDef.lab}</div>}
-                <div style={{ display: "grid", gap: 10, marginTop: 24 }}>
-                  {S.lens.map(L => (
-                    <div key={L} style={{ display: "grid", gridTemplateColumns: "120px 1fr 60px", alignItems: "center", gap: 12 }}>
-                      <div style={{ textAlign: "right", color: T.mist, fontSize: 17 }}>{L} letters</div>
-                      <div style={{ height: 22, background: "rgb(var(--ws-fg) / .08)", borderRadius: 999, overflow: "hidden" }}>
-                        <div style={{ height: "100%", width: `${(S.byLen[L].length / Math.max(...S.lens.map(x => S.byLen[x].length))) * 100}%`, background: L === S.maxLen ? T.amber : "var(--ws-bar)", borderRadius: 999 }} />
-                      </div>
-                      <div className="ws-display" style={{ fontWeight: 700, fontSize: 19, textAlign: "left" }}>{S.byLen[L].length}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+            {steps[step].t === "sum" && (
+              <Highlights game={game} size={settings.size} live={live} found={foundNow} soundDef={soundDef} minLen={settings.minLen} targetSet={targetSet} stats={sumStats}
+                buttons={<>
+                  {endButtons}
+                  <button className="ws-btn ws-display" onClick={next} style={{ fontSize: 21, fontWeight: 600, background: "none", color: "var(--ws-text)", border: `2px solid ${T.amber}`, borderRadius: 14, padding: "12px 28px", cursor: "pointer" }}>Go through the words →</button>
+                </>} />
             )}
 
             {steps[step].t === "phonics" && soundDef && (
@@ -769,13 +820,13 @@ export default function WordShakeWorkbook() {
                     <span style={{ color: T.mist, fontWeight: 400, fontSize: 22 }}> · {group.length} found by the board</span>
                   </div>
                   <p style={{ color: T.mist, margin: 0 }}>
-                    {wall ? `Together we found ${group.filter(w => wall.words.includes(w)).length} of these (ticked).` : liveRound ? "How many of these did you find?" : "Tick the ones in your book — cross out anything that isn't here."}
+                    {foundSet ? `Together you found ${group.filter(w => foundSet.has(w)).length} of these (ticked).` : liveRound ? "How many of these did you find?" : "Tick the ones in your book — cross out anything that isn't here."}
                     {PH && <> Words with <span style={{ color: T.amber }}>today's sound</span> are underlined{settings.phBonus ? " (+2 bonus)" : ""}.</>}
                   </p>
                   <div style={{ overflowY: "auto", width: "100%", minHeight: 0, padding: "6px 4px", display: "grid", gridTemplateColumns: `repeat(auto-fill, minmax(${Math.max(8, L + 3)}ch, 1fr))`, gap: "10px 14px", alignContent: "start" }}>
                     {group.map(w => {
                       const ranges = PH && PH.tagMap[w];
-                      const ours = wall && wall.words.includes(w);   // Class together: found by the class
+                      const ours = foundSet && foundSet.has(w);   // found by someone in the class
                       return (
                         <div key={w} style={{ position: "relative", background: ours ? "rgb(var(--ws-green-rgb) / .14)" : ranges ? "rgb(var(--ws-amber-rgb) / .08)" : "rgb(var(--ws-fg) / .06)", border: `1px solid ${ours ? "rgb(var(--ws-green-rgb) / .5)" : ranges ? "rgb(var(--ws-amber-rgb) / .45)" : T.faint}`, borderRadius: 10, padding: "8px 6px", textAlign: "center" }}>
                           {ours && <span aria-label="found by the class" style={{ position: "absolute", top: 2, right: 6, color: T.green, fontSize: 14, fontWeight: 700 }}>✓</span>}
@@ -850,31 +901,13 @@ export default function WordShakeWorkbook() {
               </div>
             )}
 
-            {steps[step].t === "coop" && (
-              <div style={{ textAlign: "center", width: "min(860px,94vw)", display: "grid", gap: 18, justifyItems: "center" }}>
-                <div className="ws-display" style={{ fontSize: 30, color: T.mist }}>🤝 How did we do together?</div>
-                {!coopResult && <div style={{ color: T.mist, fontSize: 22 }}>Adding up the class's words…</div>}
-                {coopResult && (
-                  <>
-                    <div className="ws-display" style={{ fontSize: "min(13vw,100px)", fontWeight: 700, color: T.amber, lineHeight: 1.05, animation: "ws-pop .6s ease both" }}>{coopResult.words} of {coopResult.of} words</div>
-                    <div className="ws-display" style={{ fontSize: 30, fontWeight: 600 }}>{coopResult.points} class points</div>
-                    <div role="status" className="ws-display" style={{ fontSize: "min(6vw,44px)", fontWeight: 700, color: coopResult.newBest ? T.green : "var(--ws-text)", lineHeight: 1.15, animation: "ws-slap .8s .9s ease both" }}>{bestLine(coopResult)}</div>
-                    <p style={{ color: T.mist, fontSize: 17, margin: 0 }}>Every word counts once for the class, however many people found it. Everyone's own points, trophies and stickers still count for them.</p>
-                  </>
-                )}
-              </div>
-            )}
-
             {step === steps.length - 1 && (
-              <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap", marginTop: 10 }}>
-                <button className="ws-btn ws-display" onClick={start} style={{ fontSize: 22, fontWeight: 700, background: T.amber, color: T.ink, border: "none", borderRadius: 14, padding: "14px 30px", cursor: "pointer", boxShadow: "0 5px 0 var(--ws-amber-edge)" }}>Play again ↻</button>
-                {room && <button className="ws-btn ws-display" onClick={() => setPhase("lobby")} style={{ fontSize: 22, fontWeight: 600, background: "none", color: T.mist, border: `2px solid ${T.faint}`, borderRadius: 14, padding: "14px 30px", cursor: "pointer" }}>Back to the lobby</button>}
-                <button className="ws-btn ws-display" onClick={() => setPhase("setup")} style={{ fontSize: 22, fontWeight: 600, background: "none", color: T.mist, border: `2px solid ${T.faint}`, borderRadius: 14, padding: "14px 30px", cursor: "pointer" }}>Change settings</button>
-              </div>
+              <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap", marginTop: 10 }}>{endButtons}</div>
             )}
           </div>
 
-          {liveRound && rewardsTally && rewardsTally.n === liveRound && (rewardsTally.trophies + rewardsTally.stickers + rewardsTally.bests > 0) && (
+          {/* the opener, celebration and highlights show the class's totals themselves */}
+          {!["open", "cheer", "sum"].includes(steps[step].t) && liveRound && rewardsTally && rewardsTally.n === liveRound && (rewardsTally.trophies + rewardsTally.stickers + rewardsTally.bests > 0) && (
             <div role="status" className="ws-display" style={{ alignSelf: "center", marginTop: 8, background: "rgb(var(--ws-amber-rgb) / .12)", border: "1px solid rgb(var(--ws-amber-rgb) / .45)", borderRadius: 999, padding: "8px 22px", fontSize: 19, fontWeight: 600, animation: "ws-pop .5s ease both" }}>
               🎉 This round: {[
                 rewardsTally.trophies && `${rewardsTally.trophies} new ${rewardsTally.trophies === 1 ? "trophy" : "trophies"}`,
@@ -884,7 +917,7 @@ export default function WordShakeWorkbook() {
             </div>
           )}
 
-          {liveRound && room && room.roster && saveStatus && (saveStatus.n === liveRound || !saveStatus.ok) && (
+          {liveRound && room && room.roster && saveStatus && (saveStatus.n === liveRound || !saveStatus.ok) && (!saveStatus.ok || !["open", "sum"].includes(steps[step].t)) && (
             <div role={saveStatus.ok ? "status" : "alert"} style={{ alignSelf: "center", marginTop: 6, fontSize: 14.5, color: saveStatus.ok ? T.green : T.red }}>
               {saveStatus.ok
                 ? "✓ Saved to class progress"

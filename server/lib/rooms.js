@@ -2,7 +2,7 @@ import { randomBytes, randomInt } from "crypto";
 import { openSeasons } from "../../shared/seasons.js";
 import { cleanGuestName, uniqueName } from "./names.js";
 import { pickRoundSettings } from "./settings.js";
-import { newRound, setClock, remainingMs, playerView, checkWord, giveHint, roundRecord, teamResults, coopResult, coopKey, GRACE_MS } from "./round.js";
+import { newRound, setClock, remainingMs, playerView, checkWord, giveHint, roundRecord, teamResults, coopResult, coopKey, classFound, GRACE_MS } from "./round.js";
 import { emptySummary } from "../../shared/rewards.js";
 import { ITEM_BY_ID, balanceOf, wornLooks } from "../../shared/shop.js";
 import { walletOut } from "./wallet.js";
@@ -192,6 +192,7 @@ export function attachRooms(io, {
         finishRound(room, round);
         finishTeams(room, round);
         finishCoop(room, round);
+        sendClassFound(room, round);
         if (room.round === round) io.to(`players:${room.code}`).emit("round:clock", { n: round.n, state: "over", remainingMs: 0 });
         markDirty(room);
       }
@@ -329,6 +330,16 @@ export function attachRooms(io, {
     }, GRACE_MS + 100);
   }
 
+  // The end-of-round celebration: every different word the class found, once late words have had their grace window.
+  // Sent once per round (the big screen's "answers" message can arrive more than once), in guests-only rooms too.
+  function sendClassFound(room, round = room.round) {
+    if (!round || round.aborted || round.classSent) return;
+    round.classSent = true;
+    later(() => {
+      if (room.round === round) io.to(`host:${room.code}`).emit("round:class-found", { n: round.n, words: classFound(round) });
+    }, GRACE_MS + 100);
+  }
+
   function closeRoom(room, reason = "closed") {
     // A finished round whose clock has run out is saved even if the room closes straight away.
     if (room.round && timeUp(room.round)) finishRound(room, room.round, { grace: false });
@@ -400,6 +411,7 @@ export function attachRooms(io, {
     n: room.round.n, settings: room.round.settings, game: room.round.game, state: room.round.state, remainingMs: remainingMs(room.round, now()),
     teams: room.round.teams ? room.round.teams.count : 0, teamResult: room.round.teamResult || null,
     wall: room.round.coop ? wallView(room.round) : null, coopResult: room.round.coopResult || null,
+    classFound: room.round.state === "over" && !room.round.aborted ? classFound(room.round) : null,
   };
   // Each device gets its own copy (its own words, and whether it joined in time to play).
   function sendRound(room) {
@@ -543,7 +555,7 @@ export function attachRooms(io, {
         else finishRound(room);
         if (room.round.state !== "over") setClock(room.round, "over", 0, now());
       }
-      if (phase === "reveal") { finishRound(room); if (!room.round || !room.round.aborted) { finishTeams(room); finishCoop(room); } }
+      if (phase === "reveal") { finishRound(room); if (!room.round || !room.round.aborted) { finishTeams(room); finishCoop(room); sendClassFound(room); } }
       const changed = room.phase !== phase;
       room.phase = phase;
       io.to(`players:${room.code}`).emit("room:phase", phase);

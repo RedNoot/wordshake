@@ -9,12 +9,18 @@ import { RoundRewards, RoundSplash } from "./Trophies.jsx";
 import { TeamBadge, TeamResults, winnerLine } from "./Teams.jsx";
 import { bestLine } from "./components/WordWall.jsx";
 import { WordOfGame } from "./components/WordOfGame.jsx";
+import { useCountUp } from "./RoundEnd.jsx";
 
 const HINT_AFTER_DEFAULT = 15000;   // a round from before the teacher could pick: the server (server/lib/round.js) has the final say
 
 // Which round's splash this device has already shown, so a refresh doesn't play it again.
 const SEEN_KEY = "wordshake-rewards-seen";
 const readSeen = () => { try { return sessionStorage.getItem(SEEN_KEY) || ""; } catch { return ""; } };
+// The same for the time's-up intro (the dice shake, then your words counting up), so it plays once per round.
+const INTRO_KEY = "wordshake-intro-seen";
+const readIntro = () => { try { return sessionStorage.getItem(INTRO_KEY) || ""; } catch { return ""; } };
+const SHAKE_MS = 1700, COUNT_MS = 2500;
+const reducedMotion = () => !!window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 const UP = w => w.toUpperCase();
 // Every result gets an icon and words as well as a colour, so it reads without relying on red/green.
@@ -91,6 +97,23 @@ export function Play({ round, name, avatar = "", guest = false, onRound }) {
   const [seen, setSeen] = useState(readSeen);
   const [replay, setReplay] = useState(false);
   const closePopup = () => { setReplay(false); setSeen(rewardSig); try { sessionStorage.setItem(SEEN_KEY, rewardSig); } catch { /* private mode */ } };
+
+  // Time's up: the dice rattle and settle ("Dice down!"), then your own words count up, then your end screen.
+  // The rewards popup waits until that's done.
+  const introSig = `${round.n}|${(round.tiles || []).join("")}`;
+  const [intro, setIntro] = useState({ sig: null, step: "shake" });
+  useEffect(() => {
+    if (!timeUp || !round.eligible) return;
+    const done = () => { setIntro({ sig: introSig, step: "done" }); try { sessionStorage.setItem(INTRO_KEY, introSig); } catch { /* private mode */ } };
+    if (readIntro() === introSig || reducedMotion()) return done();
+    setIntro({ sig: introSig, step: "shake" });
+    const counting = round.words.length > 0;
+    const a = counting && setTimeout(() => setIntro({ sig: introSig, step: "count" }), SHAKE_MS);
+    const b = setTimeout(done, SHAKE_MS + (counting ? COUNT_MS : 0));
+    return () => { clearTimeout(a); clearTimeout(b); };
+  }, [timeUp, introSig, round.eligible]); // eslint-disable-line
+  const introStep = !timeUp ? "done" : intro.sig === introSig ? intro.step : readIntro() === introSig ? "done" : "shake";
+  const myCount = useCountUp(introStep === "count" ? round.words.length : null, 1600);
 
   const send = async (word, path) => {
     const res = await call("player:word", { n: round.n, word });
@@ -169,6 +192,28 @@ export function Play({ round, name, avatar = "", guest = false, onRound }) {
     );
   }
 
+  if (timeUp && introStep === "shake") {
+    return (
+      <div role="status" style={{ display: "grid", gap: 18, justifyItems: "center", textAlign: "center", marginTop: 10, width: "100%" }}>
+        <div className="ws-display" style={{ fontSize: 34, fontWeight: 700, color: T.red }}>Time's up!</div>
+        <div style={{ animation: "ws-rattle .42s ease-in-out 3" }}>
+          <PlayBoard tiles={round.tiles} size={round.size} dim={dim} disabled onWord={() => {}} onTrace={() => {}} flash={null} />
+        </div>
+        <div className="ws-display" style={{ fontSize: 46, fontWeight: 700, animation: "ws-slap .6s 1.1s ease both" }}>Dice down!</div>
+      </div>
+    );
+  }
+
+  if (timeUp && introStep === "count") {
+    return (
+      <div role="status" className="ws-fade" style={{ display: "grid", gap: 6, justifyItems: "center", textAlign: "center", marginTop: "12vh", width: "100%" }}>
+        <div style={{ fontSize: 24, color: T.mist }}>You found</div>
+        <div className="ws-display" style={{ fontSize: "min(42vw, 190px)", fontWeight: 700, lineHeight: 1, color: T.amber, fontVariantNumeric: "tabular-nums" }}>{myCount}</div>
+        <div className="ws-display" style={{ fontSize: 32, fontWeight: 600 }}>{round.words.length === 1 ? "word" : "words"}</div>
+      </div>
+    );
+  }
+
   if (timeUp) {
     return (
       <div className="ws-fade" style={{ display: "grid", gap: 18, justifyItems: "center", textAlign: "center", marginTop: 20, width: "100%" }}>
@@ -198,7 +243,7 @@ export function Play({ round, name, avatar = "", guest = false, onRound }) {
           </button>
         )}
         {wordList}
-        {rewardSig && (seen !== rewardSig || replay) && (
+        {rewardSig && (seen !== rewardSig || replay) && introStep === "done" && (
           <RoundSplash rewards={r} name={name} avatar={avatar} stars={guest ? null : r.stars} words={round.words.length} points={round.total} onDone={closePopup} />
         )}
       </div>

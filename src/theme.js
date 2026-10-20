@@ -44,6 +44,7 @@ html,body{background:var(--ws-ink)}
 @keyframes ws-turn{from{transform:perspective(1000px) rotateY(-60deg);transform-origin:left center;opacity:0}to{transform:none;opacity:1}}
 @keyframes ws-grow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
 @keyframes ws-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+@keyframes ws-rattle{0%,100%{transform:none}20%{transform:translate(-7px,-4px) rotate(-3deg)}45%{transform:translate(6px,3px) rotate(2.5deg)}70%{transform:translate(-4px,2px) rotate(-1.5deg)}}
 @keyframes ws-fade{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 .ws-fade{animation:ws-fade .45s ease both}
 @media (prefers-reduced-motion: reduce){.ws-root *,.ws-root::before,.ws-root::after{animation:none !important;transition:none !important}}

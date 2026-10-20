@@ -93,6 +93,13 @@ export function coopResult(round, best = null) {
   };
 }
 
+// Every different word found by anyone this round, for the big screen's "Together you found…" (no names, no counts per person).
+export function classFound(round) {
+  const all = new Set();
+  for (const mine of round.found.values()) for (const w of mine.keys()) all.add(w);
+  return [...all].sort();
+}
+
 /*
  * Teams mode: each team's score is its members' points added up (players in the room when the round started).
  * winners is every team on the top score (more than one is a draw); none if nobody scored.
