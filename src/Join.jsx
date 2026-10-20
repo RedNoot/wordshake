@@ -4,6 +4,7 @@ import { applyLooks } from "./looks.js";
 import { getSocket, call } from "./net.js";
 import { Play } from "./Play.jsx";
 import { Cabinet } from "./Trophies.jsx";
+import { WordJar } from "./WordJar.jsx";
 import { TeamBadge } from "./Teams.jsx";
 import { Shop } from "./Shop.jsx";
 import { balanceOf } from "../shared/shop.js";
@@ -47,6 +48,8 @@ export function Join({ initialCode }) {
   const [cabinet, setCabinet] = useState(false);    // showing "My trophies"
   const cabinetCache = useRef(null);                // the last trophies loaded, shown at once next time
   const [cabinetFresh, setCabinetFresh] = useState(0); // bumped when the student's rewards change, so an open cabinet reloads
+  const [jar, setJar] = useState(false);            // showing "My word jar"
+  const jarCache = useRef(null);                     // the last word bank loaded, shown at once next time
   const [shop, setShop] = useState(false);          // showing the Shop
   const [shopData, setShopData] = useState(null);    // the last player:shop reply ({ wallet, trophies, worn }), for the lobby's balance
   const [balance, setBalance] = useState(null);      // stars to spend (null: not known yet)
@@ -80,10 +83,12 @@ export function Join({ initialCode }) {
     setTeam(res.team == null ? null : res.team);
     dress(res.guest ? null : res.looks || null, res.ownLooks !== false);
     setCabinet(false);
+    setJar(false);
     setShop(false);
     setShopData(null);
     setBalance(typeof res.balance === "number" ? res.balance : null);
     cabinetCache.current = null;
+    jarCache.current = null;
     setPhase(res.phase);
     setRound(res.round ? { ...res.round, clockAt: Date.now() } : null);
     setMessage("");
@@ -120,11 +125,12 @@ export function Join({ initialCode }) {
     // The teacher turned students' own looks on or off: follow it straight away.
     const onLooks = ({ ownLooks: on } = {}) => dress(wornRef.current, on !== false);
     // The trophy cabinet and the shop close when a round starts.
-    const onPhase = p => { setPhase(p); if (p !== "lobby") { setCabinet(false); setShop(false); } };
-    const onRoundState = r => { setRound(r ? { ...r, clockAt: Date.now() } : null); if (r) { setCabinet(false); setShop(false); } };
+    const onPhase = p => { setPhase(p); if (p !== "lobby") { setCabinet(false); setJar(false); setShop(false); } };
+    const onRoundState = r => { setRound(r ? { ...r, clockAt: Date.now() } : null); if (r) { setCabinet(false); setJar(false); setShop(false); } };
     // Arrives just after the answers start, once the round is saved. It brings the stars earned and the new balance.
     const onRewards = ({ n, ...rewards }) => {
       cabinetCache.current = null;
+      jarCache.current = null;   // the round's new words are in the bank now
       if (typeof rewards.balance === "number") setBalance(rewards.balance);
       setRound(cur => cur && cur.n === n ? { ...cur, rewards } : cur);
     };
@@ -262,9 +268,11 @@ export function Join({ initialCode }) {
 
         {step === "joined" && me && !round && cabinet && <Cabinet name={me.name} cached={cabinetCache.current} refresh={cabinetFresh} onLoaded={s => { cabinetCache.current = s; }} onClose={() => setCabinet(false)} />}
 
-        {step === "joined" && me && !round && shop && !cabinet && <Shop name={me.name} cached={shopData} ownLooks={ownLooks} onLoaded={gotShop} onWorn={onWorn} onClose={() => setShop(false)} />}
+        {step === "joined" && me && !round && jar && <WordJar name={me.name} cached={jarCache.current} onLoaded={b => { jarCache.current = b; }} onClose={() => setJar(false)} />}
 
-        {step === "joined" && me && !round && !cabinet && !shop && (
+        {step === "joined" && me && !round && shop && !cabinet && !jar && <Shop name={me.name} cached={shopData} ownLooks={ownLooks} onLoaded={gotShop} onWorn={onWorn} onClose={() => setShop(false)} />}
+
+        {step === "joined" && me && !round && !cabinet && !jar && !shop && (
           <div className="ws-fade" style={{ display: "grid", gap: 16, justifyItems: "center", textAlign: "center", marginTop: 30 }}>
             <div className="ws-display" style={{ fontSize: 44, fontWeight: 700 }}>{phase === "lobby" ? <>You're in, {avatar}<span style={{ color: T.amber }}>{me.name}</span>!</> : <>{avatar}{me.name}</>}</div>
             <div aria-live="polite" style={{ fontSize: 24, color: T.mist, maxWidth: 520, lineHeight: 1.4 }}>
@@ -283,6 +291,7 @@ export function Join({ initialCode }) {
                   <span className="ws-display" role="status" aria-label={`${balance} ${balance === 1 ? "star" : "stars"} to spend`} style={{ fontSize: 24, fontWeight: 800, padding: "8px 16px", borderRadius: 999, background: "rgb(var(--ws-fg) / .07)" }}>⭐ {balance}</span>
                 )}
                 <button onClick={() => setCabinet(true)} className="ws-btn ws-display" style={lobbyBtn}>My trophies 🏆</button>
+                <button onClick={() => setJar(true)} className="ws-btn ws-display" style={lobbyBtn}>My word jar 🏺</button>
                 <button onClick={() => setShop(true)} className="ws-btn ws-display" style={lobbyBtn}>Shop 🛍️</button>
               </div>
             )}

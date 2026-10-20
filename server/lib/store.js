@@ -1,5 +1,6 @@
-import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
+import { getFirestore, FieldValue, FieldPath, Timestamp } from "firebase-admin/firestore";
 import { applyRound } from "../../shared/rewards.js";
+import { newWords, bankFromGames } from "../../shared/wordbank.js";
 import { firebaseApp } from "./firebase.js";
 import { pickWallet, buyIn, equipIn } from "./wallet.js";
 
@@ -92,7 +93,9 @@ export async function saveRound(teacherId, classId, gameId, record, endedAt) {
     students.forEach((doc, i) => {
       const sid = sids[i];
       const { summary, earned: e } = applyRound(doc.exists ? pickSummary(doc.data()) : null, record.players[sid], record, endedAt);
-      tx.set(doc.ref, { ...pickSummary(summary), name: record.players[sid].name, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      // The word jar: this round's new words, merged into the bank's map (set with merge only touches these keys).
+      const fresh = newWords(doc.exists ? doc.get("bank") : null, record.players[sid].words, endedAt);
+      tx.set(doc.ref, { ...pickSummary(summary), name: record.players[sid].name, updatedAt: FieldValue.serverTimestamp(), ...(Object.keys(fresh).length ? { bank: fresh } : {}) }, { merge: true });
       earned[sid] = e;
       // spent is read, never written, so the device can be told its new balance.
       summaries[sid] = { ...pickSummary(summary), awards: (doc.exists && doc.get("awards")) || [], spent: (doc.exists && doc.get("spent")) || 0 };
@@ -112,6 +115,27 @@ const studentOut = doc => ({ ...pickSummary(doc.data()), ...pickWallet(doc.data(
 export async function getStudent(teacherId, classId, studentId) {
   const doc = await studentsOf(teacherId, classId).doc(studentId).get();
   return doc.exists ? studentOut(doc) : null;
+}
+
+/*
+ * The word jar: the student's bank (word -> first-found time). The first time it's opened, it's filled from every
+ * round saved before the jar existed, and marked built so that only happens once.
+ */
+export async function getWords(teacherId, classId, studentId) {
+  const ref = studentsOf(teacherId, classId).doc(studentId);
+  const doc = await ref.get();
+  if (doc.exists && doc.get("bankBuilt")) return doc.get("bank") || {};
+  const games = gamesOf(teacherId, classId), words = new FieldPath("players", studentId, "words");
+  const snap = await games.where(new FieldPath("players", studentId, "score"), ">=", 0).select(words, "endedAt").get()
+    .catch(() => games.select(words, "endedAt").get());   // no index for that query: read the class's rounds instead
+  const history = snap.docs.map(d => ({ endedAt: d.get("endedAt") ? d.get("endedAt").toMillis() : null, players: { [studentId]: { words: d.get(words) || [] } } }));
+  return db.runTransaction(async tx => {
+    const now = await tx.get(ref);
+    if (now.exists && now.get("bankBuilt")) return now.get("bank") || {};
+    const bank = bankFromGames(history, studentId, (now.exists && now.get("bank")) || {});
+    tx.set(ref, { bank, bankBuilt: true }, { merge: true });
+    return bank;
+  });
 }
 
 // Progress: every student's summary and wallet. The class table must not show stars (it may be on a projector).

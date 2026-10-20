@@ -38,7 +38,7 @@ const obj = d => (d && typeof d === "object" ? d : {});
  */
 export function attachRooms(io, {
   verifyTeacher, getClass, makeGame, isRealWord,
-  saveRound = null, getStudent = null, buyItem = null, equipItem = null, liveStore = null,
+  saveRound = null, getStudent = null, getWords = null, buyItem = null, equipItem = null, liveStore = null,
   now = Date.now, later = (fn, ms) => setTimeout(fn, ms),
 }) {
   const rooms = new Map();
@@ -722,6 +722,20 @@ export function attachRooms(io, {
       socket.data.trophiesAt = now();
       const saved = getStudent ? await Promise.resolve().then(() => getStudent(room.teacherId, room.classId, p.studentId)).catch(() => null) : null;
       ack({ ok: true, summary: { ...emptySummary(), ...(saved || {}), awards: (saved && saved.awards) || [] } });
+    });
+
+    // The word jar: every different word this student has found in a saved round, with when (shared/wordbank.js).
+    on("player:words", async (_, ack) => {
+      const ref = socket.data.player;
+      const room = ref && rooms.get(ref.code);
+      const p = room && room.players.get(ref.id);
+      if (!p) return ack({ error: "not-joined" });
+      if (!p.studentId || !room.classId) return ack({ error: "guest" });
+      if (socket.data.wordsAt && now() - socket.data.wordsAt < 2000) return ack({ error: "slow-down" });
+      socket.data.wordsAt = now();
+      const bank = getWords ? await Promise.resolve().then(() => getWords(room.teacherId, room.classId, p.studentId)).catch(() => null) : {};
+      if (!bank) return ack({ error: "not-loaded" });
+      ack({ ok: true, bank });
     });
 
     /*

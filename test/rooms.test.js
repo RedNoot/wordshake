@@ -85,6 +85,7 @@ before(async () => {
       return { status: "saved", earned, summaries: updates };
     },
     getStudent: async (tid, cid, sid) => ({ ...studentData(sid), awards: [{ id: "x", emoji: "💪", label: "Great effort" }] }),
+    getWords: async () => ({ cat: 1, cats: 2 }),
     buyItem,
     equipItem: (tid, cid, sid, slot, id) => runTx(tx => equipIn(tx, sid, slot, id)),
     now: () => clock,
@@ -553,6 +554,9 @@ test("progress: finished class-list rounds are saved once, after the grace windo
   assert.ok(cab.summary.trophies["first-word"]);
   assert.equal(cab.summary.awards[0].label, "Great effort");
   assert.deepEqual(await call(guest, "player:trophies"), { error: "guest" });
+  // Word jar: the student's own bank; guests have none.
+  assert.deepEqual(await call(ava2, "player:words"), { ok: true, bank: { cat: 1, cats: 2 } });
+  assert.deepEqual(await call(guest, "player:words"), { error: "guest" });
   // An award given from the Progress page reaches that student's device only, so an open cabinet refreshes.
   let guestPings = 0, avaPings = 0;
   guest.on("player:rewards-changed", () => { guestPings++; });

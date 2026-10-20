@@ -10,7 +10,7 @@ import { loadDictionary } from "./lib/dictionary.js";
 import { PH_STATS, SW_WORDS, resolveSound } from "./lib/phonics.js";
 import { AUTH, AuthError, verifyTeacher } from "./lib/auth.js";
 import { storeReady, loadTeacher, saveSettings, listClasses, getClass, countClasses, createClass, updateClass, deleteClass, saveRound, listGames, deleteGame, GAMES_SHOWN,
-  getStudent, listSummaries, addAward, removeAward, buyItem, equipItem, liveRoomStore } from "./lib/store.js";
+  getStudent, getWords, listSummaries, addAward, removeAward, buyItem, equipItem, liveRoomStore } from "./lib/store.js";
 import { AWARD_PRESETS, CUSTOM_AWARD_EMOJI, AWARD_LABEL_MAX, AWARDS_MAX } from "../shared/rewards.js";
 import { randomBytes } from "crypto";
 import { pickSettings } from "./lib/settings.js";
@@ -218,6 +218,7 @@ const roomsApi = attachRooms(io, {
     return saveRound(teacherId, classId, gameId, record, endedAt);
   },
   getStudent: async (teacherId, classId, studentId) => (storeReady ? getStudent(teacherId, classId, studentId) : null),
+  getWords: async (teacherId, classId, studentId) => (storeReady ? getWords(teacherId, classId, studentId) : {}),
   // The shop: without a database there are no wallets, so nothing can be bought or worn.
   buyItem: async (...a) => (storeReady ? buyItem(...a) : { error: "no-item" }),
   equipItem: async (...a) => (storeReady ? equipItem(...a) : { error: "no-item" }),
