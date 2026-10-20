@@ -17,6 +17,7 @@ import { Progress } from "./Progress.jsx";
 import { Guide, guideDone, markGuideDone } from "./Guide.jsx";
 
 import { wordPoints, BONUS } from "../shared/scoring.js";
+import { HINT_SECS } from "../shared/hints.js";
 // What joined devices are told about the big screen: in a round (countdown or playing), showing answers, or in the lobby.
 const roomPhaseFor = phase => (phase === "countdown" || phase === "playing" ? "playing" : phase === "reveal" ? "reveal" : "lobby");
 const ROOM_ERRORS = {
@@ -28,7 +29,7 @@ const ROOM_ERRORS = {
 /* ================= main app ================= */
 export default function WordShakeWorkbook() {
   const [phase, setPhase] = useState(signInConfigured ? "loading" : "setup");
-  const [settings, setSettings] = useState({ seconds: 180, size: 4, minLen: 3, sound: true, showCount: true, phSound: null, phTicked: [], phBonus: false, hints: true, wordOfGame: false, mode: signInConfigured ? "online" : "workbook", classId: null, ownLooks: true });
+  const [settings, setSettings] = useState({ seconds: 180, size: 4, minLen: 3, sound: true, showCount: true, phSound: null, phTicked: [], phBonus: false, hints: true, hintSecs: 15, wordOfGame: false, mode: signInConfigured ? "online" : "workbook", classId: null, ownLooks: true });
   const [dict, setDict] = useState({ status: "loading", count: 0 });
   const [phStats, setPhStats] = useState({ words: 0, tags: 0 });
   const [busy, setBusy] = useState(false);
@@ -132,8 +133,8 @@ export default function WordShakeWorkbook() {
       const r = res.round, fresh = ["setup", "loading", "home"].includes(phaseRef.current);
       if (r && res.room.phase !== "lobby" && (fresh || liveRef.current !== r.n)) {
         // A refresh mid-round: bring the board and the clock back from the server.
-        const { seconds, size, minLen, phSound, phTicked, phBonus, hints = true, wordOfGame = false } = r.settings;
-        setSettings(v => ({ ...v, seconds, size, minLen, phSound, phTicked, phBonus, hints, wordOfGame }));
+        const { seconds, size, minLen, phSound, phTicked, phBonus, hints = true, hintSecs = 15, wordOfGame = false } = r.settings;
+        setSettings(v => ({ ...v, seconds, size, minLen, phSound, phTicked, phBonus, hints, hintSecs, wordOfGame }));
         setGame(r.game);
         setLiveRound(r.n);
         setRoundTeams(r.teams || 0);
@@ -316,9 +317,9 @@ export default function WordShakeWorkbook() {
       // Students play on their devices: the server builds the board and checks their words.
       // First make sure the server knows how the last round ended (answers shown, or abandoned), so it's saved or not.
       await call("host:phase", { phase: roomPhaseFor(phaseRef.current) });
-      const { seconds, size, minLen, phSound, phTicked, phBonus, hints, wordOfGame } = settings;
+      const { seconds, size, minLen, phSound, phTicked, phBonus, hints, hintSecs = 15, wordOfGame } = settings;
       startingRef.current = true;
-      const res = await call("host:start", { settings: { seconds, size, minLen, phSound, phTicked, phBonus, hints, wordOfGame: !!wordOfGame } });
+      const res = await call("host:start", { settings: { seconds, size, minLen, phSound, phTicked, phBonus, hints, hintSecs, wordOfGame: !!wordOfGame } });
       if (!res.ok) {
         startingRef.current = false;
         setBusy(false);
@@ -682,12 +683,22 @@ export default function WordShakeWorkbook() {
               <Toggle on={settings.showCount} onClick={() => setSettings(v => ({ ...v, showCount: !v.showCount }))} label="Show how many words are hiding" />
               <Toggle on={!!settings.wordOfGame} onClick={() => setSettings(v => ({ ...v, wordOfGame: !v.wordOfGame }))} label="Word of the game: one easy word to find, shown at the top" />
               {settings.mode === "online" && (
-                <Toggle on={settings.hints} onClick={() => setSettings(v => ({ ...v, hints: !v.hints }))} label="Hints: a short word for anyone stuck for 15 seconds" />
+                <Toggle on={settings.hints} onClick={() => setSettings(v => ({ ...v, hints: !v.hints }))} label={`Hints: a short word for anyone stuck for ${settings.hintSecs || 15} seconds`} />
               )}
               {settings.mode === "online" && (
                 <Toggle on={settings.ownLooks !== false} onClick={() => setSettings(v => ({ ...v, ownLooks: v.ownLooks === false }))} label="Let students use their own looks" />
               )}
             </div>
+            {settings.mode === "online" && settings.hints && (
+              <div className="ws-fade">
+                <div style={{ color: T.mist, fontSize: 13, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1.2 }}>Hint after</div>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  {HINT_SECS.map(s => (
+                    <Chip key={s} active={(settings.hintSecs || 15) === s} onClick={() => setSettings(v => ({ ...v, hintSecs: s }))}>{s} sec</Chip>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {(() => {

@@ -10,7 +10,7 @@ import { TeamBadge, TeamResults, winnerLine } from "./Teams.jsx";
 import { bestLine } from "./components/WordWall.jsx";
 import { WordOfGame } from "./components/WordOfGame.jsx";
 
-const HINT_AFTER_MS = 15000;   // matches the server (server/lib/round.js), which has the final say
+const HINT_AFTER_MS = 15000;   // used if the server doesn't say; the teacher picks the time and the server has the final say
 
 // Which round's splash this device has already shown, so a refresh doesn't play it again.
 const SEEN_KEY = "wordshake-rewards-seen";
@@ -62,27 +62,28 @@ export function Play({ round, name, avatar = "", guest = false, onRound }) {
 
   const playing = round.state === "playing" && left > 0 && round.eligible;
 
-  // Hints: after 15 seconds of play without finding a word, ask the server for one of the shortest words on the board.
+  // Hints: after the teacher's hint time (15 seconds unless changed) without finding a word, ask the server for one of the shortest words on the board.
   // The server checks the time itself and picks the word, so the answers never come to the device.
   const [hint, setHint] = useState(round.hint || null);
   const idleFrom = useRef(Date.now());
   const hintStop = useRef(false), asking = useRef(false);
   useEffect(() => { setHint(round.hint || null); hintStop.current = false; }, [round.n, round.hint]);
   useEffect(() => { idleFrom.current = Date.now(); }, [round.n, round.state]);
+  const hintAfter = round.hintAfterMs || HINT_AFTER_MS;
   useEffect(() => {
     if (!playing || round.hints === false) return;
     const id = setInterval(async () => {
-      if (hintStop.current || asking.current || Date.now() - idleFrom.current < HINT_AFTER_MS) return;
+      if (hintStop.current || asking.current || Date.now() - idleFrom.current < hintAfter) return;
       asking.current = true;
       const res = await call("player:hint", { n: round.n });
       asking.current = false;
       if (res.result === "hint") { idleFrom.current = Date.now(); setHint(res.word); }
-      else if (res.result === "wait") idleFrom.current = Date.now() - HINT_AFTER_MS + (res.waitMs || 1000);
-      else if (res.result === "offline" || res.error) idleFrom.current = Date.now() - HINT_AFTER_MS + 5000;
+      else if (res.result === "wait") idleFrom.current = Date.now() - hintAfter + (res.waitMs || 1000);
+      else if (res.result === "offline" || res.error) idleFrom.current = Date.now() - hintAfter + 5000;
       else hintStop.current = true;   // hints off, nothing left to suggest, or the round is over
     }, 1000);
     return () => clearInterval(id);
-  }, [playing, round.n, round.hints]);
+  }, [playing, round.n, round.hints, hintAfter]);
   const timeUp = round.state === "over" || (round.state === "playing" && left <= 0);
   // The splash appears once the round is saved (class-list students only; guests have no collection).
   const r = round.rewards;

@@ -735,6 +735,27 @@ test("hints: a shortest unfound word after 15 seconds without finding one", asyn
   pending = [];
 });
 
+test("hints: the teacher can change how long a student waits for one", async () => {
+  saved = []; pending = [];
+  const host = await client();
+  const { room } = await call(host, "host:open", { idToken: "tok-a", classId: "class1" });
+  const kid = await client();
+  const joined = await call(kid, "player:join", { code: room.code, studentId: "s1" });
+  assert.equal((await call(host, "host:start", { settings: { ...ROUND, hintSecs: 7 } })).error, "invalid settings", "only the offered times");
+  const r = await call(host, "host:start", { settings: { ...ROUND, hintSecs: 30 } });
+  await call(host, "host:clock", { n: r.n, state: "playing", remainingMs: 60000 });
+  assert.equal((await call(kid, "player:rejoin", { code: room.code, token: joined.token })).round.hintAfterMs, 30000, "the device knows when to ask");
+  const early = await call(kid, "player:hint", { n: r.n });
+  assert.equal(early.result, "wait");
+  assert.equal(early.waitMs, 30000);
+  clock += 15000;
+  assert.equal((await call(kid, "player:hint", { n: r.n })).result, "wait", "15 seconds isn't enough now");
+  clock += 15000;
+  assert.equal((await call(kid, "player:hint", { n: r.n })).result, "hint");
+  await call(host, "host:close");
+  pending = [];
+});
+
 test("guessing room codes gets throttled, whichever message is used", async () => {
   const kid = await client();
   const guesses = [
