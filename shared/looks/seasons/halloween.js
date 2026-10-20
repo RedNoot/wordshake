@@ -5,7 +5,7 @@
  *
  * Spooky-cute, never frightening (the players are 5 to 10): pumpkins, a friendly ghost, bats, the moon, soft cobwebs.
  */
-import { FONTS, behind, behind2, svg, round } from "../kit.js";
+import { FONTS, behind, behind2, svg, round, arc } from "../kit.js";
 
 const season = "halloween";
 
@@ -85,4 +85,7 @@ export const HALLOWEEN = [
   { id: "halloween-pumpkin", slot: "avatar", name: "Pumpkin", emoji: "🎃", price: 30, season },
   { id: "halloween-ghost", slot: "avatar", name: "Friendly ghost", emoji: "👻", price: 40, season },
   { id: "halloween-bat", slot: "avatar", name: "Bat", emoji: "🦇", price: 30, season },
+  // The word jar (shared/looks/marbles.js, jars.js; drawn in src/jarArt.js)
+  { id: "halloween-potion", slot: "marble", name: "Potion drops", emoji: "🧪", price: 80, colours: ["#C6FF4D", "#3DDCB0", "#FF9A2E", "#FF4FA3", "#9B5CFF"], finish: "glow", season },
+  { id: "halloween-pumpkin-jar", slot: "jar", name: "Pumpkin jar", emoji: "🎃", price: 100, shape: [[0.34, 0.14], [0.34, 0.2], ...arc(0.6, 0.48, 0.75, Math.PI * 0.9)], tint: "#FF8A1F", season },
 ];

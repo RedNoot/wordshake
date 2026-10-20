@@ -13,6 +13,8 @@ export const DEFAULT_CARDS = {
   effect: { id: null, slot: "effect", name: "No sparkles", emoji: "▫️", price: 0 },
   avatar: { id: null, slot: "avatar", name: "No avatar", emoji: "🙂", price: 0 },
   cover: { id: null, slot: "cover", name: "Plain book", emoji: "📒", price: 0 },
+  marble: { id: null, slot: "marble", name: "Rainbow glass", emoji: "🌈", price: 0 },
+  jar: { id: null, slot: "jar", name: "Glass jar", emoji: "🏺", price: 0 },
 };
 
 // What's worn in a slot, treating "nothing" and the free classic theme as the same thing.

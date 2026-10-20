@@ -1,6 +1,7 @@
 /*
  * Turns the shop's looks (shared/looks/*) into CSS, and puts a device's worn looks on the page.
- * Each slot is a data attribute on <html>: data-ws-theme, data-ws-dice, data-ws-cover, data-ws-effect. The selectors
+ * Each slot is a data attribute on <html>: data-ws-theme, data-ws-dice, data-ws-cover, data-ws-effect (and the word
+ * jar's data-ws-marble, data-ws-jar). The selectors
  * work on any element (the /preview gallery dresses single cards), and a dice or cover rule beats the theme's own.
  * The big screen never sets any of them except the classic theme; only a student's own device wears shop items.
  */
@@ -19,7 +20,7 @@ export const LOOKS_CSS = [
   ...DICE.map(d => `${sel(DICE_SEL, d.id)}{${block(d.vars)}}${extra(DICE_SEL, d)}`),
 ].join("\n");
 
-const ATTRS = { theme: "wsTheme", dice: "wsDice", cover: "wsCover", effect: "wsEffect" };
+const ATTRS = { theme: "wsTheme", dice: "wsDice", cover: "wsCover", effect: "wsEffect", marble: "wsMarble", jar: "wsJar" };
 const setAttr = (key, value) => {
   const ds = document.documentElement.dataset;
   if (value) { if (ds[key] !== value) ds[key] = value; } else if (key in ds) delete ds[key];
@@ -36,7 +37,11 @@ export function applyLooks(worn, ownLooks = true) {
   setAttr(ATTRS.dice, w.dice || null);
   setAttr(ATTRS.cover, w.cover || null);
   setAttr(ATTRS.effect, w.effect || null);
+  setAttr(ATTRS.marble, w.marble || null);
+  setAttr(ATTRS.jar, w.jar || null);
 }
 
 // The found-word effect this device is wearing (null: none). Read by Play when a word counts.
 export const wornEffect = () => document.documentElement.dataset[ATTRS.effect] || null;
+// The word jar's marble set and jar this device is wearing (null: the defaults). Read when the jar opens.
+export const wornJarLooks = () => ({ marble: document.documentElement.dataset[ATTRS.marble] || null, jar: document.documentElement.dataset[ATTRS.jar] || null });

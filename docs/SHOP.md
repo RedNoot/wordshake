@@ -14,7 +14,9 @@ built to. The code it points at is the detail.
 - **The teacher can turn it off**: "Let students use their own looks" (setting `ownLooks`, default on). Off = every
   device shows classic, but avatars still show and the shop still works.
 - **Readable first.** Every theme, dice style and sticker book passes `test/looks.test.js` (contrast on every pair a
-  child reads). Effects stop under reduced motion.
+  child reads). Effects stop under reduced motion. A marble set may change the colours but never what they mean: its
+  five colours (3, 4, 5, 6, 7+ letters) must stay easy to tell apart, and every jar shape must have no pocket a marble
+  could get stuck in (both tested).
 - **Guests** (not on the class list) have no stars and no shop, like trophies.
 - **Wallets belong to a class**, like trophies: a student in two classes has two wallets.
 
@@ -27,6 +29,8 @@ built to. The code it points at is the detail.
 | `effect` | a burst on the board when a word counts | `shared/looks/effects.js` + drawing in `src/effects.jsx` | none |
 | `avatar` | an emoji beside the name: device, splash, big-screen lobby | `shared/looks/avatars.js` | none |
 | `cover` | trophy cabinet and sticker book (`data-ws-cover`) | `shared/looks/covers.js` | the theme's (or classic's) |
+| `marble` | the word jar's marbles: five colours (one per word length) and a finish (`data-ws-marble`) | `shared/looks/marbles.js` + drawing in `src/jarArt.js` | rainbow glass |
+| `jar` | the word jar's shape (also its physics), glass tint, lid and decorations (`data-ws-jar`) | `shared/looks/jars.js` + drawing in `src/jarArt.js` | the plain glass jar |
 
 Each file's header says the item format. Every item has `{ id, slot, name, emoji, price, unlock? }`.
 `unlock: "<trophy id>"` means the item can't be bought: it's free once that trophy is won.

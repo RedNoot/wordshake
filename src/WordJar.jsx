@@ -3,6 +3,11 @@ import Matter from "matter-js";
 import { T } from "./theme.js";
 import { call } from "./net.js";
 import { bankList, jarsFor } from "../shared/wordbank.js";
+import { ITEMS } from "../shared/shop.js";
+import { DEFAULT_JAR } from "../shared/looks/jars.js";
+import { DEFAULT_MARBLES } from "../shared/looks/marbles.js";
+import { wornJarLooks } from "./looks.js";
+import { marbleSprite, rounded, artFor, marbleSetOf, jarOf, rgba } from "./jarArt.js";
 
 const { Engine, Bodies, Body, Composite, Sleeping, Query, Events } = Matter;
 
@@ -11,57 +16,46 @@ const { Engine, Bodies, Body, Composite, Sleeping, Query, Events } = Matter;
  * (shared/wordbank.js). Tilt the device, or move the mouse, and they roll; shake it and they rattle; tap one to read
  * its word. Words found since the jar was last opened drop in from the top. A full jar goes on the shelf above and a
  * new one starts, so there are never more than 300 marbles at once.
+ * How the marbles and the jar look is the student's choice from the shop (shared/looks/marbles.js, jars.js).
  */
 const STEP = 1000 / 60;          // physics step (ms), fixed so a 120Hz screen doesn't run it double speed
 const MAX_TILT = 0.7;            // radians
 const SEEN_KEY = "ws-jar-seen";  // per name on this device: { t, n } the newest word and the count last shown
 const SOUND_KEY = "ws-jar-sound";
 
-// Marble colour and size by word length. Colours are told apart by lightness too, not only hue.
+// Marble size by word length; the colour for each length comes from the marble set (colours[i]).
 export const LENGTHS = [
-  { min: 3, label: "3 letters", colour: "#4FA3F7", size: 1 },
-  { min: 4, label: "4 letters", colour: "#57C785", size: 1.12 },
-  { min: 5, label: "5 letters", colour: "#FFB020", size: 1.26 },
-  { min: 6, label: "6 letters", colour: "#FF6F91", size: 1.4 },
-  { min: 7, label: "7 or more", colour: "#B48CFF", size: 1.6 },
+  { min: 3, label: "3 letters", size: 1 },
+  { min: 4, label: "4 letters", size: 1.12 },
+  { min: 5, label: "5 letters", size: 1.26 },
+  { min: 6, label: "6 letters", size: 1.4 },
+  { min: 7, label: "7 or more", size: 1.6 },
 ];
-const lengthOf = w => LENGTHS.filter(l => w.length >= l.min).pop() || LENGTHS[0];
+const lengthIndex = w => LENGTHS.reduce((k, l, i) => (w.length >= l.min ? i : k), 0);
+export const colourOf = (set, w) => set.colours[lengthIndex(w)];
 
-// The jar's inside edge, as fractions of the canvas: left side top to bottom, mirrored for the right.
-const LEFT = [[0.32, 0], [0.32, 0.08], [0.1, 0.16], [0.05, 0.24], [0.05, 0.9], [0.13, 0.975]];
-const RIGHT = LEFT.map(([x, y]) => [1 - x, y]);
-const OUTLINE = [...LEFT, ...[...RIGHT].reverse()];
+// A jar's outline from its left side (shared/looks/jars.js): the right side mirrors it.
+const outlineOf = left => [...left, ...left.map(([x, y]) => [1 - x, y]).reverse()];
+// Area inside a jar, as a share of its box.
+const areaOf = left => {
+  const o = outlineOf(left);
+  return Math.abs(o.reduce((a, [x, y], i) => { const [x2, y2] = o[(i + 1) % o.length]; return a + x * y2 - x2 * y; }, 0)) / 2;
+};
+// How far in the left side is at height y (fractions), so marbles can be set down inside any shape.
+const leftAt = (left, y) => {
+  if (y <= left[0][1]) return left[0][0];
+  for (let i = 1; i < left.length; i++) {
+    const [x0, y0] = left[i - 1], [x1, y1] = left[i];
+    if (y <= y1) return x0 + ((x1 - x0) * (y - y0)) / (y1 - y0 || 1);
+  }
+  return left[left.length - 1][0];
+};
+// Marbles are sized so a full jar comes up to about the shoulders of the plain jar, and as full in any other.
+const FILL = (0.95 * 0.9 * 0.72) / areaOf(DEFAULT_JAR.shape);
 
 const reducedMotion = () => { try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; } };
 const readJSON = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 const writeJSON = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } };
-
-const mix = (hex, to, f) => {
-  const a = parseInt(hex.slice(1), 16), b = parseInt(to.slice(1), 16);
-  const c = [16, 8, 0].map(s => Math.round(((a >> s) & 255) * (1 - f) + ((b >> s) & 255) * f));
-  return `rgb(${c.join(",")})`;
-};
-
-// One marble drawn once per colour and size, then stamped each frame.
-function marbleSprite(colour, r, dpr) {
-  const c = document.createElement("canvas"), s = Math.ceil((r + 1) * 2 * dpr);
-  c.width = c.height = s;
-  const g = c.getContext("2d");
-  g.scale(dpr, dpr);
-  const m = r + 1;
-  const grad = g.createRadialGradient(m - r * 0.35, m - r * 0.4, r * 0.1, m, m, r);
-  grad.addColorStop(0, mix(colour, "#FFFFFF", 0.55));
-  grad.addColorStop(0.55, colour);
-  grad.addColorStop(1, mix(colour, "#000000", 0.45));
-  g.fillStyle = grad;
-  g.beginPath(); g.arc(m, m, r, 0, Math.PI * 2); g.fill();
-  g.fillStyle = "rgba(255,255,255,0.75)";
-  g.beginPath(); g.ellipse(m - r * 0.36, m - r * 0.42, r * 0.24, r * 0.16, -0.6, 0, Math.PI * 2); g.fill();
-  return c;
-}
-
-// roundRect isn't on older iPads' canvas: a plain rectangle there.
-const rounded = (g, x, y, w, h, r) => (g.roundRect ? g.roundRect(x, y, w, h, r) : g.rect(x, y, w, h));
 
 // A wall along one edge of the jar, set just outside it (away from the jar's middle).
 function wall(a, b, mid, t = 40) {
@@ -98,63 +92,79 @@ function clinker() {
 /*
  * The jar itself. words: [{ w, t }] oldest first, all in this jar. Words newer than dropAfter drop in one by one;
  * the rest start settled, oldest at the bottom. capacity sizes the marbles so a full jar is about three-quarters full.
+ * marbles / jar: the looks to draw (a marble set and a jar from the shop, or the defaults).
+ * preview: a still picture for the shop (no animation, no touching).
  * Exposes shake() and sort(on), and the tilt (-1..1 of MAX_TILT) for a mouse.
  */
-export const JarScene = forwardRef(function JarScene({ words, dropAfter, capacity, sound, picked, onPick }, ref) {
+export const JarScene = forwardRef(function JarScene({ words, dropAfter, capacity, sound, picked, onPick, marbles: set = DEFAULT_MARBLES, jar = DEFAULT_JAR, preview = false }, ref) {
   const canvas = useRef(null);
   const sim = useRef(null);
-  const still = useMemo(reducedMotion, []);
+  const reduced = useMemo(reducedMotion, []);
+  const still = reduced || preview;
 
   useLayoutEffect(() => {
     const el = canvas.current, W = el.clientWidth, H = el.clientHeight, dpr = Math.min(2, window.devicePixelRatio || 1);
+    if (!W || !H) return undefined;
     el.width = Math.round(W * dpr); el.height = Math.round(H * dpr);
     const g = el.getContext("2d");
-    const css = getComputedStyle(document.documentElement);
+    const css = getComputedStyle(el);
     const fg = (css.getPropertyValue("--ws-fg").trim() || "255 255 255").split(/\s+/).join(",");
     const glass = a => `rgba(${fg},${a})`;
+    const LEFT = jar.shape, OUTLINE = outlineOf(LEFT);
     const P = ([x, y]) => [x * W, y * H];
+    const art = artFor(jar);
+    const topY = LEFT[0][1], bottomY = LEFT[LEFT.length - 1][1];
+    // Where a marble's middle can be at height y (px): between the sides, a radius in from each.
+    const span = (y, r) => {
+      const l = Math.max(leftAt(LEFT, (y - r) / H), leftAt(LEFT, (y + r) / H), leftAt(LEFT, y / H)) * W;
+      return [l + r + 1, W - l - r - 1];
+    };
 
     const engine = Engine.create({ enableSleeping: true });
-    const mid = [W / 2, H * 0.6];
+    const mid = [W / 2, (H * (topY + bottomY)) / 2];
     const edges = [];
-    for (let i = 0; i + 1 < LEFT.length; i++) edges.push([P(LEFT[i]), P(LEFT[i + 1])]);
-    edges.push([P(LEFT[LEFT.length - 1]), P(RIGHT[RIGHT.length - 1])]);
-    for (let i = 0; i + 1 < RIGHT.length; i++) edges.push([P(RIGHT[i]), P(RIGHT[i + 1])]);
-    const lid = Bodies.rectangle(W / 2, -20, W, 40, { isStatic: true });   // nothing rattles out of the top
+    for (let i = 0; i + 1 < OUTLINE.length; i++) edges.push([P(OUTLINE[i]), P(OUTLINE[i + 1])]);
+    const lid = Bodies.rectangle(W / 2, topY * H - 20, W, 40, { isStatic: true });   // nothing rattles out of the top
     Composite.add(engine.world, [...edges.map(([a, b]) => wall(a, b, mid)), lid]);
 
-    // Marble size: a full jar of `capacity` comes up to about the shoulders.
-    const unit = Math.max(3, Math.min(W * 0.05, Math.sqrt((0.95 * 0.9 * W * 0.72 * H) / (Math.max(capacity, 20) * Math.PI * 1.4))));
+    // Marble size: a full jar of `capacity` comes up to about the shoulders, whatever the jar's shape.
+    const unit = Math.max(3, Math.min(W * 0.05, Math.sqrt((FILL * areaOf(LEFT) * W * H) / (Math.max(capacity, 20) * Math.PI * 1.4))));
     const sprites = new Map();
-    const spriteFor = (colour, r) => { const k = colour + r; if (!sprites.has(k)) sprites.set(k, marbleSprite(colour, r, dpr)); return sprites.get(k); };
-    const make = (item, x, y) => {
-      const L = lengthOf(item.w), r = Math.round(unit * L.size * 10) / 10;
-      const body = Bodies.circle(x, y, r, { restitution: 0.25, friction: 0.02, frictionStatic: 0.1, frictionAir: 0.012, density: 0.002 });
-      body.item = item; body.r = r; body.sprite = spriteFor(L.colour, r);
+    const spriteFor = (colour, r) => { const k = colour + r; if (!sprites.has(k)) sprites.set(k, marbleSprite(set, colour, r, dpr)); return sprites.get(k); };
+    const make = item => {
+      const r = Math.round(unit * LENGTHS[lengthIndex(item.w)].size * 10) / 10;
+      const body = Bodies.circle(0, 0, r, { restitution: 0.25, friction: 0.02, frictionStatic: 0.1, frictionAir: 0.012, density: 0.002 });
+      body.item = item; body.r = r; body.sprite = spriteFor(colourOf(set, item.w), r);
       return body;
+    };
+    // Set marbles down in rows from the bottom, in order, each row as wide as the jar is at that height.
+    const stack = bodies => {
+      let y = null, x = 0, odd = false;
+      for (const b of bodies) {
+        if (y === null) { y = bottomY * H - b.r - 2; x = span(y, b.r)[0]; }
+        if (x > span(y, b.r)[1]) { y = Math.max(y - b.r * 1.8, topY * H + b.r); odd = !odd; x = span(y, b.r)[0] + (odd ? b.r * 0.5 : 0); }
+        x = Math.max(x, span(y, b.r)[0]);
+        Body.setPosition(b, { x: x + Math.random(), y });
+        x += b.r * 2.02;
+      }
+    };
+    // Where a new word drops in: just inside the top, near the middle.
+    const dropAt = r => {
+      const y = (topY + 0.05) * H + r, [l, rr] = span(y, r);
+      return { x: W / 2 + (Math.random() - 0.5) * Math.min(W * 0.25, Math.max(0, rr - l)), y };
     };
 
     // The words already in the jar: stacked from the bottom, oldest first, then settled before the first frame.
     const old = words.filter(x => !(x.t > dropAfter)), fresh = words.filter(x => x.t > dropAfter);
-    const marbles = [];
-    {
-      const left = 0.07 * W, right = 0.93 * W;
-      let x = left, y = 0.95 * H, row = 0;
-      for (const item of old) {
-        const b = make(item, 0, 0);
-        if (x + b.r * 2 > right) { row++; x = left + (row % 2) * b.r; y -= b.r * 1.8; }
-        Body.setPosition(b, { x: x + b.r + Math.random(), y: Math.max(y - b.r, H * 0.1) });
-        x += b.r * 2;
-        marbles.push(b);
-      }
-      Composite.add(engine.world, marbles);
-      for (let i = 0; i < (still ? 400 : 150); i++) Engine.update(engine, STEP);
-    }
+    const marbles = old.map(make);
+    stack(marbles);
+    Composite.add(engine.world, marbles);
+    for (let i = 0; i < (still ? 400 : 150); i++) Engine.update(engine, STEP);
 
-    const s = { engine, marbles, make, W, H, tilt: 0, queue: still ? [] : [...fresh], dropAt: 0, picked: null, sound: clinker(), soundOn: sound };
+    const s = { engine, marbles, make, stack, W, H, tilt: 0, queue: still ? [] : [...fresh], nextDrop: 0, picked: null, sound: clinker(), soundOn: sound };
     if (still) {
       // No motion: new words are simply already in the jar.
-      for (const item of fresh) { const b = make(item, W / 2 + (Math.random() - 0.5) * W * 0.3, H * 0.12); marbles.push(b); Composite.add(engine.world, b); }
+      for (const item of fresh) { const b = make(item); Body.setPosition(b, dropAt(b.r)); marbles.push(b); Composite.add(engine.world, b); }
       for (let i = 0; i < 300; i++) Engine.update(engine, STEP);
     }
     sim.current = s;
@@ -168,48 +178,47 @@ export const JarScene = forwardRef(function JarScene({ words, dropAfter, capacit
       }
     });
 
-    const draw = () => {
+    const path = new Path2D();
+    OUTLINE.forEach((pt, i) => { const [x, y] = P(pt); if (i) path.lineTo(x, y); else path.moveTo(x, y); });
+    path.closePath();
+    // What the jar's drawing gets (src/jarArt.js); t moves its water, snow and sparkles along.
+    const k = { g, W, H, path, shape: LEFT.map(P), glass, fg: fg.split(","), tint: jar.tint, jar, t: 0 };
+    const draw = t => {
       g.setTransform(dpr, 0, 0, dpr, 0, 0);
       g.clearRect(0, 0, W, H);
-      const path = new Path2D();
-      OUTLINE.forEach((pt, i) => { const [x, y] = P(pt); if (i) path.lineTo(x, y); else path.moveTo(x, y); });
-      g.fillStyle = glass(0.05); g.fill(path);
+      k.t = still ? 0 : t;
+      art.back(k);
       for (const b of s.marbles) {
-        const { x, y } = b.position;
-        g.drawImage(b.sprite, x - b.r - 1, y - b.r - 1, (b.r + 1) * 2, (b.r + 1) * 2);
+        const { x, y } = b.position, { canvas: c, pad } = b.sprite;
+        g.drawImage(c, x - b.r - pad, y - b.r - pad, (b.r + pad) * 2, (b.r + pad) * 2);
       }
       if (s.picked) {
         const b = s.marbles.find(m => m.item.w === s.picked);
         if (b) { g.strokeStyle = glass(0.95); g.lineWidth = 3; g.beginPath(); g.arc(b.position.x, b.position.y, b.r + 3, 0, Math.PI * 2); g.stroke(); }
       }
-      g.lineWidth = 4; g.lineJoin = "round"; g.strokeStyle = glass(0.4); g.stroke(path);
-      // the shine down the glass, and the rim
-      g.fillStyle = glass(0.1);
-      g.beginPath(); rounded(g, W * 0.1, H * 0.3, W * 0.035, H * 0.48, W * 0.02); g.fill();
-      g.fillStyle = glass(0.35);
-      g.beginPath(); rounded(g, W * 0.28, 0, W * 0.44, H * 0.028, 4); g.fill();
+      art.front(k);
     };
-    s.draw = draw;
+    s.draw = () => draw(performance.now());
 
     let raf = 0, last = performance.now(), acc = 0;
     const tick = t => {
       raf = requestAnimationFrame(tick);
       if (document.hidden) { last = t; return; }
       acc += Math.min(100, t - last); last = t;
-      if (s.queue.length && t > s.dropAt) {
-        const item = s.queue.shift();
-        const b = make(item, W / 2 + (Math.random() - 0.5) * W * 0.25, H * 0.05);
+      if (s.queue.length && t > s.nextDrop) {
+        const b = make(s.queue.shift());
+        Body.setPosition(b, dropAt(b.r));
         Body.setVelocity(b, { x: (Math.random() - 0.5) * 2, y: 2 });
         s.marbles.push(b); Composite.add(engine.world, b);
-        s.dropAt = t + Math.max(120, 420 - s.queue.length * 20);
+        s.nextDrop = t + Math.max(120, 420 - s.queue.length * 20);
       }
       while (acc >= STEP) { Engine.update(engine, STEP); acc -= STEP; }
-      draw();
+      draw(t);
     };
-    if (still) draw();
+    if (still) s.draw();
     else raf = requestAnimationFrame(tick);
     return () => { cancelAnimationFrame(raf); Events.off(engine); Engine.clear(engine); };
-  }, [words, dropAfter, capacity, still]); // eslint-disable-line
+  }, [words, dropAfter, capacity, still, set, jar]); // eslint-disable-line
 
   useEffect(() => { if (sim.current) sim.current.soundOn = sound; }, [sound]);
   useEffect(() => { const s = sim.current; if (s) { s.picked = picked; if (still) s.draw(); } }, [picked, still]);
@@ -233,30 +242,17 @@ export const JarScene = forwardRef(function JarScene({ words, dropAfter, capacit
         Body.setVelocity(b, { x: b.velocity.x + (Math.random() - 0.5) * 12, y: b.velocity.y - 4 - Math.random() * 9 });
       }
     },
-    // Sorted: tip them all out and drop them back in longest first, so they settle in layers by length.
+    // Sorted: tip them all out and set them back in longest first, so they settle in layers by length.
     sort(on) {
       const s = sim.current;
       if (!s) return;
       s.sound.wake();
       const items = s.marbles.map(b => b.item);
       Composite.remove(s.engine.world, s.marbles);
-      s.marbles = [];
       const order = on ? [...items].sort((a, b) => b.w.length - a.w.length || (a.w < b.w ? -1 : 1)) : [...items].sort(() => Math.random() - 0.5);
-      let y = s.H * 0.9;
-      const rows = [];
-      for (const item of order) {
-        const b = s.make(item, 0, 0);
-        rows.push(b);
-      }
-      // Stack them in rows from the bottom in that order, then let them settle.
-      let x = s.W * 0.07;
-      for (const b of rows) {
-        if (x + b.r * 2 > s.W * 0.93) { x = s.W * 0.07; y -= b.r * 1.9; }
-        Body.setPosition(b, { x: x + b.r, y: Math.max(y, s.H * 0.05) });
-        x += b.r * 2.02;
-      }
-      s.marbles = rows;
-      Composite.add(s.engine.world, rows);
+      s.marbles = order.map(s.make);
+      s.stack(s.marbles);
+      Composite.add(s.engine.world, s.marbles);
       if (still) { for (let i = 0; i < 300; i++) Engine.update(s.engine, STEP); s.draw(); }
     },
   }), [still]);
@@ -271,6 +267,7 @@ export const JarScene = forwardRef(function JarScene({ words, dropAfter, capacit
     return hit ? hit.item : null;
   };
 
+  if (preview) return <canvas ref={canvas} aria-hidden="true" style={{ width: "100%", height: "100%", display: "block" }} />;
   return (
     <canvas ref={canvas} role="img" aria-label={`A jar of ${words.length} marbles, one for each word`}
       onPointerDown={e => onPick(pickAt(e.clientX, e.clientY))}
@@ -280,11 +277,11 @@ export const JarScene = forwardRef(function JarScene({ words, dropAfter, capacit
 
 const day = t => new Date(t).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });
 
-// A small full jar for the shelf.
-const ShelfJar = ({ n }) => (
+// A small full jar for the shelf, filled in the marble set's colours.
+const ShelfJar = ({ n, colours }) => (
   <div style={{ display: "grid", justifyItems: "center", gap: 2 }}>
     <svg width="34" height="42" viewBox="0 0 34 42" aria-hidden="true">
-      <path d="M11 2v4L4 11v27q0 3 3 3h20q3 0 3-3V11l-7-5V2z" fill="rgb(var(--ws-amber-rgb) / .35)" stroke="var(--ws-mist)" strokeWidth="2" strokeLinejoin="round" />
+      <path d="M11 2v4L4 11v27q0 3 3 3h20q3 0 3-3V11l-7-5V2z" fill={rgba(colours[2], 0.45)} stroke="var(--ws-mist)" strokeWidth="2" strokeLinejoin="round" />
       <rect x="9" y="0" width="16" height="4" rx="1.5" fill="var(--ws-mist)" />
     </svg>
     <span style={{ fontSize: 13, color: T.mist }}>{n}</span>
@@ -293,8 +290,13 @@ const ShelfJar = ({ n }) => (
 
 /*
  * The jar screen. bank: word -> first-found time, or null to load it. Kept by the caller between visits.
+ * looks: { marble, jar } item ids to show (the shop's try-out); left out, it's what this device is wearing.
  */
-export function JarView({ name, bank, sceneRef }) {
+export function JarView({ name, bank, sceneRef, looks, items = ITEMS }) {
+  const [worn] = useState(() => looks || wornJarLooks());
+  const ids = looks || worn;
+  const set = useMemo(() => marbleSetOf(items, ids.marble), [items, ids.marble]);
+  const jar = useMemo(() => jarOf(items, ids.jar), [items, ids.jar]);
   const list = useMemo(() => bankList(bank), [bank]);
   const jars = jarsFor(list.length);
   const sig = list.length ? `${list.length}:${list[list.length - 1].t}` : "0";
@@ -348,14 +350,14 @@ export function JarView({ name, bank, sceneRef }) {
     <div style={{ display: "grid", gap: 14, justifyItems: "center", width: "100%" }}>
       {(jars.full.length > 0) && (
         <div style={{ display: "flex", gap: 14, alignItems: "flex-end", flexWrap: "wrap", justifyContent: "center" }} aria-label={`Full jars: ${jars.full.length}`}>
-          {jars.full.map(n => <ShelfJar key={n} n={n} />)}
+          {jars.full.map(n => <ShelfJar key={n} n={n} colours={set.colours} />)}
         </div>
       )}
       {filledJar && <div role="status" className="ws-display" style={{ fontSize: 20, fontWeight: 700, color: T.amber, textAlign: "center" }}>You filled a jar! It's on the shelf, and a new one has started.</div>}
       {fresh > 0 && !seen.first && <div role="status" style={{ fontSize: 17, color: T.green, fontWeight: 700 }}>{fresh} new {fresh === 1 ? "word" : "words"} since last time</div>}
 
       <div style={{ width: "min(400px, 88vw)", aspectRatio: "4 / 5", maxHeight: "62vh" }}>
-        <JarScene ref={scene} words={inJar} dropAfter={seen.t} capacity={jars.size} sound={sound} picked={picked && picked.w}
+        <JarScene ref={scene} words={inJar} dropAfter={seen.t} capacity={jars.size} sound={sound} marbles={set} jar={jar} picked={picked && picked.w}
           onPick={item => setPicked(item)} />
       </div>
 
@@ -363,7 +365,10 @@ export function JarView({ name, bank, sceneRef }) {
 
       {picked ? (
         <div className="ws-fade" style={{ display: "grid", justifyItems: "center", gap: 6, background: "rgb(var(--ws-fg) / .06)", borderRadius: 16, padding: "14px 22px", minWidth: 240 }}>
-          <div className="ws-display" style={{ fontSize: 40, fontWeight: 700, letterSpacing: 2, color: lengthOf(picked.w).colour }}>{picked.w.toUpperCase()}</div>
+          <div className="ws-display" style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 40, fontWeight: 700, letterSpacing: 2 }}>
+            <span aria-hidden="true" style={{ width: 26, height: 26, borderRadius: "50%", flex: "none", background: `radial-gradient(circle at 35% 30%, #fff8, ${colourOf(set, picked.w)} 55%)` }} />
+            {picked.w.toUpperCase()}
+          </div>
           <div style={{ fontSize: 15, color: T.mist }}>First found on {day(picked.t)}</div>
           <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
             {speak && <button className="ws-btn" onClick={() => say(picked.w)} style={btn}>🔊 Say it</button>}
@@ -380,9 +385,9 @@ export function JarView({ name, bank, sceneRef }) {
       </div>
 
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center", fontSize: 14, color: T.mist }}>
-        {LENGTHS.map(l => (
+        {LENGTHS.map((l, i) => (
           <span key={l.min} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <span aria-hidden="true" style={{ width: 12, height: 12, borderRadius: "50%", background: l.colour }} />{l.label}
+            <span aria-hidden="true" style={{ width: 12, height: 12, borderRadius: "50%", background: set.colours[i] }} />{l.label}
           </span>
         ))}
       </div>

@@ -14,13 +14,15 @@ import { DICE } from "./looks/dice.js";
 import { EFFECTS } from "./looks/effects.js";
 import { AVATARS } from "./looks/avatars.js";
 import { COVERS } from "./looks/covers.js";
+import { MARBLES } from "./looks/marbles.js";
+import { JARS } from "./looks/jars.js";
 import { seasonOpen } from "./seasons.js";
 
 // Each slot holds one worn item at a time; null means the default look for that slot.
-export const SLOTS = ["theme", "dice", "effect", "avatar", "cover"];
-export const SLOT_NAMES = { theme: "Themes", dice: "Dice", effect: "Word sparkles", avatar: "Avatars", cover: "Sticker books" };
+export const SLOTS = ["theme", "dice", "effect", "avatar", "cover", "marble", "jar"];
+export const SLOT_NAMES = { theme: "Themes", dice: "Dice", effect: "Word sparkles", avatar: "Avatars", cover: "Sticker books", marble: "Marbles", jar: "Jars" };
 
-export const ITEMS = [...THEMES, ...DICE, ...EFFECTS, ...AVATARS, ...COVERS];
+export const ITEMS = [...THEMES, ...DICE, ...EFFECTS, ...AVATARS, ...COVERS, ...MARBLES, ...JARS];
 export const ITEM_BY_ID = Object.fromEntries(ITEMS.map(i => [i.id, i]));
 
 // Stars for one round: the round's score, plus PLAY_BONUS just for playing, so every student earns.

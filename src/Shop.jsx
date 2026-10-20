@@ -5,6 +5,8 @@ import { SLOTS, SLOT_NAMES, ITEMS, balanceOf } from "../shared/shop.js";
 import { Look, DieRow, TryBoard, CoverMini } from "./components/LookSamples.jsx";
 import { itemState, shelves, wornIn, shopError } from "./shopView.js";
 import { SEASONS, SEASON_BY_ID } from "../shared/seasons.js";
+import { JarScene } from "./WordJar.jsx";
+import { marbleSetOf, jarOf } from "./jarArt.js";
 
 /*
  * The student's shop, opened from the lobby like "My trophies" (class-list students only).
@@ -15,12 +17,24 @@ import { SEASONS, SEASON_BY_ID } from "../shared/seasons.js";
  *   onWorn:   the server's `worn` after a buy or a wear, so the device dresses itself at once
  *   call, items: the socket call and the catalogue (swappable, for a harness)
  */
-const SLOT_EMOJI = { theme: "🎨", dice: "🎲", effect: "✨", avatar: "🙂", cover: "📒" };
+const SLOT_EMOJI = { theme: "🎨", dice: "🎲", effect: "✨", avatar: "🙂", cover: "📒", marble: "🔮", jar: "🏺" };
+// The words in a shop jar: some of every length, so each card shows the whole set.
+const SAMPLE = "cat sun hat pig web map tin fox cup bed rain frog tree jump sing ship grape plant train cloud snail rocket garden spider planet rainbow dolphin".split(" ").map(w => ({ w, t: 0 }));
 const pill = { fontSize: 18, fontWeight: 700, border: "none", borderRadius: 14, padding: "12px 18px", minHeight: 48, cursor: "pointer", width: "100%" };
 
 // The little picture on each card, drawn in the student's current theme so it looks like it will on their device.
-function ItemPreview({ item, theme, name, trying, onTry }) {
+function ItemPreview({ item, theme, worn, items, name, trying, onTry }) {
   const box = { padding: 10, borderRadius: 12, minHeight: 96, display: "grid", placeItems: "center", gap: 8 };
+  // Word jar looks: a little jar of marbles, with whatever else the student wears for the jar.
+  if (item.slot === "marble" || item.slot === "jar") {
+    const set = marbleSetOf(items, item.slot === "marble" ? item.id : wornIn(worn, "marble"));
+    const jar = jarOf(items, item.slot === "jar" ? item.id : wornIn(worn, "jar"));
+    return (
+      <Look theme={theme} style={box}>
+        <div style={{ width: 128, aspectRatio: "4 / 5" }}><JarScene preview words={SAMPLE} dropAfter={1} capacity={44} marbles={set} jar={jar} /></div>
+      </Look>
+    );
+  }
   if (item.slot === "theme") {
     return (
       <Look theme={item.id || "classic"} style={box}>
@@ -55,7 +69,7 @@ function ItemPreview({ item, theme, name, trying, onTry }) {
   );
 }
 
-function ItemCard({ item, look, theme, name, busy, onWear, onBuy, trying, onTry }) {
+function ItemCard({ item, look, theme, worn, items, name, busy, onWear, onBuy, trying, onTry }) {
   const { state, need, trophy } = look;
   const price = item.unlock ? "Trophy prize" : item.price ? `⭐ ${item.price}` : "Free";
   let action;
@@ -81,7 +95,7 @@ function ItemCard({ item, look, theme, name, busy, onWear, onBuy, trying, onTry 
   }
   return (
     <section aria-label={item.name} style={{ display: "grid", gap: 10, alignContent: "start", background: "rgb(var(--ws-fg) / .05)", border: `2px solid ${state === "wearing" ? T.green : "var(--ws-faint)"}`, borderRadius: 18, padding: 10 }}>
-      <ItemPreview item={item} theme={theme} name={name} trying={trying} onTry={onTry} />
+      <ItemPreview item={item} theme={theme} worn={worn} items={items} name={name} trying={trying} onTry={onTry} />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, padding: "0 4px" }}>
         <span className="ws-display" style={{ fontSize: 19, fontWeight: 700 }}><span aria-hidden="true">{item.emoji} </span>{item.name}</span>
         {item.id && state !== "wearing" && state !== "owned" && <span className="ws-display" style={{ fontSize: 17, fontWeight: 700, whiteSpace: "nowrap", color: state === "buy" ? T.amber : T.mist }}>{price}</span>}
@@ -233,7 +247,7 @@ export function Shop({ name, cached, ownLooks = true, onLoaded, onWorn, onClose,
               </div>
             )}
             {list.map(item => (
-              <ItemCard key={item.id || "none"} item={item} name={name} theme={theme} busy={busy}
+              <ItemCard key={item.id || "none"} item={item} name={name} theme={theme} worn={worn} items={items} busy={busy}
                 look={itemState(item, data.wallet, data.trophies, worn)}
                 onWear={() => wear(item)} onBuy={() => { setNote(""); setAsk({ item, done: false }); }}
                 trying={trying === item.id} onTry={() => setTrying(item.id)} />

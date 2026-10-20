@@ -6,7 +6,7 @@
  * An Australian Christmas is in summer, so the shelf leans on lights, baubles, candy canes and presents rather than
  * snow, and the sticker book goes to the beach.
  */
-import { FONTS, behind, behind2, svg, round } from "../kit.js";
+import { FONTS, behind, behind2, svg, round, arc } from "../kit.js";
 
 // The fairy lights: a drooping wire with a bulb hanging at each of six points, one tile repeated across the top.
 // LIGHTS_ALL is every bulb, dim and still; LIGHTS_TWINKLE is every other bulb again, brighter, slowly pulsing.
@@ -80,4 +80,7 @@ export const CHRISTMAS = [
   { id: "christmas-present", slot: "avatar", name: "Present", emoji: "🎁", price: 25, season: "christmas" },
   { id: "christmas-snowman", slot: "avatar", name: "Snowman", emoji: "⛄", price: 40, season: "christmas" },
   { id: "christmas-reindeer", slot: "avatar", name: "Reindeer", emoji: "🦌", price: 60, season: "christmas" },
+  // The word jar (shared/looks/marbles.js, jars.js; drawn in src/jarArt.js)
+  { id: "christmas-bauble-marbles", slot: "marble", name: "Baubles", emoji: "🎄", price: 80, colours: ["#E8EEF5", "#2FA84F", "#FFC93C", "#E23B4E", "#3D6FE0"], finish: "bauble", season: "christmas" },
+  { id: "christmas-snow-globe", slot: "jar", name: "Snow globe", emoji: "❄️", price: 100, shape: arc(0.5, 0.44, 0.14, Math.PI * 0.8), tint: "#CFEFFF", season: "christmas" },
 ];

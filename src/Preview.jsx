@@ -6,6 +6,9 @@ import { DICE } from "../shared/looks/dice.js";
 import { EFFECTS } from "../shared/looks/effects.js";
 import { AVATARS } from "../shared/looks/avatars.js";
 import { COVERS } from "../shared/looks/covers.js";
+import { MARBLES, DEFAULT_MARBLES } from "../shared/looks/marbles.js";
+import { JARS, DEFAULT_JAR } from "../shared/looks/jars.js";
+import { JarScene } from "./WordJar.jsx";
 import { SLOT_NAMES, ITEM_BY_ID } from "../shared/shop.js";
 import { TROPHY_BY_ID } from "../shared/rewards.js";
 import { SEASONS, SEASON_BY_ID } from "../shared/seasons.js";
@@ -22,10 +25,24 @@ const loadNotes = () => { try { return JSON.parse(localStorage.getItem(NOTES_KEY
 const TABS = [
   { id: "theme", items: THEMES.filter(i => !i.season) }, { id: "dice", items: DICE.filter(i => !i.season) }, { id: "effect", items: EFFECTS.filter(i => !i.season) },
   { id: "avatar", items: AVATARS.filter(i => !i.season) }, { id: "cover", items: COVERS.filter(i => !i.season) },
+  { id: "marble", items: MARBLES.filter(i => !i.season) }, { id: "jar", items: JARS.filter(i => !i.season) },
   // One tab per seasonal shelf, whatever today's date (the gallery is for proofing ahead of time).
   ...SEASONS.map(s => ({ id: s.id, season: s, items: SEASONAL.filter(i => i.season === s.id) })),
   { id: "mix", items: [] },
 ];
+// Word-jar looks: a jar of sample words in the classic theme and a light one (marbles in the plain jar, jars with plain marbles).
+const JAR_WORDS = "cat sun hat pig web map tin fox cup bed rain frog tree jump sing ship grape plant train cloud snail rocket garden spider planet rainbow dolphin".split(" ").map(w => ({ w, t: 0 }));
+const JarLooks = ({ item }) => (
+  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+    {["classic", "rednut"].map(th => (
+      <Look key={th} theme={th} style={{ padding: 10, display: "grid", justifyItems: "center" }}>
+        <div style={{ width: "100%", maxWidth: 150, aspectRatio: "4 / 5" }}>
+          <JarScene preview words={JAR_WORDS} dropAfter={1} capacity={44} marbles={item.slot === "marble" ? item : DEFAULT_MARBLES} jar={item.slot === "jar" ? item : DEFAULT_JAR} />
+        </div>
+      </Look>
+    ))}
+  </div>
+);
 const priceLabel = item => (item.season ? `${SEASON_BY_ID[item.season].emoji} ` : "") + (item.unlock ? `🔓 ${TROPHY_BY_ID[item.unlock] ? TROPHY_BY_ID[item.unlock].name : item.unlock}` : item.price ? `⭐ ${item.price}` : "free");
 
 function Proof({ id, notes, setNote, saveNote }) {
@@ -149,6 +166,7 @@ export function Preview({ store = null } = {}) {
                 </Look>
               )}
               {item.slot === "cover" && <Look cover={item.id}><CoverSample /></Look>}
+              {(item.slot === "marble" || item.slot === "jar") && <JarLooks item={item} />}
             </Card>
           ))}
         </div>

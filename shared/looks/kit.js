@@ -35,3 +35,10 @@ export const svg = body => `url("data:image/svg+xml,${encodeURIComponent(
 // Rounder corners than the theme's die. The die's radius is an inline style, hence !important.
 export const round = r => `$SEL .ws-die{border-radius:${r} !important}`;
 
+// ---- jars ----
+// A round side: from the opening at angle `from` (radians from the top) to `to`, round (cx, cy), rx wide.
+// y is scaled by 0.8 (the box is 4:5) so it's a true circle on screen.
+export const arc = (cy, rx, from, to, n = 10) => Array.from({ length: n + 1 }, (_, i) => {
+  const a = from + ((to - from) * i) / n;
+  return [+(0.5 - rx * Math.sin(a)).toFixed(4), +(cy - rx * 0.8 * Math.cos(a)).toFixed(4)];
+});

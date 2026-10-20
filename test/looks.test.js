@@ -5,6 +5,9 @@ import { DICE } from "../shared/looks/dice.js";
 import { COVERS, COVER_KEYS } from "../shared/looks/covers.js";
 import { EFFECTS } from "../shared/looks/effects.js";
 import { AVATARS } from "../shared/looks/avatars.js";
+import { MARBLES, FINISHES, DEFAULT_MARBLES } from "../shared/looks/marbles.js";
+import { JARS, DEFAULT_JAR } from "../shared/looks/jars.js";
+import { JAR_ART } from "../src/jarArt.js";
 import { ITEMS, SLOTS, owns, cantBuy, cantEquip, wornLooks, balanceOf, starsForRound, PLAY_BONUS } from "../shared/shop.js";
 import { TROPHY_BY_ID } from "../shared/rewards.js";
 
@@ -73,7 +76,7 @@ test("every item has a unique id, a known slot, a name, an emoji and a fair pric
     assert.ok(Number.isInteger(item.price) && item.price >= 0 && item.price <= 1000, `${item.id}: price must be a whole number 0-1000`);
     if (item.unlock) assert.ok(TROPHY_BY_ID[item.unlock], `${item.id}: unlocked by an unknown trophy ${item.unlock}`);
   }
-  for (const [list, slot] of [[THEMES, "theme"], [DICE, "dice"], [EFFECTS, "effect"], [AVATARS, "avatar"], [COVERS, "cover"]]) {
+  for (const [list, slot] of [[THEMES, "theme"], [DICE, "dice"], [EFFECTS, "effect"], [AVATARS, "avatar"], [COVERS, "cover"], [MARBLES, "marble"], [JARS, "jar"]]) {
     for (const item of list) assert.equal(item.slot, slot, `${item.id} is in the ${slot} file`);
   }
 });
@@ -121,6 +124,39 @@ for (const c of COVERS) {
     for (const k of Object.keys(c.vars)) assert.ok(COVER_KEYS.includes(k), `${c.id}: unknown key ${k}`);
     checkPairs(c.id, c.vars, COVER_PAIRS);
     if (c.css) assert.ok(c.css.includes("$SEL"), `${c.id}: extra css must be written for $SEL`);
+  });
+}
+
+/* ---- the word jar ---- */
+// The jar's key shows what each colour means (3, 4, 5, 6, 7+ letters), so every pair in a set must look different:
+// far apart in colour, or clearly lighter or darker.
+for (const m of [{ id: "default marbles", ...DEFAULT_MARBLES }, ...MARBLES]) {
+  test(`marble set ${m.id}: five colours, easy to tell apart`, () => {
+    assert.equal(m.colours.length, 5, `${m.id}: one colour for each length`);
+    for (const c of m.colours) assert.match(c, HEX, `${m.id}: ${c} must be a #RRGGBB colour`);
+    assert.ok(FINISHES.includes(m.finish), `${m.id}: unknown finish ${m.finish}`);
+    for (let i = 0; i < 5; i++) {
+      for (let j = i + 1; j < 5; j++) {
+        const [a, b] = [m.colours[i], m.colours[j]];
+        assert.ok(hueGap(a, b) >= 25 || contrast(a, b) >= 1.5, `${m.id}: ${a} and ${b} are too alike`);
+      }
+    }
+  });
+}
+
+for (const j of [DEFAULT_JAR, ...JARS]) {
+  test(`jar ${j.id}: a shape marbles can't get stuck in, and a drawing`, () => {
+    const sh = j.shape;
+    assert.ok(sh.length >= 3, `${j.id}: at least three points`);
+    for (const [x, y] of sh) assert.ok(x >= 0.02 && x < 0.5 && y >= 0 && y <= 1, `${j.id}: [${x}, ${y}] is outside the box`);
+    for (let i = 1; i < sh.length; i++) assert.ok(sh[i][1] > sh[i - 1][1], `${j.id}: the side must keep going down`);
+    // Out, then back in: a side that comes in and goes out again makes a pocket.
+    const xs = sh.map(p => p[0]), widest = xs.indexOf(Math.min(...xs));
+    for (let i = 1; i <= widest; i++) assert.ok(xs[i] <= xs[i - 1] + 0.011, `${j.id}: pinches in above its widest point`);
+    for (let i = widest + 1; i < xs.length; i++) assert.ok(xs[i] >= xs[i - 1] - 0.011, `${j.id}: bulges out below its widest point`);
+    assert.ok(1 - 2 * sh[0][0] >= 0.1, `${j.id}: the opening must be wide enough to drop words in`);
+    assert.match(j.tint, HEX, `${j.id}: tint must be a #RRGGBB colour`);
+    assert.ok(JAR_ART[j.id], `${j.id}: needs a drawing in src/jarArt.js`);
   });
 }
 

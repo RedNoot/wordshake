@@ -85,4 +85,7 @@ export const EASTER = [
   { id: "easter-chick", slot: "avatar", name: "Hatchling", emoji: "🐣", price: 40, season: "easter" },
   { id: "easter-bunny", slot: "avatar", name: "Easter bunny", emoji: "🐇", price: 40, season: "easter" },
   { id: "easter-chicky", slot: "avatar", name: "Little chick", emoji: "🐥", price: 30, season: "easter" },
+  // The word jar (shared/looks/marbles.js, jars.js; drawn in src/jarArt.js)
+  { id: "easter-egg-marbles", slot: "marble", name: "Speckled eggs", emoji: "🥚", price: 80, colours: ["#FFE680", "#A8E6A1", "#9FD3FF", "#FFB3C7", "#C9A8FF"], finish: "speckle", season: "easter" },
+  { id: "easter-egg-jar", slot: "jar", name: "Egg jar", emoji: "🐣", price: 100, shape: [[0.4, 0.06], [0.4, 0.1], [0.27, 0.16], [0.16, 0.28], [0.1, 0.45], [0.1, 0.64], [0.15, 0.8], [0.25, 0.92], [0.37, 0.975]], tint: "#FFD6E7", season: "easter" },
 ];
