@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { T } from "./theme.js";
 import { authFetch } from "./auth.js";
+import { ClassSignin } from "./ClassSignin.jsx";
+import { CLASS_CODE_MAX, cleanClassCode, suggestClassCode, validClassCode } from "../shared/pictures.js";
 
 const MAX_STUDENTS = 60;
 
@@ -13,6 +15,8 @@ const ERRORS = {
   "too-many-students": `A class can have up to ${MAX_STUDENTS} students.`,
   "too-many-classes": "You've reached the limit of 30 classes. Delete an old one first.",
   "class-not-found": "That class no longer exists. It may have been deleted in another tab.",
+  "class-code": "A class code is 5 to 10 letters or numbers.",
+  "code-taken": "Another class already uses that code. Try a different one.",
 };
 const errorText = body => body.error === "duplicate-student" ? `"${body.name}" is in the list twice. Add an initial to tell them apart, e.g. "${body.name} R".`
   : body.error === "student-name" ? `"${body.name}" is too long (30 characters at most).`
@@ -32,6 +36,7 @@ export function parseNames(text) {
 
 function Editor({ cls, onSaved, onCancel }) {
   const [name, setName] = useState(cls ? cls.name : "");
+  const [code, setCode] = useState(cls ? cls.code || "" : suggestClassCode());
   const [rows, setRows] = useState(cls ? cls.students : []);
   const [paste, setPaste] = useState("");
   const [error, setError] = useState("");
@@ -54,8 +59,9 @@ function Editor({ cls, onSaved, onCancel }) {
   const save = async () => {
     setError("");
     if (total > MAX_STUDENTS) return setError(ERRORS["too-many-students"]);
+    if ((code || !cls) && !validClassCode(code)) return setError(ERRORS["class-code"]);
     setSaving(true);
-    const body = { name, students: [...rows, ...added.map(n => ({ name: n }))] };
+    const body = { name, code: code || null, students: [...rows.map(({ id, name }) => ({ id, name })), ...added.map(n => ({ name: n }))] };
     const res = await authFetch(cls ? `/api/classes/${cls.id}` : "/api/classes", {
       method: cls ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     }).catch(() => null);
@@ -71,6 +77,14 @@ function Editor({ cls, onSaved, onCancel }) {
       <label style={{ display: "grid", gap: 6, color: T.mist, fontSize: 14 }}>
         Class name
         <input value={name} onChange={e => setName(e.target.value)} maxLength={40} placeholder="e.g. 3/4B" style={input} autoFocus={!cls} />
+      </label>
+      <label style={{ display: "grid", gap: 6, color: T.mist, fontSize: 14 }}>
+        Class code — students type this to sign in on a new device or at home (5 to 10 letters or numbers)
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <input value={code} onChange={e => setCode(cleanClassCode(e.target.value))} maxLength={CLASS_CODE_MAX} placeholder="e.g. BIRDS34"
+            style={{ ...input, width: "12em", fontSize: 20, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase" }} />
+          <button type="button" className="ws-btn" onClick={() => setCode(suggestClassCode())} style={btn}>Make one up for me</button>
+        </div>
       </label>
 
       {rows.length > 0 && (
@@ -113,6 +127,7 @@ function Editor({ cls, onSaved, onCancel }) {
 
 export function ClassLists({ classes, setClasses, onCreated, onDone }) {
   const [editing, setEditing] = useState(null); // null | "new" | class
+  const [signin, setSignin] = useState(null);   // the class whose sign-in page is open
   const [error, setError] = useState("");
 
   const remove = async cls => {
@@ -129,7 +144,8 @@ export function ClassLists({ classes, setClasses, onCreated, onDone }) {
     setEditing(null);
   };
 
-  if (editing) return <Editor cls={editing === "new" ? null : editing} onSaved={saved} onCancel={() => setEditing(null)} />;
+  if (editing) return <Editor cls={editing === "new" ? null : editing} onSaved={c => { saved(c); if (signin) setSignin(c); }} onCancel={() => setEditing(null)} />;
+  if (signin) return <ClassSignin cls={signin} onBack={() => setSignin(null)} onEdit={() => setEditing(signin)} />;
 
   return (
     <div className="ws-fade" style={{ display: "grid", gap: 18, width: "min(720px, 94vw)" }}>
@@ -138,7 +154,7 @@ export function ClassLists({ classes, setClasses, onCreated, onDone }) {
         <button className="ws-btn" onClick={onDone} style={btn}>← Back to game settings</button>
       </div>
       <p style={{ margin: 0, color: T.mist, fontSize: 16.5 }}>
-        Add a class list and your students can join a game by tapping their name. No typing, no logins for students.
+        Add a class list and your students join a game by tapping their name. Their device remembers them after that.
       </p>
       {classes === null && <div style={{ color: T.mist }}>Loading your classes…</div>}
       {classes && classes.length === 0 && (
@@ -149,7 +165,9 @@ export function ClassLists({ classes, setClasses, onCreated, onDone }) {
           <div style={{ flex: 1, minWidth: 160 }}>
             <div className="ws-display" style={{ fontSize: 22, fontWeight: 700 }}>{c.name}</div>
             <div style={{ color: T.mist, fontSize: 14 }}>{c.students.length} student{c.students.length === 1 ? "" : "s"}{c.students.length ? `: ${c.students.slice(0, 5).map(s => s.name).join(", ")}${c.students.length > 5 ? "…" : ""}` : ""}</div>
+            <div style={{ fontSize: 14, color: c.code ? T.mist : T.amber }}>{c.code ? <>Class code <b style={{ letterSpacing: "0.08em", color: "var(--ws-text)" }}>{c.code}</b></> : "No class code yet: edit the class to add one"}</div>
           </div>
+          <button className="ws-btn" onClick={() => setSignin(c)} style={btn}>Sign-in</button>
           <button className="ws-btn" onClick={() => setEditing(c)} style={btn}>Edit</button>
           <button className="ws-btn" onClick={() => remove(c)} style={{ ...btn, color: T.red }}>Delete</button>
         </div>
