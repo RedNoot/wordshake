@@ -1,4 +1,4 @@
-import { randomBytes, randomInt } from "crypto";
+import { createHash, randomBytes, randomInt } from "crypto";
 import { openSeasons } from "../../shared/seasons.js";
 import { cleanGuestName, uniqueName } from "./names.js";
 import { pickRoundSettings } from "./settings.js";
@@ -8,6 +8,9 @@ import { ITEM_BY_ID, balanceOf, wornLooks } from "../../shared/shop.js";
 import { walletOut } from "./wallet.js";
 import { MIN_TEAMS, MAX_TEAMS } from "../../shared/teams.js";
 import { snapshotRoom, restoreRoom } from "./snapshot.js";
+import { checkPin, deviceLabel, passFromCookie } from "./signin.js";
+import { cleanClassCode, validClassCode, validPin } from "../../shared/pictures.js";
+import { newPin } from "./classes.js";
 
 // No vowels, so a code can't spell a word; no 0/O or 1/I to confuse.
 const CODE_CHARS = "BCDFGHJKLMNPQRSTVWXZ23456789";
@@ -39,6 +42,8 @@ const obj = d => (d && typeof d === "object" ? d : {});
 export function attachRooms(io, {
   verifyTeacher, getClass, makeGame, isRealWord,
   saveRound = null, getStudent = null, getWords = null, buyItem = null, equipItem = null, liveStore = null,
+  // Student sign-in (store.js): classByCode, createPass, passOwner, forgetPass, getSignin, setSignin, resetPin. null: no accounts.
+  signin = null,
   now = Date.now, later = (fn, ms) => setTimeout(fn, ms),
 }) {
   const rooms = new Map();
@@ -160,6 +165,9 @@ export function attachRooms(io, {
       id: s.id, name: s.name, taken: players(room).some(p => p.studentId === s.id && p.socketId),
     })),
   });
+  // Signed-in students' devices listen on their class's channel, so the game appears when the teacher opens it.
+  const classChannel = (teacherId, classId) => `class:${teacherId}:${classId}`;
+  const tellClass = room => { if (room.classId) io.to(classChannel(room.teacherId, room.classId)).emit("class:room", { code: rooms.get(room.code) === room ? room.code : null }); };
   const notify = room => {
     io.to(`host:${room.code}`).emit("room:update", hostView(room));
     io.to(`lookup:${room.code}`).emit("room:roster", lookupView(room));
@@ -350,6 +358,7 @@ export function attachRooms(io, {
     rooms.delete(room.code);
     if (byTeacher.get(room.teacherId) === room.code) byTeacher.delete(room.teacherId);
     room.closed = true;
+    tellClass(room);
     if (liveStore) {
       Promise.resolve(room.writing).then(() => liveStore.remove(room.teacherId, room.code))
         .catch(err => console.error(`Forgetting room ${room.code} failed:`, err.message));
@@ -450,6 +459,82 @@ export function attachRooms(io, {
     return null;
   };
 
+  /*
+   * Student sign-in (signin.js). A signed-in device has socket.data.student = { teacherId, classId, studentId, name, className, pass }
+   * and listens on its class's channel. Its pass is kept by the device, so it stays signed in from one visit to the next.
+   */
+  // Who wants their trophies, word jar or shop: the class-list student in a game, or the student this device is signed in as.
+  function whoAmI(socket) {
+    const ref = socket.data.player;
+    const room = ref && rooms.get(ref.code);
+    const p = room && room.players.get(ref.id);
+    if (p) return p.studentId && room.classId ? { teacherId: room.teacherId, classId: room.classId, studentId: p.studentId, room, p } : { error: "guest" };
+    const s = socket.data.student;
+    return s ? { teacherId: s.teacherId, classId: s.classId, studentId: s.studentId, room: null, p: null } : { error: "not-joined" };
+  }
+  // The game open for this class right now, if there is one.
+  async function classRoom(teacherId, classId) {
+    const room = await roomForTeacher(teacherId).catch(() => null);
+    return room && room.classId === classId ? room : null;
+  }
+  function setStudent(socket, owner, name, className, pass) {
+    const old = socket.data.student;
+    if (old) socket.leave(classChannel(old.teacherId, old.classId));
+    socket.data.student = { ...owner, name, className, pass };
+    socket.join(classChannel(owner.teacherId, owner.classId));
+  }
+  // Signs this device in, and tells it its class's open game, its stars and its looks.
+  async function signIn(socket, owner, className, name, pass) {
+    setStudent(socket, owner, name, className, pass);
+    const saved = getStudent ? await Promise.resolve().then(() => getStudent(owner.teacherId, owner.classId, owner.studentId)).catch(() => undefined) : null;
+    const room = await classRoom(owner.teacherId, owner.classId);
+    return {
+      ok: true, pass, name, className, room: room ? room.code : null, ownLooks: room ? room.ownLooks : true,
+      looks: saved === undefined ? null : wornLooks(saved, saved && saved.trophies),
+      balance: saved === undefined ? null : balanceOf(saved),
+    };
+  }
+  const newPass = (socket, owner) => signin.createPass(owner, deviceLabel(socket.handshake.headers["user-agent"]), now());
+  // The student's secret pictures, now marked as shown (a class saved before sign-in existed is given them here).
+  async function revealPin(owner, student) {
+    let pin = student.pin;
+    if (!validPin(pin)) pin = (await signin.resetPin(owner.teacherId, owner.classId, owner.studentId, newPin())).pin;
+    if (!validPin(pin)) throw new Error("no secret pictures for this student");
+    await signin.setSignin(owner.teacherId, owner.classId, owner.studentId, { pinShown: true, pinFails: 0, pinLockedUntil: 0 });
+    return pin;
+  }
+  // Tapped their name in class on a device that isn't signed in: it's remembered, and the very first time the
+  // student is shown their pictures. Joining the game never waits on this going wrong.
+  async function rememberInClass(socket, room, student) {
+    if (!signin || !room.classId) return {};
+    try {
+      const owner = { teacherId: room.teacherId, classId: room.classId, studentId: student.id };
+      const [state, cls] = await Promise.all([signin.getSignin(owner.teacherId, owner.classId, owner.studentId), getClass(owner.teacherId, owner.classId)]);
+      const full = cls && cls.students.find(s => s.id === student.id);
+      if (!full) return {};
+      const reveal = !state.pinShown || !validPin(full.pin) ? await revealPin(owner, full) : null;
+      const pass = await newPass(socket, owner);
+      setStudent(socket, owner, full.name, cls.name, pass);
+      return { pass, reveal };
+    } catch (e) {
+      console.error("Remembering a device failed:", e.message);
+      return {};
+    }
+  }
+  // The teacher signed out a device (deviceId: the hash of its pass), one student's devices, or the whole class.
+  function signedOut(teacherId, classId, studentId = null, deviceId = null) {
+    const ids = io.sockets.adapter.rooms.get(classChannel(teacherId, classId));
+    for (const id of ids ? [...ids] : []) {
+      const socket = io.sockets.sockets.get(id);
+      const s = socket && socket.data.student;
+      if (!s || (studentId && s.studentId !== studentId) || (deviceId && createHash("sha256").update(s.pass).digest("hex") !== deviceId)) continue;
+      socket.data.student = null;
+      socket.leave(classChannel(teacherId, classId));
+      socket.emit("student:signed-out");
+    }
+  }
+
+
   io.on("connection", socket => {
     // Every handler gets a validated payload and an ack it can always call; errors never reach the event loop.
     const on = (event, handler) => socket.on(event, async (...args) => {
@@ -495,6 +580,7 @@ export function attachRooms(io, {
       rooms.set(code, room);
       byTeacher.set(teacher.id, code);
       attachHost(socket, room);
+      tellClass(room);
       ack({ ok: true, room: hostView(room) });
     });
 
@@ -646,6 +732,75 @@ export function attachRooms(io, {
       ack({ ok: true });
     });
 
+    /* ---- student sign-in: class code, name, secret pictures; then the device is remembered ---- */
+    on("student:resume", async ({ pass }, ack) => {
+      const p = typeof pass === "string" && pass ? pass : passFromCookie(socket.handshake.headers.cookie);
+      if (!signin || !p) return ack({ error: "signed-out" });
+      const owner = await signin.passOwner(p, now());
+      const cls = owner && await getClass(owner.teacherId, owner.classId);
+      const student = cls && cls.students.find(s => s.id === owner.studentId);
+      // Signed out by the teacher, or no longer on the class list.
+      if (!student) { if (owner) Promise.resolve().then(() => signin.forgetPass(p)).catch(() => {}); return ack({ error: "signed-out" }); }
+      ack(await signIn(socket, owner, cls.name, student.name, p));
+    });
+
+    // Class codes count towards the same guessing limit as game codes.
+    const classFromCode = async code => {
+      const ip = clientIp(socket);
+      if (tooManyFails(ip)) return { error: "too-many" };
+      const c = cleanClassCode(code);
+      const ref = signin && validClassCode(c) ? await signin.classByCode(c) : null;
+      const cls = ref && await getClass(ref.teacherId, ref.classId);
+      if (!cls) { recordFail(ip); return { error: "no-class" }; }
+      return { teacherId: ref.teacherId, cls };
+    };
+
+    on("student:class", async ({ code }, ack) => {
+      const { cls, error } = await classFromCode(code);
+      if (error) return ack({ error });
+      ack({ ok: true, className: cls.name, roster: cls.students.map(s => ({ id: s.id, name: s.name })) });
+    });
+
+    // Without pin: { error: "need-pin" } (or "locked"), unless the student has never seen their pictures, which is
+    // only allowed while the class's game is open; then they're shown them ({ reveal }).
+    on("student:signin", async ({ code, studentId, pin }, ack) => {
+      const { teacherId, cls, error } = await classFromCode(code);
+      if (error) return ack({ error });
+      const student = cls.students.find(s => s.id === studentId);
+      if (!student) return ack({ error: "no-student" });
+      const owner = { teacherId, classId: cls.id, studentId: student.id };
+      const state = await signin.getSignin(teacherId, cls.id, student.id);
+      if (!state.pinShown || !validPin(student.pin)) {
+        if (!await classRoom(teacherId, cls.id)) return ack({ error: "first-in-class" });
+        const reveal = await revealPin(owner, student);
+        const pass = await newPass(socket, owner);
+        return ack({ ...await signIn(socket, owner, cls.name, student.name, pass), reveal });
+      }
+      if (pin === undefined || pin === null) {
+        const until = state.pinLockedUntil || 0;
+        return ack(until > now() ? { error: "locked", until } : { error: "need-pin" });
+      }
+      const check = checkPin(state, pin, student.pin, now());
+      if (check.patch) await signin.setSignin(teacherId, cls.id, student.id, check.patch);
+      if (!check.ok) {
+        if (check.patch) recordFail(clientIp(socket));
+        return ack(check.error === "locked" ? { error: "locked", until: check.until } : { error: "wrong-pin", left: check.left });
+      }
+      const pass = await newPass(socket, owner);
+      ack(await signIn(socket, owner, cls.name, student.name, pass));
+    });
+
+    // Forgets this device's pass, even if the device was already signed out here (by the teacher, say).
+    on("student:signout", async ({ pass }, ack) => {
+      const s = socket.data.student;
+      socket.data.student = null;
+      if (s) socket.leave(classChannel(s.teacherId, s.classId));
+      const p = (s && s.pass) || (typeof pass === "string" && pass) || passFromCookie(socket.handshake.headers.cookie);
+      if (signin && p) await Promise.resolve().then(() => signin.forgetPass(p)).catch(() => {});
+      ack({ ok: true });
+    });
+
+
     /* ---- student devices ---- */
     on("player:lookup", async ({ code }, ack) => {
       const { room, error } = await studentRoom(socket, code);
@@ -654,9 +809,18 @@ export function attachRooms(io, {
       ack({ ok: true, room: lookupView(room) });
     });
 
-    on("player:join", async ({ code, studentId, guestName }, ack) => {
+    // A class-list student joins: by tapping their name (studentId), or as the student this device is signed in as (me).
+    // A device that tapped a name and isn't signed in yet is remembered from now on (remember: true),
+    // and the very first time, the student is shown their secret pictures (their teacher is in the room).
+    on("player:join", async ({ code, studentId, guestName, me, remember }, ack) => {
       const { room, error } = await studentRoom(socket, code);
       if (error) return ack({ error });
+      if (me === true) {
+        const s = socket.data.student;
+        if (!s) return ack({ error: "signed-out" });
+        if (s.teacherId !== room.teacherId || s.classId !== room.classId) return ack({ error: "not-your-class" });
+        studentId = s.studentId;
+      }
       if (studentId != null) {
         const student = room.roster && room.roster.find(s => s.id === studentId);
         if (!student) return ack({ error: "no-student" });
@@ -665,10 +829,15 @@ export function attachRooms(io, {
         const existing = players(room).find(p => p.studentId === student.id);
         // One device per name. A device that dropped out can be replaced by a new one, which takes over the name.
         if (existing && existing.socketId && existing.socketId !== socket.id) return ack({ error: "already-in" });
-        if (existing) { existing.token = newToken(); return ack(attachPlayer(socket, room, existing, saved)); }
-        const p = { id: newToken(), name: student.name, studentId: student.id, token: newToken(), socketId: null, avatar: null };
-        room.players.set(p.id, p);
-        return ack(attachPlayer(socket, room, p, saved));
+        let p = existing;
+        if (p) p.token = newToken();
+        else {
+          p = { id: newToken(), name: student.name, studentId: student.id, token: newToken(), socketId: null, avatar: null };
+          room.players.set(p.id, p);
+        }
+        const out = attachPlayer(socket, room, p, saved);
+        if (me !== true && remember === true) Object.assign(out, await rememberInClass(socket, room, student));
+        return ack(out);
       }
       const clean = cleanGuestName(guestName);
       if (!clean) return ack({ error: "bad-name" });
@@ -713,27 +882,21 @@ export function attachRooms(io, {
 
     // A student's own trophies, stickers and teacher awards (never anyone else's).
     on("player:trophies", async (_, ack) => {
-      const ref = socket.data.player;
-      const room = ref && rooms.get(ref.code);
-      const p = room && room.players.get(ref.id);
-      if (!p) return ack({ error: "not-joined" });
-      if (!p.studentId || !room.classId) return ack({ error: "guest" });
+      const who = whoAmI(socket);
+      if (who.error) return ack({ error: who.error });
       if (socket.data.trophiesAt && now() - socket.data.trophiesAt < 2000) return ack({ error: "slow-down" });
       socket.data.trophiesAt = now();
-      const saved = getStudent ? await Promise.resolve().then(() => getStudent(room.teacherId, room.classId, p.studentId)).catch(() => null) : null;
+      const saved = getStudent ? await Promise.resolve().then(() => getStudent(who.teacherId, who.classId, who.studentId)).catch(() => null) : null;
       ack({ ok: true, summary: { ...emptySummary(), ...(saved || {}), awards: (saved && saved.awards) || [] } });
     });
 
     // The word jar: every different word this student has found in a saved round, with when (shared/wordbank.js).
     on("player:words", async (_, ack) => {
-      const ref = socket.data.player;
-      const room = ref && rooms.get(ref.code);
-      const p = room && room.players.get(ref.id);
-      if (!p) return ack({ error: "not-joined" });
-      if (!p.studentId || !room.classId) return ack({ error: "guest" });
+      const who = whoAmI(socket);
+      if (who.error) return ack({ error: who.error });
       if (socket.data.wordsAt && now() - socket.data.wordsAt < 2000) return ack({ error: "slow-down" });
       socket.data.wordsAt = now();
-      const bank = getWords ? await Promise.resolve().then(() => getWords(room.teacherId, room.classId, p.studentId)).catch(() => null) : {};
+      const bank = getWords ? await Promise.resolve().then(() => getWords(who.teacherId, who.classId, who.studentId)).catch(() => null) : {};
       if (!bank) return ack({ error: "not-loaded" });
       ack({ ok: true, bank });
     });
@@ -744,40 +907,37 @@ export function attachRooms(io, {
      * Each message has its own limit, so buying something and then wearing it straight away isn't held up.
      */
     const shopper = (key, ms) => {
-      const ref = socket.data.player;
-      const room = ref && rooms.get(ref.code);
-      const p = room && room.players.get(ref.id);
-      if (!p) return { error: "not-joined" };
-      if (!p.studentId || !room.classId) return { error: "guest" };
-      if (key !== "shopAt" && room.phase !== "lobby") return { error: "not-now" };
+      const who = whoAmI(socket);
+      if (who.error) return who;
+      if (key !== "shopAt" && who.room && who.room.phase !== "lobby") return { error: "not-now" };
       if (socket.data[key] && now() - socket.data[key] < ms) return { error: "slow-down" };
       socket.data[key] = now();
-      return { room, p };
+      return who;
     };
 
     on("player:shop", async (_, ack) => {
-      const { room, p, error } = shopper("shopAt", 2000);
+      const { teacherId, classId, studentId, error } = shopper("shopAt", 2000);
       if (error) return ack({ error });
-      const saved = getStudent ? await getStudent(room.teacherId, room.classId, p.studentId) : null;
+      const saved = getStudent ? await getStudent(teacherId, classId, studentId) : null;
       const trophies = (saved && saved.trophies) || {};
       ack({ ok: true, wallet: walletOut(saved || {}), trophies, worn: wornLooks(saved, trophies), seasons: openSeasons(now()) });
     });
 
     // A bought item isn't worn until the student chooses to wear it.
     on("player:buy", async ({ id }, ack) => {
-      const { room, p, error } = shopper("buyAt", 1000);
+      const { teacherId, classId, studentId, error } = shopper("buyAt", 1000);
       if (error) return ack({ error });
       if (typeof id !== "string" || !ITEM_BY_ID[id] || !buyItem) return ack({ error: "no-item" });
-      ack(await buyItem(room.teacherId, room.classId, p.studentId, id, now()));
+      ack(await buyItem(teacherId, classId, studentId, id, now()));
     });
 
     // Wearing something (or null: the default look). A new avatar shows in the big-screen lobby straight away.
     on("player:equip", async ({ slot, id }, ack) => {
-      const { room, p, error } = shopper("equipAt", 500);
+      const { teacherId, classId, studentId, room, p, error } = shopper("equipAt", 500);
       if (error) return ack({ error });
       if ((id !== null && typeof id !== "string") || !equipItem) return ack({ error: "no-item" });
-      const out = await equipItem(room.teacherId, room.classId, p.studentId, slot, id);
-      if (out.ok) {
+      const out = await equipItem(teacherId, classId, studentId, slot, id);
+      if (out.ok && p) {
         const avatar = avatarOf(out.worn);
         if (p.avatar !== avatar) { p.avatar = avatar; notify(room); }
       }
@@ -844,13 +1004,18 @@ export function attachRooms(io, {
 
   // A teacher gave or took away an award: tell that student's device, so an open trophy cabinet refreshes.
   function rewardsChanged(teacherId, classId, studentId) {
+    const told = new Set();
     const room = rooms.get(byTeacher.get(teacherId));
-    if (!room || room.classId !== classId) return;
-    for (const p of room.players.values()) {
+    for (const p of room && room.classId === classId ? room.players.values() : []) {
       const s = p.studentId === studentId && p.socketId && io.sockets.sockets.get(p.socketId);
-      if (s) s.emit("player:rewards-changed");
+      if (s) { s.emit("player:rewards-changed"); told.add(s.id); }
+    }
+    // Signed in at home (not in a game).
+    for (const id of io.sockets.adapter.rooms.get(classChannel(teacherId, classId)) || []) {
+      const s = io.sockets.sockets.get(id);
+      if (s && !told.has(id) && s.data.student && s.data.student.studentId === studentId) s.emit("player:rewards-changed");
     }
   }
 
-  return { rooms, sweep, rewardsChanged, shutdown };
+  return { rooms, sweep, rewardsChanged, signedOut, shutdown };
 }

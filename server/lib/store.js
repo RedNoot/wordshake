@@ -1,4 +1,5 @@
 import { getFirestore, FieldValue, FieldPath, Timestamp } from "firebase-admin/firestore";
+import { createHash, randomBytes } from "crypto";
 import { applyRound } from "../../shared/rewards.js";
 import { newWords, bankFromGames } from "../../shared/wordbank.js";
 import { firebaseApp } from "./firebase.js";
@@ -27,8 +28,13 @@ export async function saveSettings(teacherId, settings) {
   await teacherDoc(teacherId).set({ settings }, { merge: true });
 }
 
-/* ---- class lists: teachers/{uid}/classes/{classId} = { name, students: [{ id, name }] } ---- */
-const classOut = doc => ({ id: doc.id, name: doc.get("name"), students: doc.get("students") || [], coopBest: doc.get("coopBest") || {} });
+/*
+ * ---- class lists: teachers/{uid}/classes/{classId} = { name, code, students: [{ id, name, pin }] } ----
+ * The class code students sign in with is also kept in classCodes/{CODE} = { teacherId, classId }, so a student
+ * can find their class from the code alone. The two are written together, so no two classes can share a code.
+ */
+const classOut = doc => ({ id: doc.id, name: doc.get("name"), code: doc.get("code") || null, students: doc.get("students") || [], coopBest: doc.get("coopBest") || {} });
+const classCodes = () => db.collection("classCodes");
 
 export async function listClasses(teacherId) {
   const snap = await classesOf(teacherId).get();
@@ -44,20 +50,138 @@ export async function countClasses(teacherId) {
   return (await classesOf(teacherId).count().get()).data().count;
 }
 
+// Writes a class and claims its code (releasing its old one). Returns the class, or { error: "code-taken" }.
+async function writeClass(teacherId, ref, cls, isNew) {
+  return db.runTransaction(async tx => {
+    const [doc, claim] = await tx.getAll(ref, ...(cls.code ? [classCodes().doc(cls.code)] : []));
+    if (!isNew && !doc.exists) return { error: "class-not-found" };
+    if (claim && claim.exists && !(claim.get("teacherId") === teacherId && claim.get("classId") === ref.id)) return { error: "code-taken" };
+    const oldCode = doc.exists ? doc.get("code") : null;
+    if (oldCode && oldCode !== cls.code) {
+      const old = await tx.get(classCodes().doc(oldCode));
+      if (old.exists && old.get("teacherId") === teacherId && old.get("classId") === ref.id) tx.delete(old.ref);
+    }
+    if (cls.code) tx.set(classCodes().doc(cls.code), { teacherId, classId: ref.id });
+    const stamp = { updatedAt: FieldValue.serverTimestamp(), ...(isNew ? { createdAt: FieldValue.serverTimestamp() } : {}) };
+    tx.set(ref, { ...cls, ...stamp }, { merge: !isNew });
+    return { id: ref.id, ...cls };
+  });
+}
+
 export async function createClass(teacherId, cls) {
-  const ref = classesOf(teacherId).doc();
-  await ref.set({ ...cls, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
-  return { id: ref.id, ...cls };
+  return writeClass(teacherId, classesOf(teacherId).doc(), cls, true);
 }
 
 export async function updateClass(teacherId, classId, cls) {
-  await classesOf(teacherId).doc(classId).update({ ...cls, updatedAt: FieldValue.serverTimestamp() });
-  return { id: classId, ...cls };
+  return writeClass(teacherId, classesOf(teacherId).doc(classId), cls, false);
 }
 
-// Deleting a class also deletes its saved rounds (Firestore doesn't remove subcollections on its own).
+// Deleting a class also deletes its saved rounds (Firestore doesn't remove subcollections on its own),
+// frees its class code and signs out every device signed in to it.
 export async function deleteClass(teacherId, classId) {
+  const cls = await getClass(teacherId, classId);
+  if (cls && cls.code) {
+    const ref = classCodes().doc(cls.code);
+    await db.runTransaction(async tx => {
+      const doc = await tx.get(ref);
+      if (doc.exists && doc.get("teacherId") === teacherId && doc.get("classId") === classId) tx.delete(ref);
+    });
+  }
+  await forgetDevices(teacherId, classId);
   await db.recursiveDelete(classesOf(teacherId).doc(classId));
+}
+
+// The class a student's typed code belongs to: { teacherId, classId } or null.
+export async function classByCode(code) {
+  const doc = await classCodes().doc(code).get();
+  return doc.exists ? { teacherId: doc.get("teacherId"), classId: doc.get("classId") } : null;
+}
+
+/*
+ * ---- signed-in devices: studentPasses/{sha256 of the pass} = { teacherId, classId, studentId, device, createdAt, lastUsedAt } ----
+ * A device that signed in keeps a random pass; only its hash is stored, so the database can't be used to sign in.
+ * A student can be signed in on a few devices; the one used longest ago makes way for a new one.
+ */
+const passes = () => db.collection("studentPasses");
+const hashPass = pass => createHash("sha256").update(pass).digest("hex");
+const DEVICES_MAX = 5;
+const TOUCH_MS = 12 * 60 * 60 * 1000;   // "last used" is only written about twice a day
+
+export async function createPass({ teacherId, classId, studentId }, device, t) {
+  const pass = randomBytes(24).toString("base64url");
+  const mine = await passes().where("teacherId", "==", teacherId).where("classId", "==", classId).where("studentId", "==", studentId).get();
+  const old = mine.docs.sort((a, b) => (a.get("lastUsedAt") || 0) - (b.get("lastUsedAt") || 0)).slice(0, Math.max(0, mine.size - DEVICES_MAX + 1));
+  await Promise.all(old.map(d => d.ref.delete()));
+  await passes().doc(hashPass(pass)).set({ teacherId, classId, studentId, device, createdAt: t, lastUsedAt: t });
+  return pass;
+}
+
+// Who a pass belongs to: { teacherId, classId, studentId } or null.
+export async function passOwner(pass, t) {
+  if (typeof pass !== "string" || pass.length < 20 || pass.length > 64) return null;
+  const ref = passes().doc(hashPass(pass));
+  const doc = await ref.get();
+  if (!doc.exists) return null;
+  if (t - (doc.get("lastUsedAt") || 0) > TOUCH_MS) ref.update({ lastUsedAt: t }).catch(() => {});
+  return { teacherId: doc.get("teacherId"), classId: doc.get("classId"), studentId: doc.get("studentId") };
+}
+
+export async function forgetPass(pass) {
+  if (typeof pass === "string" && pass.length >= 20 && pass.length <= 64) await passes().doc(hashPass(pass)).delete();
+}
+
+// The teacher's view: every signed-in device in a class, as [{ id, studentId, device, createdAt, lastUsedAt }].
+export async function listDevices(teacherId, classId) {
+  const snap = await passes().where("teacherId", "==", teacherId).where("classId", "==", classId).get();
+  return snap.docs.map(d => ({ id: d.id, studentId: d.get("studentId"), device: d.get("device"), createdAt: d.get("createdAt"), lastUsedAt: d.get("lastUsedAt") }));
+}
+
+// Signs out one device (id from listDevices), every device of one student, or (no studentId) the whole class.
+export async function forgetDevices(teacherId, classId, studentId = null, id = null) {
+  if (id) {
+    const ref = passes().doc(id);
+    const doc = await ref.get();
+    if (doc.exists && doc.get("teacherId") === teacherId && doc.get("classId") === classId && (!studentId || doc.get("studentId") === studentId)) await ref.delete();
+    return;
+  }
+  let q = passes().where("teacherId", "==", teacherId).where("classId", "==", classId);
+  if (studentId) q = q.where("studentId", "==", studentId);
+  const snap = await q.get();
+  await Promise.all(snap.docs.map(d => d.ref.delete()));
+}
+
+/*
+ * ---- secret pictures: the picture code is in the class document (students[].pin, for the teacher to look up);
+ *      on the student's document: pinShown (the student has been shown it), pinFails, pinLockedUntil ----
+ */
+const SIGNIN_FIELDS = ["pinShown", "pinFails", "pinLockedUntil"];
+const signinOut = doc => Object.fromEntries(SIGNIN_FIELDS.map(k => [k, doc.exists ? doc.get(k) ?? null : null]));
+
+export async function getSignin(teacherId, classId, studentId) {
+  return signinOut(await studentsOf(teacherId, classId).doc(studentId).get());
+}
+
+export async function setSignin(teacherId, classId, studentId, patch) {
+  const clean = Object.fromEntries(Object.entries(patch).filter(([k]) => SIGNIN_FIELDS.includes(k)));
+  await studentsOf(teacherId, classId).doc(studentId).set(clean, { merge: true });
+}
+
+export async function listSignin(teacherId, classId) {
+  const snap = await studentsOf(teacherId, classId).select(...SIGNIN_FIELDS).get();
+  return Object.fromEntries(snap.docs.map(d => [d.id, signinOut(d)]));
+}
+
+// New secret pictures for one student: they're shown them the next time they join in class.
+export async function resetPin(teacherId, classId, studentId, pin) {
+  const clsRef = classesOf(teacherId).doc(classId);
+  return db.runTransaction(async tx => {
+    const doc = await tx.get(clsRef);
+    const students = doc.exists ? doc.get("students") || [] : [];
+    if (!students.some(s => s.id === studentId)) return { error: "student-not-found" };
+    tx.update(clsRef, { students: students.map(s => (s.id === studentId ? { ...s, pin } : s)) });
+    tx.set(studentsOf(teacherId, classId).doc(studentId), { pinShown: false, pinFails: 0, pinLockedUntil: 0 }, { merge: true });
+    return { ok: true, pin };
+  });
 }
 
 /* ---- progress: teachers/{uid}/classes/{classId}/games/{gameId} = one finished round (see roundRecord in round.js) ---- */

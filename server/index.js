@@ -10,11 +10,13 @@ import { loadDictionary } from "./lib/dictionary.js";
 import { PH_STATS, SW_WORDS, resolveSound } from "./lib/phonics.js";
 import { AUTH, AuthError, verifyTeacher } from "./lib/auth.js";
 import { storeReady, loadTeacher, saveSettings, listClasses, getClass, countClasses, createClass, updateClass, deleteClass, saveRound, listGames, deleteGame, GAMES_SHOWN,
-  getStudent, getWords, listSummaries, addAward, removeAward, buyItem, equipItem, liveRoomStore } from "./lib/store.js";
+  getStudent, getWords, listSummaries, addAward, removeAward, buyItem, equipItem, liveRoomStore,
+  classByCode, createPass, passOwner, forgetPass, listDevices, forgetDevices, getSignin, setSignin, listSignin, resetPin } from "./lib/store.js";
+import { PASS_COOKIE } from "./lib/signin.js";
 import { AWARD_PRESETS, CUSTOM_AWARD_EMOJI, AWARD_LABEL_MAX, AWARDS_MAX } from "../shared/rewards.js";
 import { randomBytes } from "crypto";
 import { pickSettings } from "./lib/settings.js";
-import { pickClass, LIMITS } from "./lib/classes.js";
+import { pickClass, newPin, LIMITS } from "./lib/classes.js";
 import { attachRooms } from "./lib/rooms.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -127,7 +129,10 @@ app.post("/api/classes", teacherRoute(async (req, res, teacher) => {
   if (await countClasses(teacher.id) >= LIMITS.classes) return res.status(400).json({ error: "too-many-classes" });
   const cls = pickClass(req.body);
   if (cls.error) return res.status(400).json(cls);
-  res.json(await createClass(teacher.id, cls));
+  if (!cls.code) return res.status(400).json({ error: "class-code" });   // a new class always has one
+  const out = await createClass(teacher.id, cls);
+  if (out.error) return res.status(400).json(out);
+  res.json(out);
 }));
 
 app.put("/api/classes/:id", teacherRoute(async (req, res, teacher) => {
@@ -135,12 +140,21 @@ app.put("/api/classes/:id", teacherRoute(async (req, res, teacher) => {
   if (!existing) return res.status(404).json({ error: "class-not-found" });
   const cls = pickClass(req.body, existing.students);
   if (cls.error) return res.status(400).json(cls);
-  res.json(await updateClass(teacher.id, existing.id, cls));
+  const out = await updateClass(teacher.id, existing.id, cls);
+  if (out.error) return res.status(out.error === "class-not-found" ? 404 : 400).json(out);
+  // A student taken off the list is signed out everywhere.
+  const kept = new Set(cls.students.map(s => s.id));
+  for (const s of existing.students.filter(s => !kept.has(s.id))) {
+    await forgetDevices(teacher.id, existing.id, s.id);
+    roomsApi.signedOut(teacher.id, existing.id, s.id);
+  }
+  res.json(out);
 }));
 
 app.delete("/api/classes/:id", teacherRoute(async (req, res, teacher) => {
   if (!validClassId(req.params.id)) return res.status(404).json({ error: "class-not-found" });
   await deleteClass(teacher.id, req.params.id);
+  roomsApi.signedOut(teacher.id, req.params.id);
   res.json({ ok: true });
 }));
 
@@ -187,6 +201,77 @@ app.delete("/api/classes/:id/students/:sid/awards/:awardId", teacherRoute(async 
   res.json({ ok: true });
 }));
 
+/*
+ * ---- student sign-in (teacher only): each student's secret pictures, whether they've seen them, a wait after
+ *      too many wrong tries, and the devices they're signed in on ----
+ */
+const classStudent = async (teacher, req) => {
+  const { id, sid } = req.params;
+  if (![id, sid].every(validClassId)) return null;
+  const cls = await getClass(teacher.id, id);
+  return cls && cls.students.some(s => s.id === sid) ? cls : null;
+};
+
+app.get("/api/classes/:id/signin", teacherRoute(async (req, res, teacher) => {
+  const cls = validClassId(req.params.id) && await getClass(teacher.id, req.params.id);
+  if (!cls) return res.status(404).json({ error: "class-not-found" });
+  const [states, devices] = await Promise.all([listSignin(teacher.id, cls.id), listDevices(teacher.id, cls.id)]);
+  const t = Date.now();
+  res.json({
+    code: cls.code,
+    students: cls.students.map(s => {
+      const st = states[s.id] || {};
+      return {
+        id: s.id, name: s.name, pin: s.pin || null, shown: !!st.pinShown,
+        lockedUntil: st.pinLockedUntil && st.pinLockedUntil > t ? st.pinLockedUntil : 0,
+        devices: devices.filter(d => d.studentId === s.id).map(({ studentId, ...d }) => d).sort((a, b) => (b.lastUsedAt || 0) - (a.lastUsedAt || 0)),
+      };
+    }),
+  });
+}));
+
+// New pictures: the student is shown them the next time they join in class. Their signed-in devices stay signed in.
+app.post("/api/classes/:id/students/:sid/pictures", teacherRoute(async (req, res, teacher) => {
+  const cls = await classStudent(teacher, req);
+  if (!cls) return res.status(404).json({ error: "student-not-found" });
+  const out = await resetPin(teacher.id, cls.id, req.params.sid, newPin());
+  if (out.error) return res.status(404).json(out);
+  res.json(out);
+}));
+
+app.post("/api/classes/:id/students/:sid/unlock", teacherRoute(async (req, res, teacher) => {
+  const cls = await classStudent(teacher, req);
+  if (!cls) return res.status(404).json({ error: "student-not-found" });
+  await setSignin(teacher.id, cls.id, req.params.sid, { pinFails: 0, pinLockedUntil: 0 });
+  res.json({ ok: true });
+}));
+
+// Signs out one device, or all of a student's devices.
+app.delete("/api/classes/:id/students/:sid/devices/:deviceId?", teacherRoute(async (req, res, teacher) => {
+  const cls = await classStudent(teacher, req);
+  if (!cls) return res.status(404).json({ error: "student-not-found" });
+  const deviceId = req.params.deviceId || null;
+  if (deviceId && !/^[0-9a-f]{64}$/.test(deviceId)) return res.status(404).json({ error: "not-found" });
+  await forgetDevices(teacher.id, cls.id, req.params.sid, deviceId);
+  roomsApi.signedOut(teacher.id, cls.id, req.params.sid, deviceId);
+  res.json({ ok: true });
+}));
+
+/*
+ * A signed-in device's pass is also kept in a cookie: Safari clears what a page saves itself after a week or so
+ * without a visit, which would quietly sign out a student who only plays now and then. The live connection
+ * sends the cookie along, so a device whose saved pass was cleared still comes back signed in.
+ */
+const passCookie = (pass, maxAge) => `${PASS_COOKIE}=${pass}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${process.env.NODE_ENV === "production" ? "; Secure" : ""}`;
+app.post("/api/student/remember", (req, res) => {
+  const pass = req.body && req.body.pass;
+  if (typeof pass !== "string" || !/^[A-Za-z0-9_-]{20,64}$/.test(pass)) return res.status(400).json({ error: "bad-pass" });
+  res.set("Set-Cookie", passCookie(pass, 400 * 24 * 60 * 60)).json({ ok: true });   // 400 days: the most browsers allow
+});
+app.post("/api/student/forget", (req, res) => {
+  res.set("Set-Cookie", passCookie("", 0)).json({ ok: true });
+});
+
 // The big screen calls this every few minutes while a room is open: Render's free plan puts the server to sleep
 // after 15 minutes without a web request, and a lesson's live connection alone may not count.
 app.get("/api/ping", (req, res) => res.json({ ok: true }));
@@ -224,6 +309,8 @@ const roomsApi = attachRooms(io, {
   equipItem: async (...a) => (storeReady ? equipItem(...a) : { error: "no-item" }),
   // Open rooms are kept in the database, so a restart (a deploy, or the free plan sleeping) doesn't close them.
   liveStore: storeReady ? liveRoomStore : null,
+  // Student sign-in needs the database: without it, students join by tapping their name as before.
+  signin: storeReady ? { classByCode, createPass, passOwner, forgetPass, getSignin, setSignin, resetPin } : null,
 });
 
 const PORT = process.env.PORT || 3001;
