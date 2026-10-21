@@ -14,7 +14,7 @@ import { storeReady, loadTeacher, saveSettings, listClasses, getClass, countClas
 import { AWARD_PRESETS, CUSTOM_AWARD_EMOJI, AWARD_LABEL_MAX, AWARDS_MAX } from "../shared/rewards.js";
 import { randomBytes } from "crypto";
 import { pickSettings } from "./lib/settings.js";
-import { pickClass, LIMITS } from "./lib/classes.js";
+import { pickClass, LIMITS, validStudentId } from "./lib/classes.js";
 import { attachRooms } from "./lib/rooms.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -181,9 +181,12 @@ app.post("/api/classes/:id/students/:sid/awards", teacherRoute(async (req, res, 
 
 app.delete("/api/classes/:id/students/:sid/awards/:awardId", teacherRoute(async (req, res, teacher) => {
   const { id, sid, awardId } = req.params;
-  if (![id, sid].every(validClassId) || !/^[A-Za-z0-9_-]{1,20}$/.test(awardId)) return res.status(404).json({ error: "not-found" });
-  await removeAward(teacher.id, id, sid, awardId);
-  roomsApi.rewardsChanged(teacher.id, id, sid);
+  if (!validClassId(id) || !validStudentId(sid) || !/^[A-Za-z0-9_-]{1,20}$/.test(awardId)) return res.status(404).json({ error: "not-found" });
+  // Same check as giving an award: the student must be on this class list.
+  const cls = await getClass(teacher.id, id);
+  if (!cls || !cls.students.some(s => s.id === sid)) return res.status(404).json({ error: "student-not-found" });
+  await removeAward(teacher.id, cls.id, sid, awardId);
+  roomsApi.rewardsChanged(teacher.id, cls.id, sid);
   res.json({ ok: true });
 }));
 
