@@ -152,9 +152,10 @@ export async function forgetDevices(teacherId, classId, studentId = null, id = n
 
 /*
  * ---- secret pictures: the picture code is in the class document (students[].pin, for the teacher to look up);
- *      on the student's document: pinShown (the student has been shown it), pinFails, pinLockedUntil ----
+ *      on the student's document: pinShown (the student has been shown it), pinFails, pinLockedUntil, and how well
+ *      they know it: pinPractised, pinStreak, pinCheckedAt (server/lib/signin.js) ----
  */
-const SIGNIN_FIELDS = ["pinShown", "pinFails", "pinLockedUntil"];
+const SIGNIN_FIELDS = ["pinShown", "pinFails", "pinLockedUntil", "pinPractised", "pinStreak", "pinCheckedAt"];
 const signinOut = doc => Object.fromEntries(SIGNIN_FIELDS.map(k => [k, doc.exists ? doc.get(k) ?? null : null]));
 
 export async function getSignin(teacherId, classId, studentId) {
@@ -179,7 +180,7 @@ export async function resetPin(teacherId, classId, studentId, pin) {
     const students = doc.exists ? doc.get("students") || [] : [];
     if (!students.some(s => s.id === studentId)) return { error: "student-not-found" };
     tx.update(clsRef, { students: students.map(s => (s.id === studentId ? { ...s, pin } : s)) });
-    tx.set(studentsOf(teacherId, classId).doc(studentId), { pinShown: false, pinFails: 0, pinLockedUntil: 0 }, { merge: true });
+    tx.set(studentsOf(teacherId, classId).doc(studentId), { pinShown: false, pinFails: 0, pinLockedUntil: 0, pinPractised: 0, pinStreak: 0, pinCheckedAt: 0 }, { merge: true });
     return { ok: true, pin };
   });
 }

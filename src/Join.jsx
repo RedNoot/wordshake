@@ -9,7 +9,7 @@ import { TeamBadge } from "./Teams.jsx";
 import { Shop } from "./Shop.jsx";
 import { balanceOf } from "../shared/shop.js";
 import { avatarOf } from "./shopView.js";
-import { PicturePad, PinTiles } from "./PicturePad.jsx";
+import { PicturePad, PinPractice } from "./PicturePad.jsx";
 import { CLASS_CODE_MAX, CLASS_CODE_MIN } from "../shared/pictures.js";
 
 const CODE_LEN = 4;
@@ -59,14 +59,14 @@ const link = { background: "none", border: "none", color: T.mist, textDecoration
 export function Join({ initialCode }) {
   const [code, setCode] = useState(cleanCode(initialCode || ""));
   // code | loading | names | confirm | guest | joined   (a game, from its code)
-  // classNames | pin | reveal | practice | home         (signing in with the class code; home = signed in, no game)
+  // classNames | pin | home                            (signing in with the class code; home = signed in, no game)
   const [step, setStep] = useState("loading");
   const [student, setStudent] = useState(null);     // the student this device is signed in as: { name, className, pass } | null
   const studentRef = useRef(null);
   studentRef.current = student;
   const [classPick, setClassPick] = useState(null); // signing in: { code, className, roster }
-  const [reveal, setReveal] = useState(null);       // the secret pictures to show, the first time
-  const afterReveal = useRef(null);                 // where to go once the student has seen them
+  const [practice, setPractice] = useState(null);   // practising the secret pictures on joining: { pin, mode } | null
+  const firstPractice = useRef(null);               // signed in for the very first time: shown once the game is joined
   const [padReset, setPadReset] = useState(0);
   const [room, setRoom] = useState(null);           // { code, className, roster, phase }
   const [chosen, setChosen] = useState(null);
@@ -120,8 +120,14 @@ export function Join({ initialCode }) {
     jarCache.current = null;
     setPhase(res.phase);
     setRound(res.round ? { ...res.round, clockAt: Date.now() } : null);
+    setPractice(takeFirst() || res.practice || null);
     setMessage("");
     setStep("joined");
+  };
+  const takeFirst = () => { const f = firstPractice.current; firstPractice.current = null; return f; };
+  const practiceDone = fromMemory => {
+    if (practice) call("student:practised", { mode: practice.mode, fromMemory });
+    setPractice(null);
   };
 
   // Signed in (by class code and pictures, by tapping a name in class, or remembered from last time).
@@ -149,11 +155,10 @@ export function Join({ initialCode }) {
       if (res.error === "already-in") setMessage("You're already in the game on another device. If that's not you, tell your teacher.");
     }
     window.history.replaceState(null, "", "/join");
+    const first = takeFirst();
+    if (first) setPractice(first);
     setStep("home");
   };
-
-  // The first time, the student sees their pictures, then taps them once to practise, then carries on.
-  const showReveal = (pin, then) => { setReveal(pin); afterReveal.current = then; setStep("reveal"); };
 
   const lookup = async (c, keepMessage = false) => {
     setBusy(true);
@@ -211,7 +216,7 @@ export function Join({ initialCode }) {
     if (res.ok) {
       signedIn(res);
       setMessage("");
-      if (res.reveal) return showReveal(res.reveal, () => goHome(res.room));
+      if (res.practice) firstPractice.current = res.practice;   // the very first time (the class's game is open)
       return goHome(res.room);
     }
     if (res.error === "need-pin") { setMessage(""); setPadReset(k => k + 1); setStep("pin"); return; }
@@ -227,8 +232,9 @@ export function Join({ initialCode }) {
     // The teacher turned students' own looks on or off: follow it straight away.
     const onLooks = ({ ownLooks: on } = {}) => dress(wornRef.current, on !== false);
     // The trophy cabinet and the shop close when a round starts.
-    const onPhase = p => { setPhase(p); if (p !== "lobby") { setCabinet(false); setJar(false); setShop(false); } };
-    const onRoundState = r => { setRound(r ? { ...r, clockAt: Date.now() } : null); if (r) { setCabinet(false); setJar(false); setShop(false); } };
+    // Picture practice is only for the lobby: a round starting ends it (it's not counted).
+    const onPhase = p => { setPhase(p); if (p !== "lobby") { setCabinet(false); setJar(false); setShop(false); setPractice(null); } };
+    const onRoundState = r => { setRound(r ? { ...r, clockAt: Date.now() } : null); if (r) { setCabinet(false); setJar(false); setShop(false); setPractice(null); } };
     // Arrives just after the answers start, once the round is saved. It brings the stars earned and the new balance.
     const onRewards = ({ n, ...rewards }) => {
       cabinetCache.current = null;
@@ -248,6 +254,7 @@ export function Join({ initialCode }) {
       store.del(tokenKey(codeRef.current));
       setMe(null);
       setRound(null);
+      setPractice(null);
       setMessage(ENDED[reason] || ENDED.closed);
       // A signed-in student goes back to their home screen, still dressed in their own looks.
       if (studentRef.current) { setCode(""); goHome(null); return; }
@@ -263,6 +270,7 @@ export function Join({ initialCode }) {
     const onSignedOut = () => {
       dropPass();
       setStudent(null);
+      setPractice(null);
       if (stepRef.current === "home" || ["pin", "classNames"].includes(stepRef.current)) { undress(); setBalance(null); setMessage(ERRORS["signed-out"]); setStep("code"); }
     };
     // After the wifi drops or the iPad sleeps, quietly pick up where we were (signed in first, then the game).
@@ -315,7 +323,6 @@ export function Join({ initialCode }) {
     setBusy(false);
     if (res.ok) {
       if (res.pass) signedIn({ pass: res.pass, name: res.name, className: res.className });
-      if (res.reveal) return showReveal(res.reveal, () => joined(room.code, res));
       return joined(room.code, res);
     }
     if (res.error === "already-in") { setMessage(`${chosen.name} is already in this game on another device. If that's not you, tell your teacher.`); setStep("names"); return; }
@@ -330,6 +337,7 @@ export function Join({ initialCode }) {
     store.del(tokenKey(c));
     setMe(null);
     setRound(null);
+    setPractice(null);
     if (studentRef.current) await signOut();
     undress();
     if (phase === "lobby" && step === "joined") return lookup(c);
@@ -340,7 +348,8 @@ export function Join({ initialCode }) {
   };
   const myName = me ? me.name : student ? student.name : "";
   // The trophy cabinet, word jar and shop: in a game's lobby, or on the home screen.
-  const lounge = (step === "joined" && me && !round && !me.guest) || step === "home";
+  const practising = !!practice && ((step === "joined" && me && !round) || step === "home");
+  const lounge = !practising && ((step === "joined" && me && !round && !me.guest) || step === "home");
 
   return (
     <div className="ws-root" style={{ minHeight: "100vh", background: `radial-gradient(900px 600px at 50% -10%, var(--ws-glow) 0%, ${T.ink} 60%)`, color: "var(--ws-text)", display: "flex", flexDirection: "column", alignItems: "center" }}>
@@ -390,29 +399,9 @@ export function Join({ initialCode }) {
           </div>
         )}
 
-        {step === "reveal" && reveal && (
-          <div className="ws-fade" style={{ display: "grid", gap: 20, justifyItems: "center", textAlign: "center", marginTop: 10, maxWidth: 560 }}>
-            <h1 className="ws-display" style={{ margin: 0, fontSize: 36 }}>These are your <span style={{ color: T.amber }}>secret pictures</span></h1>
-            <PinTiles pin={reveal} />
-            <div style={{ fontSize: 20, lineHeight: 1.45 }}>
-              You'll need them to play at home or on a new device. Remember them <b>in order</b>. Don't show anyone!
-            </div>
-            <button onClick={() => { setPadReset(k => k + 1); setMessage(""); setStep("practice"); }} className="ws-btn ws-display" style={{ ...big, background: T.green, color: T.ink }}>I'll remember them →</button>
-          </div>
-        )}
+        {practising && <PinPractice key={practice.mode + practice.pin.join()} pin={practice.pin} mode={practice.mode} onDone={practiceDone} />}
 
-        {step === "practice" && reveal && (
-          <div className="ws-fade" style={{ width: "100%", display: "grid", gap: 14, justifyItems: "center" }}>
-            <h1 className="ws-display" style={{ margin: 0, fontSize: 32, textAlign: "center" }}>Practise: tap your secret pictures</h1>
-            <PicturePad reset={padReset} onDone={pin => {
-              if (pin.every((p, i) => p === reveal[i])) { setMessage(""); setReveal(null); const then = afterReveal.current; afterReveal.current = null; if (then) then(); }
-              else { setMessage("Not quite. Try again, or look at them again."); setPadReset(k => k + 1); }
-            }} />
-            <button onClick={() => { setMessage(""); setStep("reveal"); }} style={link}>Show me my pictures again</button>
-          </div>
-        )}
-
-        {step === "home" && student && !cabinet && !jar && !shop && (
+        {step === "home" && student && !practising && !cabinet && !jar && !shop && (
           <div className="ws-fade" style={{ display: "grid", gap: 16, justifyItems: "center", textAlign: "center", marginTop: 30 }}>
             <div className="ws-display" style={{ fontSize: 44, fontWeight: 700 }}>Hi {avatar}<span style={{ color: T.amber }}>{student.name}</span>!</div>
             <div style={{ fontSize: 18, color: T.mist }}>{student.className}</div>
@@ -479,7 +468,7 @@ export function Join({ initialCode }) {
 
         {lounge && shop && !cabinet && !jar && <Shop name={myName} cached={shopData} ownLooks={ownLooks} onLoaded={gotShop} onWorn={onWorn} onClose={() => setShop(false)} />}
 
-        {step === "joined" && me && !round && !cabinet && !jar && !shop && (
+        {step === "joined" && me && !round && !practising && !cabinet && !jar && !shop && (
           <div className="ws-fade" style={{ display: "grid", gap: 16, justifyItems: "center", textAlign: "center", marginTop: 30 }}>
             <div className="ws-display" style={{ fontSize: 44, fontWeight: 700 }}>{phase === "lobby" ? <>You're in, {avatar}<span style={{ color: T.amber }}>{me.name}</span>!</> : <>{avatar}{me.name}</>}</div>
             <div aria-live="polite" style={{ fontSize: 24, color: T.mist, maxWidth: 520, lineHeight: 1.4 }}>

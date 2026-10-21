@@ -12,7 +12,7 @@ import { AUTH, AuthError, verifyTeacher } from "./lib/auth.js";
 import { storeReady, loadTeacher, saveSettings, listClasses, getClass, countClasses, createClass, updateClass, deleteClass, saveRound, listGames, deleteGame, GAMES_SHOWN,
   getStudent, getWords, listSummaries, addAward, removeAward, buyItem, equipItem, liveRoomStore,
   classByCode, createPass, passOwner, forgetPass, listDevices, forgetDevices, getSignin, setSignin, listSignin, resetPin } from "./lib/store.js";
-import { PASS_COOKIE } from "./lib/signin.js";
+import { PASS_COOKIE, PRACTICE_STREAK } from "./lib/signin.js";
 import { AWARD_PRESETS, CUSTOM_AWARD_EMOJI, AWARD_LABEL_MAX, AWARDS_MAX } from "../shared/rewards.js";
 import { randomBytes } from "crypto";
 import { pickSettings } from "./lib/settings.js";
@@ -222,7 +222,7 @@ app.get("/api/classes/:id/signin", teacherRoute(async (req, res, teacher) => {
     students: cls.students.map(s => {
       const st = states[s.id] || {};
       return {
-        id: s.id, name: s.name, pin: s.pin || null, shown: !!st.pinShown,
+        id: s.id, name: s.name, pin: s.pin || null, shown: !!st.pinShown, learned: (st.pinStreak || 0) >= PRACTICE_STREAK,
         lockedUntil: st.pinLockedUntil && st.pinLockedUntil > t ? st.pinLockedUntil : 0,
         devices: devices.filter(d => d.studentId === s.id).map(({ studentId, ...d }) => d).sort((a, b) => (b.lastUsedAt || 0) - (a.lastUsedAt || 0)),
       };

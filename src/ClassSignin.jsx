@@ -79,7 +79,7 @@ export function ClassSignin({ cls, onBack, onEdit }) {
                 </div>
                 <div style={{ fontSize: 13, color: s.lockedUntil ? T.red : T.mist }}>
                   {s.lockedUntil ? <>Too many wrong tries: waiting until {clock(s.lockedUntil)} <button className="ws-btn" disabled={busy} onClick={() => act(`u${s.id}`, `${base(s.id)}/unlock`, "POST")} style={{ ...btn, padding: "2px 8px", fontSize: 13 }}>Let in now</button></>
-                    : s.shown ? "Has seen their pictures" : "Sees them when they next join in class"}
+                    : s.learned ? "Knows their pictures by heart" : s.shown ? "Practising their pictures each time they join" : "Sees them when they next join in class"}
                 </div>
               </div>
 

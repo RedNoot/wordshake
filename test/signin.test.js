@@ -7,7 +7,7 @@ import { io as connect } from "socket.io-client";
 import { attachRooms } from "../server/lib/rooms.js";
 import { AuthError } from "../server/lib/auth.js";
 import { pickClass } from "../server/lib/classes.js";
-import { checkPin, deviceLabel, passFromCookie, PIN_TRIES, PIN_LOCK_MS } from "../server/lib/signin.js";
+import { checkPin, deviceLabel, passFromCookie, PIN_TRIES, PIN_LOCK_MS, practiceMode, practised, PRACTICE_CHECK_MS } from "../server/lib/signin.js";
 import { PICTURES, validPin, cleanClassCode, validClassCode, suggestClassCode } from "../shared/pictures.js";
 
 /* ---- the rules on their own ---- */
@@ -57,6 +57,21 @@ test("secret pictures: five wrong in a row means a wait, and the right ones stil
   assert.equal(checkPin(state, pin, pin, 2000).patch, undefined, "trying while locked doesn't make the wait longer");
   assert.equal(checkPin(state, [4, 5, 6], pin, 1000 + PIN_LOCK_MS).left, PIN_TRIES - 1, "after the wait, a fresh count");
   assert.ok(checkPin(state, pin, pin, 1000 + PIN_LOCK_MS).ok);
+});
+
+test("practice: pictures showing at first, then from memory until known, then a check now and then", () => {
+  const t = 5_000_000_000;
+  assert.equal(practiceMode({}, t), "shown");
+  assert.equal(practiceMode({ pinPractised: 2 }, t), "shown");
+  assert.equal(practiceMode({ pinPractised: 3 }, t), "memory");
+  assert.equal(practiceMode({ pinPractised: 6, pinStreak: 2 }, t), "memory");
+  assert.equal(practiceMode({ pinPractised: 6, pinStreak: 3, pinCheckedAt: t - 1000 }, t), null, "knows them: no practice");
+  assert.equal(practiceMode({ pinPractised: 6, pinStreak: 3, pinCheckedAt: t - PRACTICE_CHECK_MS }, t), "memory", "a check every so often");
+
+  assert.deepEqual(practised({}, "first", false, t), { pinPractised: 1 });
+  assert.deepEqual(practised({ pinPractised: 1 }, "shown", true, t), { pinPractised: 2 }, "copying doesn't count as remembering");
+  assert.deepEqual(practised({ pinPractised: 3, pinStreak: 1 }, "memory", true, t), { pinPractised: 4, pinStreak: 2, pinCheckedAt: t });
+  assert.deepEqual(practised({ pinPractised: 9, pinStreak: 3, pinCheckedAt: 1 }, "memory", false, t), { pinPractised: 10, pinStreak: 0 }, "forgot: practise again");
 });
 
 test("device names and the cookie", () => {
@@ -250,4 +265,39 @@ test("a student taken off the list can't come back with an old pass", async () =
     assert.deepEqual(await call(await client(), "student:resume", { pass }), { error: "signed-out" });
     assert.equal(passes.has(hash(pass)), false, "the pass is forgotten");
   } finally { CLASS.students.splice(1, 0, ...ben); }
+});
+
+test("joining the class's game: practise the pictures, showing at first, from memory later, then not at all", async () => {
+  const host = await client();
+  const { room } = await call(host, "host:open", { idToken: "tok-a", classId: "class2" });
+  states.set("t1", { pinShown: true });
+  const kid = await client();
+  assert.equal((await call(kid, "student:signin", { code: "OWLS56", studentId: "t1", pin: [6, 7, 8] })).ok, true);
+  assert.equal(states.get("t1").pinStreak, 1, "signing in with the pictures counts as remembering them");
+
+  const join = async () => {
+    const j = await call(kid, "player:join", { code: room.code, me: true });
+    assert.equal(j.ok, true);
+    await call(kid, "player:leave");
+    return j.practice || null;
+  };
+  states.set("t1", { pinShown: true });
+  assert.deepEqual(await join(), { pin: [6, 7, 8], mode: "shown" });
+  await call(kid, "player:join", { code: room.code, me: true });
+  assert.deepEqual(await call(kid, "student:practised", { mode: "shown", fromMemory: true }), { ok: true });
+  assert.equal(states.get("t1").pinPractised, 1);
+  await call(kid, "player:leave");
+
+  states.set("t1", { pinShown: true, pinPractised: 3, pinStreak: 0 });
+  assert.equal((await join()).mode, "memory");
+  clock += 3000;
+  await call(kid, "player:join", { code: room.code, me: true });
+  await call(kid, "student:practised", { mode: "memory", fromMemory: true });
+  assert.deepEqual([states.get("t1").pinStreak, states.get("t1").pinCheckedAt], [1, clock]);
+  await call(kid, "player:leave");
+
+  states.set("t1", { pinShown: true, pinPractised: 6, pinStreak: 3, pinCheckedAt: clock });
+  assert.equal(await join(), null, "knows them: straight in");
+  assert.equal((await call(await client(), "player:join", { code: room.code, guestName: "Visitor" })).practice, undefined, "guests never practise");
+  await call(host, "host:close");
 });

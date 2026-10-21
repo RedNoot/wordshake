@@ -42,3 +42,33 @@ export function passFromCookie(header) {
   const m = typeof header === "string" && header.match(new RegExp(`(?:^|;\\s*)${PASS_COOKIE}=([A-Za-z0-9_-]{20,64})`));
   return m ? m[1] : null;
 }
+
+/*
+ * Learning the pictures. Every time a student joins their class's game they practise them on a 3x3 grid:
+ * the first few times with the pictures showing, then from memory (with a "Show me" if they're stuck).
+ * Once they've got them right from memory a few joins in a row they stop, apart from a check now and then.
+ * state = { pinPractised, pinStreak, pinCheckedAt } from the student's document.
+ */
+export const PRACTICE_SHOWN = 3;                       // joins with the pictures showing (the first time counts)
+export const PRACTICE_STREAK = 3;                      // right from memory this many joins in a row: they know them
+export const PRACTICE_CHECK_MS = 14 * 24 * 60 * 60 * 1000;   // after that, a check every two weeks
+
+// "shown" | "memory" | null (no practice this time).
+export function practiceMode(state, t) {
+  const s = state || {};
+  if ((s.pinPractised || 0) < PRACTICE_SHOWN) return "shown";
+  if ((s.pinStreak || 0) < PRACTICE_STREAK) return "memory";
+  return t - (s.pinCheckedAt || 0) >= PRACTICE_CHECK_MS ? "memory" : null;
+}
+
+// What to save after a practice (mode as given by practiceMode, or "first" for the very first time).
+// fromMemory: right first go, without asking to see the pictures. A miss from memory starts the streak again.
+export function practised(state, mode, fromMemory, t) {
+  const s = state || {};
+  const patch = { pinPractised: (s.pinPractised || 0) + 1 };
+  if (mode === "memory") Object.assign(patch, fromMemory ? { pinStreak: (s.pinStreak || 0) + 1, pinCheckedAt: t } : { pinStreak: 0 });
+  return patch;
+}
+
+// Signing in with the pictures on a new device or at home is right-from-memory too.
+export const signedInFromMemory = (state, t) => ({ pinStreak: ((state && state.pinStreak) || 0) + 1, pinCheckedAt: t });

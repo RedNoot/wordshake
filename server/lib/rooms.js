@@ -8,7 +8,7 @@ import { ITEM_BY_ID, balanceOf, wornLooks } from "../../shared/shop.js";
 import { walletOut } from "./wallet.js";
 import { MIN_TEAMS, MAX_TEAMS } from "../../shared/teams.js";
 import { snapshotRoom, restoreRoom } from "./snapshot.js";
-import { checkPin, deviceLabel, passFromCookie } from "./signin.js";
+import { checkPin, deviceLabel, passFromCookie, practiceMode, practised, signedInFromMemory } from "./signin.js";
 import { cleanClassCode, validClassCode, validPin } from "../../shared/pictures.js";
 import { newPin } from "./classes.js";
 
@@ -521,6 +521,21 @@ export function attachRooms(io, {
       return {};
     }
   }
+  // Joining the class's game: practise the secret pictures (signin.js practiceMode). { pin, mode } or null.
+  // Only in the lobby (never holding a student out of a round) and once per game.
+  async function practiceFor(room, studentId, p) {
+    if (!signin || !room.classId || room.phase !== "lobby" || p.pinDone) return null;
+    try {
+      const [state, cls] = await Promise.all([signin.getSignin(room.teacherId, room.classId, studentId), getClass(room.teacherId, room.classId)]);
+      const full = cls && cls.students.find(s => s.id === studentId);
+      if (!full || !state.pinShown || !validPin(full.pin)) return null;
+      const mode = practiceMode(state, now());
+      return mode ? { pin: full.pin, mode } : null;
+    } catch (e) {
+      console.error("Picture practice failed:", e.message);
+      return null;
+    }
+  }
   // The teacher signed out a device (deviceId: the hash of its pass), one student's devices, or the whole class.
   function signedOut(teacherId, classId, studentId = null, deviceId = null) {
     const ids = io.sockets.adapter.rooms.get(classChannel(teacherId, classId));
@@ -774,20 +789,38 @@ export function attachRooms(io, {
         if (!await classRoom(teacherId, cls.id)) return ack({ error: "first-in-class" });
         const reveal = await revealPin(owner, student);
         const pass = await newPass(socket, owner);
-        return ack({ ...await signIn(socket, owner, cls.name, student.name, pass), reveal });
+        return ack({ ...await signIn(socket, owner, cls.name, student.name, pass), reveal, practice: { pin: reveal, mode: "first" } });
       }
       if (pin === undefined || pin === null) {
         const until = state.pinLockedUntil || 0;
         return ack(until > now() ? { error: "locked", until } : { error: "need-pin" });
       }
       const check = checkPin(state, pin, student.pin, now());
-      if (check.patch) await signin.setSignin(teacherId, cls.id, student.id, check.patch);
+      if (check.patch) await signin.setSignin(teacherId, cls.id, student.id, check.ok ? { ...check.patch, ...signedInFromMemory(state, now()) } : check.patch);
       if (!check.ok) {
         if (check.patch) recordFail(clientIp(socket));
         return ack(check.error === "locked" ? { error: "locked", until: check.until } : { error: "wrong-pin", left: check.left });
       }
       const pass = await newPass(socket, owner);
       ack(await signIn(socket, owner, cls.name, student.name, pass));
+    });
+
+    // A practice of the secret pictures is finished. mode: the one practiceFor gave (or "first");
+    // fromMemory: right first go without asking to see them. It's practice, so the device's word is taken.
+    on("student:practised", async ({ mode, fromMemory }, ack) => {
+      const who = whoAmI(socket);
+      if (who.error) return ack({ error: who.error });
+      if (!signin || !["first", "shown", "memory"].includes(mode)) return ack({ error: "bad-practice" });
+      if (socket.data.practisedAt && now() - socket.data.practisedAt < 2000) return ack({ error: "slow-down" });
+      socket.data.practisedAt = now();
+      if (who.p) who.p.pinDone = true;
+      try {
+        const state = await signin.getSignin(who.teacherId, who.classId, who.studentId);
+        await signin.setSignin(who.teacherId, who.classId, who.studentId, practised(state, mode, fromMemory === true, now()));
+        ack({ ok: true });
+      } catch (e) {
+        ack({ error: "offline" });
+      }
     });
 
     // Forgets this device's pass, even if the device was already signed out here (by the teacher, say).
@@ -837,6 +870,8 @@ export function attachRooms(io, {
         }
         const out = attachPlayer(socket, room, p, saved);
         if (me !== true && remember === true) Object.assign(out, await rememberInClass(socket, room, student));
+        const practice = out.reveal ? { pin: out.reveal, mode: "first" } : await practiceFor(room, student.id, p);
+        if (practice) out.practice = practice;
         return ack(out);
       }
       const clean = cleanGuestName(guestName);
