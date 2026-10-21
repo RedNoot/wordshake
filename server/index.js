@@ -21,6 +21,9 @@ import { attachRooms } from "./lib/rooms.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
+// Every reply says it's from WordShake, so the service worker (public/sw.js) can tell the real site from the host's
+// page while the server is still starting.
+app.use((req, res, next) => { res.set("X-WordShake", "1"); next(); });
 
 /*
  * Crash reports from the app's error screen, so a problem in a lesson shows up in the server log.
@@ -274,7 +277,7 @@ app.post("/api/student/forget", (req, res) => {
 
 // The big screen calls this every few minutes while a room is open: Render's free plan puts the server to sleep
 // after 15 minutes without a web request, and a lesson's live connection alone may not count.
-app.get("/api/ping", (req, res) => res.json({ ok: true }));
+app.get("/api/ping", (req, res) => res.set("Cache-Control", "no-store").json({ ok: true }));
 
 app.get("/check", (req, res) => res.sendFile(path.join(__dirname, "check.html")));
 

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WordShake</title>
+<!--
+  Shown by the service worker (sw.js) while the server is asleep: Render's free plan stops it after 15 minutes
+  without visitors and it takes up to a minute to start again. This page asks the server every few seconds and
+  reloads the page the student or teacher asked for as soon as it answers. It has to work on its own (no app code).
+-->
+<style>
+  :root { --ink: #0E1A2B; --glow: #16283f; --text: #EFF4F9; --mist: #9FB3C8; --amber: #FFB020; --dice: #F6F1E3; --letter: #1B2A41; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px;
+    padding: 24px 16px; text-align: center; color: var(--text); background: radial-gradient(900px 600px at 50% -10%, var(--glow) 0%, var(--ink) 60%) var(--ink);
+    font-family: 'Atkinson Hyperlegible', system-ui, sans-serif; }
+  .display { font-family: 'Fredoka', 'Atkinson Hyperlegible', system-ui, sans-serif; font-weight: 700; }
+  .logo { font-size: 26px; }
+  .logo span { color: var(--amber); }
+  .dice { display: flex; gap: 10px; }
+  .die { width: 64px; height: 64px; border-radius: 14px; display: grid; place-items: center; font-size: 38px; color: var(--letter);
+    background: var(--dice); box-shadow: 0 5px 0 #DCD3BB; animation: shake 1.6s ease-in-out infinite; }
+  .die:nth-child(2) { animation-delay: .15s; } .die:nth-child(3) { animation-delay: .3s; } .die:nth-child(4) { animation-delay: .45s; }
+  @keyframes shake { 0%, 60%, 100% { transform: translateY(0) rotate(0); } 15% { transform: translateY(-14px) rotate(-10deg); } 30% { transform: translateY(0) rotate(8deg); } 45% { transform: translateY(-5px) rotate(-3deg); } }
+  h1 { margin: 0; font-size: clamp(28px, 7vw, 40px); }
+  p { margin: 0; max-width: 460px; font-size: 20px; line-height: 1.45; color: var(--mist); }
+  .dots::after { content: ""; animation: dots 1.5s steps(4) infinite; }
+  @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+  button { font: inherit; font-size: 20px; font-weight: 700; border: none; border-radius: 14px; padding: 12px 24px; cursor: pointer; background: var(--amber); color: var(--ink); }
+  [hidden] { display: none !important; }
+  @media (prefers-reduced-motion: reduce) { .die, .dots::after { animation: none; } .dots::after { content: "..."; } }
+</style>
+</head>
+<body>
+  <div class="logo display">Word<span>Shake</span></div>
+  <div class="dice display" aria-hidden="true"><div class="die">W</div><div class="die">A</div><div class="die">K</div><div class="die">E</div></div>
+  <h1 class="display" id="title"><span class="dots">WordShake is waking up</span></h1>
+  <p id="note" aria-live="polite">This can take up to a minute. It will start by itself.</p>
+  <button id="again" hidden>Try again</button>
+<script>
+(function () {
+  var title = document.getElementById("title"), note = document.getElementById("note"), again = document.getElementById("again");
+  var started = Date.now(), done = false;
+  function say(t, n) { title.innerHTML = t; note.textContent = n; }
+  // Up only when it's really WordShake answering (not a page from the host while the server starts).
+  function ping() {
+    var ctrl = window.AbortController ? new AbortController() : null;
+    var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, 8000);
+    return fetch("/api/ping?t=" + Date.now(), { cache: "no-store", signal: ctrl ? ctrl.signal : undefined })
+      .then(function (res) {
+        clearTimeout(timer);
+        if (!res.headers.get("X-WordShake")) return false;
+        return res.json().then(function (j) { return !!(j && j.ok); }, function () { return false; });
+      }, function () { clearTimeout(timer); return false; });
+  }
+  function check() {
+    if (done) return;
+    if (navigator.onLine === false) {
+      say("Can't reach WordShake", "Check that this device is connected to the wifi.");
+      again.hidden = false;
+      return setTimeout(check, 3000);
+    }
+    ping().then(function (up) {
+      if (up) { done = true; say("Ready!", "Starting WordShake..."); location.reload(); return; }
+      var waited = Date.now() - started;
+      if (waited > 120000) {
+        say("Still waking up", "This is taking longer than usual. Check the wifi, or try again in a minute.");
+        again.hidden = false;
+      } else {
+        say('<span class="dots">WordShake is waking up</span>', waited > 45000 ? "Nearly there. It will start by itself." : "This can take up to a minute. It will start by itself.");
+        again.hidden = true;
+      }
+      setTimeout(check, 2500);
+    });
+  }
+  again.onclick = function () { location.reload(); };
+  check();
+})();
+</script>
+</body>
+</html>
