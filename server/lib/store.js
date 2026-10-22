@@ -4,6 +4,8 @@ import { applyRound } from "../../shared/rewards.js";
 import { newWords, bankFromGames } from "../../shared/wordbank.js";
 import { firebaseApp } from "./firebase.js";
 import { pickWallet, buyIn, equipIn } from "./wallet.js";
+import { suggestClassCode, validPin } from "../../shared/pictures.js";
+import { newPin } from "./classes.js";
 
 const db = firebaseApp ? getFirestore(firebaseApp) : null;
 
@@ -38,7 +40,16 @@ const classCodes = () => db.collection("classCodes");
 
 export async function listClasses(teacherId) {
   const snap = await classesOf(teacherId).get();
-  return snap.docs.map(classOut).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  const out = [];
+  for (const doc of snap.docs) {
+    const cls = classOut(doc);
+    // Classes made before sign-in have no code: they're given one (and any missing pictures) the first time they're listed.
+    if (cls.code) { out.push(cls); continue; }
+    const students = cls.students.map(s => (validPin(s.pin) ? s : { ...s, pin: newPin() }));
+    const done = await writeWithCode(teacherId, doc.ref, { name: cls.name, code: null, students }, false);
+    out.push(done.error ? cls : { ...cls, ...done });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
 }
 
 export async function getClass(teacherId, classId) {
@@ -68,12 +79,22 @@ async function writeClass(teacherId, ref, cls, isNew) {
   });
 }
 
+// A class always has a code: when the teacher leaves it out, one is made up (another is tried if a class already has it).
+async function writeWithCode(teacherId, ref, cls, isNew) {
+  if (cls.code) return writeClass(teacherId, ref, cls, isNew);
+  for (let i = 0; i < 5; i++) {
+    const out = await writeClass(teacherId, ref, { ...cls, code: suggestClassCode() }, isNew);
+    if (out.error !== "code-taken") return out;
+  }
+  return { error: "code-taken" };
+}
+
 export async function createClass(teacherId, cls) {
-  return writeClass(teacherId, classesOf(teacherId).doc(), cls, true);
+  return writeWithCode(teacherId, classesOf(teacherId).doc(), cls, true);
 }
 
 export async function updateClass(teacherId, classId, cls) {
-  return writeClass(teacherId, classesOf(teacherId).doc(classId), cls, false);
+  return writeWithCode(teacherId, classesOf(teacherId).doc(classId), cls, false);
 }
 
 // Deleting a class also deletes its saved rounds (Firestore doesn't remove subcollections on its own),

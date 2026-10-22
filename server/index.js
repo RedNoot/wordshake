@@ -132,7 +132,6 @@ app.post("/api/classes", teacherRoute(async (req, res, teacher) => {
   if (await countClasses(teacher.id) >= LIMITS.classes) return res.status(400).json({ error: "too-many-classes" });
   const cls = pickClass(req.body);
   if (cls.error) return res.status(400).json(cls);
-  if (!cls.code) return res.status(400).json({ error: "class-code" });   // a new class always has one
   const out = await createClass(teacher.id, cls);
   if (out.error) return res.status(400).json(out);
   res.json(out);

@@ -16,7 +16,7 @@ export function newPin() {
 // Validates a class sent by the teacher. Students keep their id when it already belongs to this class,
 // so renaming a student later won't cut them off from their saved progress.
 // Secret pictures are never taken from the teacher's request: a student keeps theirs, and a new student is given one.
-// The class code is optional here (classes made before sign-in have none); the store checks no other class has it.
+// The class code is optional here: the store makes one up when it's left out, and checks no other class has it.
 // Returns { name, code: string | null, students: [{ id, name, pin }] } or { error }.
 export function pickClass(body, existingStudents = []) {
   if (!body || typeof body !== "object") return { error: "invalid class" };
