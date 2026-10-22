@@ -304,6 +304,10 @@ const roomsApi = attachRooms(io, {
     if (!storeReady) return { status: "no-class" };
     return saveRound(teacherId, classId, gameId, record, endedAt);
   },
+  saveHomeRound: async (teacherId, classId, gameId, record, endedAt) => {
+    if (!storeReady) return { status: "no-class" };
+    return saveRound(teacherId, classId, gameId, record, endedAt, { home: true });
+  },
   getStudent: async (teacherId, classId, studentId) => (storeReady ? getStudent(teacherId, classId, studentId) : null),
   getWords: async (teacherId, classId, studentId) => (storeReady ? getWords(teacherId, classId, studentId) : {}),
   // The shop: without a database there are no wallets, so nothing can be bought or worn.

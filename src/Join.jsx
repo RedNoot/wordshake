@@ -11,6 +11,7 @@ import { balanceOf } from "../shared/shop.js";
 import { avatarOf } from "./shopView.js";
 import { PicturePad, PinPractice } from "./PicturePad.jsx";
 import { CLASS_CODE_MAX, CLASS_CODE_MIN } from "../shared/pictures.js";
+import { HomeLobby, HomeControls, homeBoard, roundSettings } from "./HomeGame.jsx";
 
 const CODE_LEN = 4;
 const ERRORS = {
@@ -24,12 +25,14 @@ const ERRORS = {
   "wrong-pin": "Not quite. Try again!",
   locked: "Too many wrong tries. Wait 15 minutes, or ask your teacher.",
   "signed-out": "You've been signed out. Type your class code to sign in again.",
+  "home-off": "Your teacher has turned off playing at home for now.",
 };
 const ENDED = {
   closed: "This game has ended.",
   expired: "This game has ended.",
   replaced: "Your teacher started a new game. Type the new code.",
   kicked: "Your teacher took you out of the game. You can join again.",
+  homeKicked: "You were taken out of the game. You can join again.",
   elsewhere: "You joined on another device, so this one has stopped.",
 };
 
@@ -71,7 +74,11 @@ export function Join({ initialCode }) {
   const [room, setRoom] = useState(null);           // { code, className, roster, phase }
   const [chosen, setChosen] = useState(null);
   const [guestName, setGuestName] = useState("");
-  const [me, setMe] = useState(null);               // { name, guest }
+  const [me, setMe] = useState(null);               // { name, guest, home: { host } in a home game | null }
+  const [hosting, setHosting] = useState(null);     // running my own home game: the host's view { code, players } | null
+  const hostingRef = useRef(null);
+  hostingRef.current = hosting;
+  const inHomeGame = useRef(false);                 // the game this device is in is someone's home game
   const [cabinet, setCabinet] = useState(false);    // showing "My trophies"
   const cabinetCache = useRef(null);                // the last trophies loaded, shown at once next time
   const [cabinetFresh, setCabinetFresh] = useState(0); // bumped when the student's rewards change, so an open cabinet reloads
@@ -108,7 +115,8 @@ export function Join({ initialCode }) {
     store.set(tokenKey(c), res.token);
     codeRef.current = c;   // a signed-in device may have joined without typing it: reconnecting needs it
     setCode(c);
-    setMe({ name: res.name, guest: !!res.guest });
+    setMe({ name: res.name, guest: !!res.guest, home: res.home || null });
+    inHomeGame.current = !!res.home;
     setTeam(res.team == null ? null : res.team);
     dress(res.guest ? null : res.looks || null, res.ownLooks !== false);
     setCabinet(false);
@@ -148,6 +156,7 @@ export function Join({ initialCode }) {
   // Home: signed in, not in a game. If the class's game is open, go straight into it.
   const goHome = async roomCode => {
     setCabinet(false); setJar(false); setShop(false);
+    setHosting(null);
     if (roomCode) {
       setStep("loading");
       const res = await call("player:join", { code: roomCode, me: true });
@@ -199,6 +208,34 @@ export function Join({ initialCode }) {
     return res;
   };
 
+  /* ---- my own game at home (HomeGame.jsx) ---- */
+  const openHome = async () => {
+    setBusy(true);
+    const res = await call("home:open");
+    setBusy(false);
+    if (!res.ok) { setMessage(ERRORS[res.error] || ERRORS.offline); return false; }
+    setHosting(res.host);
+    joined(res.code, res);
+    window.history.replaceState(null, "", "/join");
+    return true;
+  };
+  const startHome = async board => {
+    setBusy(true);
+    const res = await call("host:start", { settings: roundSettings(board) });
+    setBusy(false);
+    if (!res.ok && res.error !== "slow-down") setMessage(ERRORS.offline);
+  };
+  // The clock as this device sees it, for pausing (the server keeps the real one).
+  const leftNow = r => Math.max(0, r.remainingMs - (r.state === "playing" ? Date.now() - r.clockAt : 0));
+  const pauseHome = state => round && call("host:clock", { n: round.n, state, remainingMs: leftNow(round) });
+  const kickHome = p => { if (window.confirm(`Take ${p.name} out of the game? They can join again.`)) call("host:kick", { playerId: p.id }); };
+  const finishHome = async () => {
+    await call("host:close");
+    setMe(null); setRound(null); setHosting(null);
+    await goHome(null);
+    setMessage("");   // the game closing isn't news to the student who closed it
+  };
+
   /* ---- signing in with the class code ---- */
   const findClass = async c => {
     setBusy(true);
@@ -229,6 +266,8 @@ export function Join({ initialCode }) {
   useEffect(() => {
     const s = getSocket();
     const onRoster = r => setRoom(r);
+    // Running my own home game: who has joined.
+    const onHostView = v => { if (hostingRef.current && v && v.code === hostingRef.current.code) setHosting(v); };
     // The teacher turned students' own looks on or off: follow it straight away.
     const onLooks = ({ ownLooks: on } = {}) => dress(wornRef.current, on !== false);
     // The trophy cabinet and the shop close when a round starts.
@@ -252,10 +291,12 @@ export function Join({ initialCode }) {
     const onClock = c => setRound(cur => cur && cur.n === c.n ? { ...cur, state: c.state, remainingMs: c.remainingMs, clockAt: Date.now() } : cur);
     const end = reason => () => {
       store.del(tokenKey(codeRef.current));
+      const why = reason === "kicked" && inHomeGame.current ? "homeKicked" : reason;
       setMe(null);
+      setHosting(null);
       setRound(null);
       setPractice(null);
-      setMessage(ENDED[reason] || ENDED.closed);
+      setMessage(ENDED[why] || ENDED.closed);
       // A signed-in student goes back to their home screen, still dressed in their own looks.
       if (studentRef.current) { setCode(""); goHome(null); return; }
       undress();
@@ -276,10 +317,12 @@ export function Join({ initialCode }) {
     // After the wifi drops or the iPad sleeps, quietly pick up where we were (signed in first, then the game).
     const onReconnect = async () => {
       if (studentRef.current) await call("student:resume", { pass: studentRef.current.pass }).then(r => { if (r.error === "signed-out") onSignedOut(); else if (r.ok && r.room && stepRef.current === "home") goHome(r.room); });
-      if (stepRef.current === "joined") enter(codeRef.current);
+      if (stepRef.current === "joined" && hostingRef.current) { const r = await call("home:open"); if (r.ok) { setHosting(r.host); joined(r.code, r); } else goHome(null); }
+      else if (stepRef.current === "joined") enter(codeRef.current);
       else if (["names", "confirm", "guest"].includes(stepRef.current)) call("player:lookup", { code: codeRef.current }).then(r => r.ok && setRoom(r.room));
     };
     s.on("room:roster", onRoster);
+    s.on("room:update", onHostView);
     s.on("room:looks", onLooks);
     s.on("room:phase", onPhase);
     s.on("round:state", onRoundState);
@@ -303,7 +346,7 @@ export function Join({ initialCode }) {
       setStep("code");
     });
     return () => {
-      s.off("room:roster", onRoster); s.off("room:looks", onLooks); s.off("room:phase", onPhase); s.off("room:closed", onClosed);
+      s.off("room:roster", onRoster); s.off("room:update", onHostView); s.off("room:looks", onLooks); s.off("room:phase", onPhase); s.off("room:closed", onClosed);
       s.off("round:state", onRoundState); s.off("round:clock", onClock); s.off("round:rewards", onRewards); s.off("player:rewards-changed", onRewardsChanged); s.off("player:team", onTeam); s.off("round:teams", onTeams);
       s.off("round:coop", onCoop); s.off("round:coop-result", onCoopResult);
       s.off("room:kicked", onKicked); s.off("room:replaced", onReplaced); s.off("class:room", onClassRoom); s.off("student:signed-out", onSignedOut); s.io.off("reconnect", onReconnect);
@@ -405,8 +448,9 @@ export function Join({ initialCode }) {
           <div className="ws-fade" style={{ display: "grid", gap: 16, justifyItems: "center", textAlign: "center", marginTop: 30 }}>
             <div className="ws-display" style={{ fontSize: 44, fontWeight: 700 }}>Hi {avatar}<span style={{ color: T.amber }}>{student.name}</span>!</div>
             <div style={{ fontSize: 18, color: T.mist }}>{student.className}</div>
-            <div aria-live="polite" style={{ fontSize: 22, color: T.mist, maxWidth: 520, lineHeight: 1.4 }}>
-              When your teacher opens the game, it will start here.
+            <button onClick={openHome} disabled={busy} className="ws-btn ws-display" style={{ ...big, background: T.green, color: T.ink, marginTop: 6 }}>{busy ? "Getting ready…" : "Play a game 🎲"}</button>
+            <div aria-live="polite" style={{ fontSize: 18, color: T.mist, maxWidth: 520, lineHeight: 1.4 }}>
+              At school, your class's game starts here when your teacher opens it.
             </div>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center", alignItems: "center", marginTop: 10 }}>
               {balance != null && (
@@ -460,7 +504,28 @@ export function Join({ initialCode }) {
           </form>
         )}
 
-        {step === "joined" && me && round && <Play round={round} name={me.name} avatar={avatarEmoji} guest={me.guest} onRound={setRound} />}
+        {step === "joined" && me && round && <Play round={round} name={me.name} avatar={avatarEmoji} guest={me.guest} home={me.home} onResume={hosting ? () => pauseHome("playing") : null} onRound={setRound} />}
+        {step === "joined" && me && round && hosting && (
+          <HomeControls round={round} phase={phase} busy={busy} onPause={() => pauseHome("paused")}
+            onAgain={() => startHome(homeBoard())} onBoard={() => call("host:phase", { phase: "lobby" })} />
+        )}
+        {step === "joined" && me && round && me.home && !hosting && round.state === "over" && (
+          <div style={{ fontSize: 20, color: T.mist, marginTop: 14 }}>Wait for {me.home.host} to start the next round.</div>
+        )}
+
+        {step === "joined" && me && !round && hosting && !practising && !cabinet && !jar && !shop && (
+          <HomeLobby host={hosting} me={me} avatar={avatar} busy={busy} onStart={startHome} onKick={kickHome} onFinish={finishHome}
+            extras={(
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center", alignItems: "center" }}>
+                {balance != null && (
+                  <span className="ws-display" role="status" aria-label={`${balance} ${balance === 1 ? "star" : "stars"} to spend`} style={{ fontSize: 24, fontWeight: 800, padding: "8px 16px", borderRadius: 999, background: "rgb(var(--ws-fg) / .07)" }}>⭐ {balance}</span>
+                )}
+                <button onClick={() => setCabinet(true)} className="ws-btn ws-display" style={lobbyBtn}>My trophies 🏆</button>
+                <button onClick={() => setJar(true)} className="ws-btn ws-display" style={lobbyBtn}>My word jar 🏺</button>
+                <button onClick={() => setShop(true)} className="ws-btn ws-display" style={lobbyBtn}>Shop 🛍️</button>
+              </div>
+            )} />
+        )}
 
         {lounge && cabinet && <Cabinet name={myName} cached={cabinetCache.current} refresh={cabinetFresh} onLoaded={s => { cabinetCache.current = s; }} onClose={() => setCabinet(false)} />}
 
@@ -468,12 +533,12 @@ export function Join({ initialCode }) {
 
         {lounge && shop && !cabinet && !jar && <Shop name={myName} cached={shopData} ownLooks={ownLooks} onLoaded={gotShop} onWorn={onWorn} onClose={() => setShop(false)} />}
 
-        {step === "joined" && me && !round && !practising && !cabinet && !jar && !shop && (
+        {step === "joined" && me && !round && !hosting && !practising && !cabinet && !jar && !shop && (
           <div className="ws-fade" style={{ display: "grid", gap: 16, justifyItems: "center", textAlign: "center", marginTop: 30 }}>
             <div className="ws-display" style={{ fontSize: 44, fontWeight: 700 }}>{phase === "lobby" ? <>You're in, {avatar}<span style={{ color: T.amber }}>{me.name}</span>!</> : <>{avatar}{me.name}</>}</div>
             <div aria-live="polite" style={{ fontSize: 24, color: T.mist, maxWidth: 520, lineHeight: 1.4 }}>
-              {phase === "lobby" && "Wait for your teacher to start the game."}
-              {phase !== "lobby" && "Look at the big screen."}
+              {phase === "lobby" && (me.home ? `Wait for ${me.home.host} to start the game.` : "Wait for your teacher to start the game.")}
+              {phase !== "lobby" && (me.home ? "Wait for the next round." : "Look at the big screen.")}
             </div>
             {team != null && (
               <div aria-live="polite" style={{ fontSize: 22, color: T.mist, display: "grid", gap: 10, justifyItems: "center" }}>

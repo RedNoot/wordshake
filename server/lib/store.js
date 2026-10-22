@@ -6,6 +6,7 @@ import { firebaseApp } from "./firebase.js";
 import { pickWallet, buyIn, equipIn } from "./wallet.js";
 import { suggestClassCode, validPin } from "../../shared/pictures.js";
 import { newPin } from "./classes.js";
+import { countHomeRound } from "../../shared/home.js";
 
 const db = firebaseApp ? getFirestore(firebaseApp) : null;
 
@@ -35,7 +36,10 @@ export async function saveSettings(teacherId, settings) {
  * The class code students sign in with is also kept in classCodes/{CODE} = { teacherId, classId }, so a student
  * can find their class from the code alone. The two are written together, so no two classes can share a code.
  */
-const classOut = doc => ({ id: doc.id, name: doc.get("name"), code: doc.get("code") || null, students: doc.get("students") || [], coopBest: doc.get("coopBest") || {} });
+const classOut = doc => ({
+  id: doc.id, name: doc.get("name"), code: doc.get("code") || null, students: doc.get("students") || [], coopBest: doc.get("coopBest") || {},
+  homePlay: doc.get("homePlay") !== false,   // students can play at home unless the teacher turned it off
+});
 const classCodes = () => db.collection("classCodes");
 
 export async function listClasses(teacherId) {
@@ -46,7 +50,7 @@ export async function listClasses(teacherId) {
     // Classes made before sign-in have no code: they're given one (and any missing pictures) the first time they're listed.
     if (cls.code) { out.push(cls); continue; }
     const students = cls.students.map(s => (validPin(s.pin) ? s : { ...s, pin: newPin() }));
-    const done = await writeWithCode(teacherId, doc.ref, { name: cls.name, code: null, students }, false);
+    const done = await writeWithCode(teacherId, doc.ref, { name: cls.name, code: null, students, homePlay: cls.homePlay }, false);
     out.push(done.error ? cls : { ...cls, ...done });
   }
   return out.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
@@ -208,6 +212,8 @@ export async function resetPin(teacherId, classId, studentId, pin) {
 
 /* ---- progress: teachers/{uid}/classes/{classId}/games/{gameId} = one finished round (see roundRecord in round.js) ---- */
 const gamesOf = (teacherId, classId) => classesOf(teacherId).doc(classId).collection("games");
+// Rounds played in a student's home game: kept apart from the class's lessons, so Progress and the class's history are school only.
+const homeGamesOf = (teacherId, classId) => classesOf(teacherId).doc(classId).collection("homeGames");
 export const GAMES_SHOWN = 150;
 
 /*
@@ -226,10 +232,10 @@ const pickSummary = data => Object.fromEntries(SUMMARY_FIELDS.filter(k => data[k
  * Awards are never touched here, so an award given from the Progress page during a lesson can't be overwritten.
  * Returns { status: "saved", earned, summaries } | { status: "already-saved" } | { status: "no-class" }.
  */
-export async function saveRound(teacherId, classId, gameId, record, endedAt) {
+export async function saveRound(teacherId, classId, gameId, record, endedAt, { home = false } = {}) {
   const sids = Object.keys(record.players);
   const clsRef = classesOf(teacherId).doc(classId);
-  const gameRef = gamesOf(teacherId, classId).doc(gameId);
+  const gameRef = (home ? homeGamesOf : gamesOf)(teacherId, classId).doc(gameId);
   const studentRefs = sids.map(sid => studentsOf(teacherId, classId).doc(sid));
   return db.runTransaction(async tx => {
     const [cls, game, ...students] = await tx.getAll(clsRef, gameRef, ...studentRefs);
@@ -239,9 +245,15 @@ export async function saveRound(teacherId, classId, gameId, record, endedAt) {
     students.forEach((doc, i) => {
       const sid = sids[i];
       const { summary, earned: e } = applyRound(doc.exists ? pickSummary(doc.data()) : null, record.players[sid], record, endedAt);
+      // At home, only the first few rounds of the day earn stars (shared/home.js).
+      const today = home ? countHomeRound(doc.exists ? doc.get("homeDay") : null, endedAt) : null;
+      if (today && !today.stars) { summary.stars -= e.stars; e.stars = 0; e.noStars = true; }
       // The word jar: this round's new words, merged into the bank's map (set with merge only touches these keys).
       const fresh = newWords(doc.exists ? doc.get("bank") : null, record.players[sid].words, endedAt);
-      tx.set(doc.ref, { ...pickSummary(summary), name: record.players[sid].name, updatedAt: FieldValue.serverTimestamp(), ...(Object.keys(fresh).length ? { bank: fresh } : {}) }, { merge: true });
+      tx.set(doc.ref, {
+        ...pickSummary(summary), name: record.players[sid].name, updatedAt: FieldValue.serverTimestamp(), ...(Object.keys(fresh).length ? { bank: fresh } : {}),
+        ...(today ? { homeDay: { day: today.day, rounds: today.rounds } } : {}),
+      }, { merge: true });
       earned[sid] = e;
       // spent is read, never written, so the device can be told its new balance.
       summaries[sid] = { ...pickSummary(summary), awards: (doc.exists && doc.get("awards")) || [], spent: (doc.exists && doc.get("spent")) || 0 };
@@ -249,7 +261,7 @@ export async function saveRound(teacherId, classId, gameId, record, endedAt) {
     tx.set(gameRef, { ...record, endedAt: Timestamp.fromMillis(endedAt) });
     // Class together: the class's own best for this kind of board (most words found between them).
     const c = record.coop, best = c && (cls.get("coopBest") || {})[c.key];
-    if (c && c.words.length && (!best || c.words.length > best.words)) {
+    if (c && !home && c.words.length && (!best || c.words.length > best.words)) {
       tx.set(clsRef, { coopBest: { [c.key]: { words: c.words.length, points: c.points, at: endedAt } } }, { merge: true });
     }
     return { status: "saved", earned, summaries };

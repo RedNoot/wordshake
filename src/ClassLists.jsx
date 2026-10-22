@@ -38,6 +38,7 @@ function Editor({ cls, onSaved, onCancel }) {
   const [name, setName] = useState(cls ? cls.name : "");
   const [code, setCode] = useState((cls && cls.code) || suggestClassCode());
   const [rows, setRows] = useState(cls ? cls.students : []);
+  const [homePlay, setHomePlay] = useState(!cls || cls.homePlay !== false);
   const [paste, setPaste] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -61,7 +62,7 @@ function Editor({ cls, onSaved, onCancel }) {
     if (total > MAX_STUDENTS) return setError(ERRORS["too-many-students"]);
     if (!validClassCode(code)) return setError(ERRORS["class-code"]);
     setSaving(true);
-    const body = { name, code: code || null, students: [...rows.map(({ id, name }) => ({ id, name })), ...added.map(n => ({ name: n }))] };
+    const body = { name, code: code || null, homePlay, students: [...rows.map(({ id, name }) => ({ id, name })), ...added.map(n => ({ name: n }))] };
     const res = await authFetch(cls ? `/api/classes/${cls.id}` : "/api/classes", {
       method: cls ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     }).catch(() => null);
@@ -85,6 +86,11 @@ function Editor({ cls, onSaved, onCancel }) {
             style={{ ...input, width: "12em", fontSize: 20, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase" }} />
           <button type="button" className="ws-btn" onClick={() => setCode(suggestClassCode())} style={btn}>Make up another</button>
         </div>
+      </label>
+
+      <label style={{ display: "flex", gap: 10, alignItems: "flex-start", color: "var(--ws-text)", fontSize: 15, lineHeight: 1.4, cursor: "pointer" }}>
+        <input type="checkbox" checked={homePlay} onChange={e => setHomePlay(e.target.checked)} style={{ width: 18, height: 18, marginTop: 2 }} />
+        <span>Students can play at home<br /><span style={{ color: T.mist, fontSize: 14 }}>Signed in with the class code and their pictures, they can play their own games (with family as guests) and earn stars from their first 5 home rounds a day.</span></span>
       </label>
 
       {rows.length > 0 && (

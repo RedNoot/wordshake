@@ -10,6 +10,8 @@ import { TeamBadge, TeamResults, winnerLine } from "./Teams.jsx";
 import { bestLine } from "./components/WordWall.jsx";
 import { WordOfGame } from "./components/WordOfGame.jsx";
 import { useCountUp } from "./RoundEnd.jsx";
+import { Missed } from "./HomeGame.jsx";
+import { HOME_STAR_ROUNDS } from "../shared/home.js";
 
 const HINT_AFTER_DEFAULT = 15000;   // a round from before the teacher could pick: the server (server/lib/round.js) has the final say
 
@@ -53,7 +55,9 @@ function useLeft(round) {
   return left;
 }
 
-export function Play({ round, name, avatar = "", guest = false, onRound }) {
+// home: a home game ({ host: the student running it }), which has no big screen; null in class.
+// onResume: this device runs the home game, so its pause screen has the button to carry on.
+export function Play({ round, name, avatar = "", guest = false, home = null, onResume = null, onRound }) {
   const left = useLeft(round);
   const [trace, setTrace] = useState("");
   const [typed, setTyped] = useState("");
@@ -187,7 +191,7 @@ export function Play({ round, name, avatar = "", guest = false, onRound }) {
         <div className="ws-display" style={{ fontSize: 52, fontWeight: 700, color: T.amber, animation: "ws-pulse 1s ease infinite" }}>Get ready, {name}!</div>
         {round.team != null && <div style={{ fontSize: 22, color: T.mist }}>Playing for <TeamBadge team={round.team} size={22} /></div>}
         {round.coop && <div style={{ fontSize: 22, color: T.mist }}>🤝 Class together: every new word you find goes up on the big screen.</div>}
-        <div style={{ fontSize: 24, color: T.mist }}>Look at the big screen.</div>
+        <div style={{ fontSize: 24, color: T.mist }}>{home ? "Find as many words as you can!" : "Look at the big screen."}</div>
       </div>
     );
   }
@@ -218,7 +222,7 @@ export function Play({ round, name, avatar = "", guest = false, onRound }) {
     return (
       <div className="ws-fade" style={{ display: "grid", gap: 18, justifyItems: "center", textAlign: "center", marginTop: 20, width: "100%" }}>
         <div className="ws-display" style={{ fontSize: 46, fontWeight: 700, color: T.red }}>⏰ Time's up!</div>
-        <div style={{ fontSize: 22, color: T.mist }}>Look at the big screen.</div>
+        {!home && <div style={{ fontSize: 22, color: T.mist }}>Look at the big screen.</div>}
         <div className="ws-display" style={{ fontSize: 28, fontWeight: 700 }}>{name}: {round.words.length} {round.words.length === 1 ? "word" : "words"}, {round.total} {round.total === 1 ? "point" : "points"}</div>
         {round.team != null && !round.teamResult && (
           <div style={{ fontSize: 19, color: T.mist }}>Your points go to <TeamBadge team={round.team} size={19} />. The big screen will show which team won.</div>
@@ -236,6 +240,9 @@ export function Play({ round, name, avatar = "", guest = false, onRound }) {
           </section>
         )}
         <RoundRewards rewards={round.rewards} stars={guest || !r ? null : r.stars} />
+        {r && r.noStars && (
+          <div style={{ fontSize: 18, color: T.mist, maxWidth: 480, lineHeight: 1.4 }}>You've had today's {HOME_STAR_ROUNDS} star rounds. Your words still go in your word jar! ⭐ More stars tomorrow.</div>
+        )}
         {r && r.summary && (
           <button type="button" className="ws-btn ws-display" onClick={() => setReplay(true)}
             style={{ fontSize: 19, fontWeight: 700, background: "none", color: T.amber, border: `2px solid ${T.amber}`, borderRadius: 14, padding: "10px 22px", cursor: "pointer" }}>
@@ -243,6 +250,7 @@ export function Play({ round, name, avatar = "", guest = false, onRound }) {
           </button>
         )}
         {wordList}
+        {home && <Missed words={round.missed} width={dim} />}
         {rewardSig && (seen !== rewardSig || replay) && introStep === "done" && (
           <RoundSplash rewards={r} name={name} avatar={avatar} stars={guest ? null : r.stars} words={round.words.length} points={round.total} onDone={closePopup} />
         )}
@@ -323,7 +331,9 @@ export function Play({ round, name, avatar = "", guest = false, onRound }) {
       {round.state === "paused" && (
         <div role="status" style={{ position: "fixed", inset: 0, background: T.ink, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, zIndex: 20 }}>
           <div className="ws-display" style={{ fontSize: 56, fontWeight: 700, color: T.amber }}>⏸ Paused</div>
-          <div style={{ fontSize: 22, color: T.mist }}>Wait for your teacher.</div>
+          {onResume
+            ? <button type="button" onClick={onResume} className="ws-btn ws-display" style={{ fontSize: 22, fontWeight: 700, border: "none", borderRadius: 14, padding: "14px 28px", cursor: "pointer", background: T.amber, color: T.ink, marginTop: 8 }}>Keep playing</button>
+            : <div style={{ fontSize: 22, color: T.mist }}>{home ? `Wait for ${home.host}.` : "Wait for your teacher."}</div>}
         </div>
       )}
     </div>

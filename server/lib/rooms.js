@@ -25,6 +25,10 @@ const SAVE_RETRY_LATER_MS = 5 * 60 * 1000;            // ...then every 5 minutes
 const SNAPSHOT_MS = 2000;                             // a room's changes are written to the database at most this often
 const SNAPSHOT_MAX = 900 * 1000;                      // Firestore's limit is 1MB a document
 const WALL_MS = 500;                                  // Class together: the big screen's word wall is updated at most this often
+const HOME_GONE_MS = 30 * 60 * 1000;                  // a home game whose student's device has gone for half an hour is closed
+const HOME_COUNTDOWN_MS = 3000;                       // a home game has no big screen: the server says "Get ready" for this long
+const HOME_START_MS = 5000;                           // and can't start another round sooner than this
+const MISSED_MAX = 40;                                 // the words a home player missed, longest first, shown after the round
 
 const newToken = () => randomBytes(16).toString("base64url");
 const newCode = () => Array.from({ length: CODE_LEN }, () => CODE_CHARS[randomInt(CODE_CHARS.length)]).join("");
@@ -36,18 +40,20 @@ const obj = d => (d && typeof d === "object" ? d : {});
  * room = { code, teacherId, hostSocket, classId, className, roster: [{ id, name }] | null,
  *          players: Map<playerId, { id, name, studentId, token, socketId, avatar: emoji | null }>, phase, createdAt, hostSeenAt,
  *          round: see round.js | null, roundNo, teams: null | { count, of: Map<playerId, team number> }, ownLooks,
- *          coop: Class together on, coopBest: { [coopKey]: { words, points, at } } the class's own bests }
+ *          coop: Class together on, coopBest: { [coopKey]: { words, points, at } } the class's own bests,
+ *          home: null | { studentId, name } a student's own game at home (see "home games") }
  * Socket.IO rooms: host:CODE (the big screen), players:CODE (joined devices), lookup:CODE (devices on the name grid).
  */
 export function attachRooms(io, {
   verifyTeacher, getClass, makeGame, isRealWord,
-  saveRound = null, getStudent = null, getWords = null, buyItem = null, equipItem = null, liveStore = null,
+  saveRound = null, saveHomeRound = null, getStudent = null, getWords = null, buyItem = null, equipItem = null, liveStore = null,
   // Student sign-in (store.js): classByCode, createPass, passOwner, forgetPass, getSignin, setSignin, resetPin. null: no accounts.
   signin = null,
   now = Date.now, later = (fn, ms) => setTimeout(fn, ms),
 }) {
   const rooms = new Map();
   const byTeacher = new Map();
+  const byHome = new Map();   // "teacherId/classId/studentId" -> the code of that student's home game
   const lookupFails = new Map();
 
   /*
@@ -59,16 +65,16 @@ export function attachRooms(io, {
    * so a copy loaded while the old server is still finishing up can't overwrite the old server's last word.
    */
   function markDirty(room) {
-    if (!liveStore || !room.live || room.closed || room.replaced) return;
+    if (!liveStore || !room.live || room.closed || room.replaced || room.home) return;
     room.dirty = true;
     if (room.writeTimer) return;
     room.writeTimer = true;
     later(() => { room.writeTimer = false; writeRoom(room); }, SNAPSHOT_MS);
   }
-  const saveNow = room => { if (liveStore && room.live) { room.dirty = true; return writeRoom(room); } return Promise.resolve(true); };
+  const saveNow = room => { if (liveStore && room.live && !room.home) { room.dirty = true; return writeRoom(room); } return Promise.resolve(true); };
   // Resolves true once every change so far is in the database.
   function writeRoom(room) {
-    if (!liveStore || !room.live || room.closed || room.replaced) return Promise.resolve(true);
+    if (!liveStore || !room.live || room.closed || room.replaced || room.home) return Promise.resolve(true);
     if (room.writing) return room.writing.then(() => writeRoom(room));
     if (!room.dirty) return Promise.resolve(true);
     room.dirty = false;
@@ -167,7 +173,7 @@ export function attachRooms(io, {
   });
   // Signed-in students' devices listen on their class's channel, so the game appears when the teacher opens it.
   const classChannel = (teacherId, classId) => `class:${teacherId}:${classId}`;
-  const tellClass = room => { if (room.classId) io.to(classChannel(room.teacherId, room.classId)).emit("class:room", { code: rooms.get(room.code) === room ? room.code : null }); };
+  const tellClass = room => { if (room.classId && !room.home) io.to(classChannel(room.teacherId, room.classId)).emit("class:room", { code: rooms.get(room.code) === room ? room.code : null }); };
   const notify = room => {
     io.to(`host:${room.code}`).emit("room:update", hostView(room));
     io.to(`lookup:${room.code}`).emit("room:roster", lookupView(room));
@@ -180,12 +186,14 @@ export function attachRooms(io, {
    * The save waits out the grace window so a word swiped at zero is included, and is retried until the database
    * takes it. A round abandoned mid-way (back to the lobby, close the room) is never saved.
    */
+  // A home game's rounds are kept apart from the class's lessons (store.js saveHomeRound).
+  const saverFor = room => (room.home ? saveHomeRound : saveRound);
   const unsaved = new Set();   // save jobs waiting for a retry, across every room (a closed room's round still counts)
   let saveRuns = Promise.resolve();
 
   const timeUp = round => round.state === "over" || (round.state === "playing" && now() >= round.endsAt);
   function finishRound(room, round = room.round, { grace = true } = {}) {
-    if (!round || round.aborted || round.save || room.replaced || !room.classId || !saveRound) return;
+    if (!round || round.aborted || round.save || room.replaced || !room.classId || !saverFor(room)) return;
     round.save = "pending";
     round.endedAt = round.state === "playing" ? Math.min(now(), round.endsAt) : now();
     if (round.state !== "over") setClock(round, "over", 0, now());
@@ -202,6 +210,7 @@ export function attachRooms(io, {
         finishCoop(room, round);
         sendClassFound(room, round);
         if (room.round === round) io.to(`players:${room.code}`).emit("round:clock", { n: round.n, state: "over", remainingMs: 0 });
+        if (room.home) homeReveal(room, round);
         markDirty(room);
       }
     }, Math.max(0, round.endsAt - now()) + 50);
@@ -224,7 +233,7 @@ export function attachRooms(io, {
   async function attemptSave(job) {
     const { room, round, record } = job;
     let out;
-    try { out = await saveRound(room.teacherId, room.classId, round.id, record, round.endedAt); }
+    try { out = await saverFor(room)(room.teacherId, room.classId, round.id, record, round.endedAt); }
     catch (err) { out = { error: err }; }
     if (!out || out.error) {
       job.tries++;
@@ -348,6 +357,45 @@ export function attachRooms(io, {
     }, GRACE_MS + 100);
   }
 
+  /*
+   * Home games: a signed-in student's own game, run from their own device (it is the big screen and a player at once).
+   * Family and friends join with its code as guests; a signed-in classmate joins as themselves and earns their own stars.
+   * A home game isn't kept through a restart, never shows the class list, and never touches the class's lessons:
+   * its rounds are saved apart (saveHomeRound), and the server runs the clock and shows the answers itself.
+   */
+  const homeKey = (teacherId, classId, studentId) => `${teacherId}/${classId}/${studentId}`;
+  // The words this player didn't find, longest first: only once the round is over.
+  function missedWords(round, playerId) {
+    const mine = round.found.get(playerId) || new Map();
+    return [...round.words].filter(w => !mine.has(w)).sort((a, b) => b.length - a.length || a.localeCompare(b)).slice(0, MISSED_MAX);
+  }
+  // Time's up in a home game: once late words have had their grace window, every device moves on to its own answers.
+  function homeReveal(room, round) {
+    later(() => {
+      if (rooms.get(room.code) !== room || room.round !== round || room.phase !== "playing") return;
+      room.phase = "reveal";
+      io.to(`players:${room.code}`).emit("room:phase", "reveal");
+      sendRound(room);
+      notify(room);
+    }, GRACE_MS + 100);
+  }
+  // "Get ready" for a moment, then the clock starts (in class, the big screen does this after its dice shake).
+  function homeCountdown(room, round) {
+    later(() => {
+      if (rooms.get(room.code) !== room || room.round !== round || round.state !== "countdown" || round.aborted) return;
+      setClock(round, "playing", round.settings.seconds * 1000, now());
+      watchClock(room, round);
+      io.to(`players:${room.code}`).emit("round:clock", { n: round.n, state: "playing", remainingMs: remainingMs(round, now()) });
+    }, HOME_COUNTDOWN_MS);
+  }
+  // Not a code in use here, nor one a kept room is waiting to be picked up with after a restart.
+  async function freshCode() {
+    const kept = c => (liveStore ? Promise.resolve().then(() => liveStore.byCode(c)).catch(() => null) : null);
+    let code;
+    do code = newCode(); while (rooms.has(code) || await kept(code));
+    return code;
+  }
+
   function closeRoom(room, reason = "closed") {
     // A finished round whose clock has run out is saved even if the room closes straight away.
     if (room.round && timeUp(room.round)) finishRound(room, room.round, { grace: false });
@@ -356,10 +404,11 @@ export function attachRooms(io, {
     for (const r of ["host", "players", "lookup"]) io.socketsLeave(`${r}:${room.code}`);
     for (const p of players(room)) { const s = p.socketId && io.sockets.sockets.get(p.socketId); if (s) s.data.player = null; }
     rooms.delete(room.code);
-    if (byTeacher.get(room.teacherId) === room.code) byTeacher.delete(room.teacherId);
+    if (room.home) { const k = homeKey(room.teacherId, room.classId, room.home.studentId); if (byHome.get(k) === room.code) byHome.delete(k); }
+    else if (byTeacher.get(room.teacherId) === room.code) byTeacher.delete(room.teacherId);
     room.closed = true;
     tellClass(room);
-    if (liveStore) {
+    if (liveStore && !room.home) {
       Promise.resolve(room.writing).then(() => liveStore.remove(room.teacherId, room.code))
         .catch(err => console.error(`Forgetting room ${room.code} failed:`, err.message));
     }
@@ -408,14 +457,19 @@ export function attachRooms(io, {
     addToTeam(room, p.id);
     return {
       ok: true, token: p.token, name: p.name, guest, phase: room.phase, className: room.className, team: teamOf(room, p.id), round: roundFor(room, p.id),
-      looks, ownLooks: room.ownLooks,
+      looks, ownLooks: room.ownLooks, home: room.home ? { host: room.home.name } : null,
       // stars to spend, for the lobby (null: a guest, or the wallet couldn't be read)
       balance: guest || saved === undefined ? null : balanceOf(saved),
     };
   }
 
   // The round a device should see: none in the lobby, otherwise its own view of the current round.
-  const roundFor = (room, playerId) => (room.round && room.phase !== "lobby" ? playerView(room.round, playerId, now()) : null);
+  const roundFor = (room, playerId) => {
+    if (!room.round || room.phase === "lobby") return null;
+    const view = playerView(room.round, playerId, now());
+    if (room.home && room.phase === "reveal" && room.round.state === "over") view.missed = missedWords(room.round, playerId);
+    return view;
+  };
   const hostRound = room => room.round && {
     n: room.round.n, settings: room.round.settings, game: room.round.game, state: room.round.state, remainingMs: remainingMs(room.round, now()),
     teams: room.round.teams ? room.round.teams.count : 0, teamResult: room.round.teamResult || null,
@@ -524,7 +578,7 @@ export function attachRooms(io, {
   // Joining the class's game: practise the secret pictures (signin.js practiceMode). { pin, mode } or null.
   // Only in the lobby (never holding a student out of a round) and once per game.
   async function practiceFor(room, studentId, p) {
-    if (!signin || !room.classId || room.phase !== "lobby" || p.pinDone) return null;
+    if (!signin || !room.classId || room.home || room.phase !== "lobby" || p.pinDone) return null;
     try {
       const [state, cls] = await Promise.all([signin.getSignin(room.teacherId, room.classId, studentId), getClass(room.teacherId, room.classId)]);
       const full = cls && cls.students.find(s => s.id === studentId);
@@ -582,10 +636,7 @@ export function attachRooms(io, {
       }
       const existing = rooms.get(byTeacher.get(teacher.id));
       if (existing) closeRoom(existing, "replaced");
-      let code;
-      // Not a code in use here, nor one a kept room is waiting to be picked up with after a restart.
-      const keptCode = c => (liveStore ? Promise.resolve().then(() => liveStore.byCode(c)).catch(() => null) : null);
-      do code = newCode(); while (rooms.has(code) || await keptCode(code));
+      const code = await freshCode();
       const room = {
         code, teacherId: teacher.id, hostSocket: null, classId: cls ? classId : null, className: cls ? cls.name : null,
         roster: cls ? cls.students.map(s => ({ id: s.id, name: s.name })) : null,
@@ -614,6 +665,9 @@ export function attachRooms(io, {
       if (!room) return ack({ error: "no-room" });
       const picked = pickRoundSettings(settings);
       if (!picked) return ack({ error: "invalid settings" });
+      // Building a board is the server's heaviest job: a home game (anyone signed in) can't ask for them back to back.
+      if (room.home && room.startedAt && now() - room.startedAt < HOME_START_MS) return ack({ error: "slow-down" });
+      room.startedAt = now();
       const game = await makeGame(picked);
       if (game.error) return ack({ error: game.error });
       // The last round ran out of time but the big screen's "answers" message never arrived: it still counts.
@@ -629,6 +683,8 @@ export function attachRooms(io, {
       sendRound(room);
       notify(room);
       saveNow(room);
+      // At home the host is a player too, so its device never gets the answers before the round is over.
+      if (room.home) { homeCountdown(room, room.round); return ack({ ok: true, n: room.round.n }); }
       ack({ ok: true, n: room.round.n, game, teams: room.round.teams ? room.round.teams.count : 0, coop: !!room.round.coop });
     });
 
@@ -747,6 +803,42 @@ export function attachRooms(io, {
       ack({ ok: true });
     });
 
+    /* ---- home games (see "home games" above) ---- */
+    // Opens this student's home game, or picks it up again (after a refresh, or on another of their devices).
+    // The device is its host and joins it as the student; the reply is the same as a join's, plus the host's view.
+    on("home:open", async (_, ack) => {
+      const s = socket.data.student;
+      if (!s) return ack({ error: "signed-out" });
+      const cls = await getClass(s.teacherId, s.classId);
+      const student = cls && cls.students.find(x => x.id === s.studentId);
+      if (!student) return ack({ error: "signed-out" });
+      if (cls.homePlay === false) return ack({ error: "home-off" });
+      const key = homeKey(s.teacherId, s.classId, student.id);
+      let room = rooms.get(byHome.get(key));
+      if (!room) {
+        const code = await freshCode();
+        room = {
+          code, teacherId: s.teacherId, hostSocket: null, classId: s.classId, className: `${student.name}'s game`,
+          roster: null, homeRoster: cls.students.map(x => ({ id: x.id, name: x.name })),
+          players: new Map(), phase: "lobby", createdAt: now(), hostSeenAt: now(), round: null, roundNo: 0,
+          ownLooks: true, teams: null, coop: false, coopBest: {}, home: { studentId: student.id, name: student.name },
+        };
+        rooms.set(code, room);
+        byHome.set(key, code);
+      }
+      const saved = await loadStudent(room, student.id);
+      if (rooms.get(room.code) !== room) return ack({ error: "no-room" });
+      attachHost(socket, room);
+      let p = players(room).find(x => x.studentId === student.id);
+      if (p) p.token = newToken();
+      else {
+        p = { id: newToken(), name: student.name, studentId: student.id, token: newToken(), socketId: null, avatar: null };
+        room.players.set(p.id, p);
+      }
+      const out = attachPlayer(socket, room, p, saved);
+      ack({ ...out, code: room.code, host: hostView(room) });
+    });
+
     /* ---- student sign-in: class code, name, secret pictures; then the device is remembered ---- */
     on("student:resume", async ({ pass }, ack) => {
       const p = typeof pass === "string" && pass ? pass : passFromCookie(socket.handshake.headers.cookie);
@@ -855,7 +947,9 @@ export function attachRooms(io, {
         studentId = s.studentId;
       }
       if (studentId != null) {
-        const student = room.roster && room.roster.find(s => s.id === studentId);
+        // A home game shows no names (parents and friends join it), so only a signed-in classmate can join as themselves.
+        const list = room.home ? (me === true ? room.homeRoster : null) : room.roster;
+        const student = list && list.find(s => s.id === studentId);
         if (!student) return ack({ error: "no-student" });
         const saved = await loadStudent(room, student.id);
         if (rooms.get(room.code) !== room) return ack({ error: "no-room" });   // closed while it was being read
@@ -869,14 +963,14 @@ export function attachRooms(io, {
           room.players.set(p.id, p);
         }
         const out = attachPlayer(socket, room, p, saved);
-        if (me !== true && remember === true) Object.assign(out, await rememberInClass(socket, room, student));
+        if (me !== true && remember === true && !room.home) Object.assign(out, await rememberInClass(socket, room, student));
         const practice = out.reveal ? { pin: out.reveal, mode: "first" } : await practiceFor(room, student.id, p);
         if (practice) out.practice = practice;
         return ack(out);
       }
       const clean = cleanGuestName(guestName);
       if (!clean) return ack({ error: "bad-name" });
-      const taken = [...players(room).map(p => p.name), ...(room.roster || []).map(s => s.name)];
+      const taken = [...players(room).map(p => p.name), ...(room.roster || room.homeRoster || []).map(s => s.name)];
       const p = { id: newToken(), name: uniqueName(clean, taken), studentId: null, token: newToken(), socketId: null, avatar: null };
       room.players.set(p.id, p);
       ack(attachPlayer(socket, room, p, null));
@@ -1012,7 +1106,7 @@ export function attachRooms(io, {
     };
     for (const room of rooms.values()) {
       if (room.round && timeUp(room.round)) finishRound(room, room.round, { grace: false });
-      else if (!liveStore) cutShort(room);
+      else if (!liveStore || room.home) cutShort(room);
     }
     for (const room of rooms.values()) if (room.round && room.round.save === "pending") flushRound(room, room.round);
     for (const job of unsaved) { unsaved.delete(job); runSave(job); }
@@ -1030,7 +1124,8 @@ export function attachRooms(io, {
   function sweep() {
     const t = now();
     for (const room of [...rooms.values()]) {
-      if (t - room.createdAt > MAX_AGE_MS || (!room.hostSocket && t - room.hostSeenAt > HOST_GONE_MS)) closeRoom(room, "expired");
+      const gone = room.home ? HOME_GONE_MS : HOST_GONE_MS;
+      if (t - room.createdAt > MAX_AGE_MS || (!room.hostSocket && t - room.hostSeenAt > gone)) closeRoom(room, "expired");
     }
     for (const [ip, f] of lookupFails) if (f.until <= t) lookupFails.delete(ip);
   }
