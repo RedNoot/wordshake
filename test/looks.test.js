@@ -5,6 +5,7 @@ import { DICE } from "../shared/looks/dice.js";
 import { COVERS, COVER_KEYS } from "../shared/looks/covers.js";
 import { EFFECTS } from "../shared/looks/effects.js";
 import { AVATARS } from "../shared/looks/avatars.js";
+import { EMOJI_AVATARS, EMOJI_PRICE } from "../shared/looks/emoji-avatars.js";
 import { MARBLES, FINISHES, DEFAULT_MARBLES } from "../shared/looks/marbles.js";
 import { JARS, DEFAULT_JAR } from "../shared/looks/jars.js";
 import { JAR_ART } from "../src/jarArt.js";
@@ -71,7 +72,7 @@ test("every item has a unique id, a known slot, a name, an emoji and a fair pric
     assert.ok(!ids.has(item.id), `${item.id}: used twice`);
     ids.add(item.id);
     assert.ok(SLOTS.includes(item.slot), `${item.id}: unknown slot ${item.slot}`);
-    assert.ok(item.name && item.name.length <= 24, `${item.id}: needs a name of 24 characters or fewer`);
+    assert.ok(item.name && item.name.length <= 40, `${item.id}: needs a name of 40 characters or fewer`);
     assert.ok(item.emoji, `${item.id}: needs an emoji`);
     assert.ok(Number.isInteger(item.price) && item.price >= 0 && item.price <= 1000, `${item.id}: price must be a whole number 0-1000`);
     if (item.unlock) assert.ok(TROPHY_BY_ID[item.unlock], `${item.id}: unlocked by an unknown trophy ${item.unlock}`);
@@ -84,6 +85,24 @@ test("every item has a unique id, a known slot, a name, an emoji and a fair pric
 // Newer emoji (Unicode 13 and up) show as empty boxes on Windows 10 and older iPads.
 test("every emoji is old enough to show everywhere", () => {
   for (const item of ITEMS) for (const ch of item.emoji) assert.ok(ch.codePointAt(0) < 0x1FA70, `${item.id}: ${item.emoji} is too new`);
+});
+
+test("the rest of the emoji keyboard is for sale as avatars, in groups, and nothing is sold twice", () => {
+  assert.ok(EMOJI_AVATARS.length > 500, "hundreds of emoji");
+  const groups = new Set(["Smileys", "Animals", "Food", "Travel", "Activities", "Objects", "Symbols"]);
+  const strip = e => e.replace(/️/g, "");
+  const curated = new Set(AVATARS.filter(i => !i.group).map(i => strip(i.emoji)));
+  const seen = new Set();
+  for (const a of EMOJI_AVATARS) {
+    assert.equal(a.price, EMOJI_PRICE, `${a.id} costs the standard price`);
+    assert.ok(groups.has(a.group), `${a.id}: unknown group ${a.group}`);
+    assert.ok(!a.unlock && !a.season, `${a.id}: plain for sale`);
+    assert.ok(!curated.has(strip(a.emoji)), `${a.emoji} is already a hand-picked avatar`);
+    assert.ok(!seen.has(strip(a.emoji)), `${a.emoji} is listed twice`);
+    seen.add(strip(a.emoji));
+  }
+  for (const banned of ["💩", "💀", "🔫", "🍺", "🚬", "🐷", "🐮", "🇦🇺"]) assert.ok(!seen.has(strip(banned)), `${banned} must not be sold`);
+  assert.ok(EMOJI_AVATARS.every(a => AVATARS.includes(a) && ITEMS.includes(a)), "they are in the shop catalogue");
 });
 
 test("classic is the free default theme", () => {
@@ -160,10 +179,10 @@ for (const j of [DEFAULT_JAR, ...JARS]) {
   });
 }
 
-// The bottom tenth of rounds so far scored about 4 points; such a student should still buy something in one lesson (3 rounds).
-test("the cheapest item is within one lesson for anyone", { skip: !AVATARS.length && "no avatars yet" }, () => {
+// The bottom tenth of rounds so far scored about 4 points; such a student should still buy something in two lessons (6 rounds; prices doubled on 2026-10-23).
+test("the cheapest item is within two lessons for anyone", { skip: !AVATARS.length && "no avatars yet" }, () => {
   const bought = ITEMS.filter(i => i.price > 0 && !i.unlock);
-  assert.ok(Math.min(...bought.map(i => i.price)) <= 3 * starsForRound(4), `something costs ${3 * starsForRound(4)} stars or less`);
+  assert.ok(Math.min(...bought.map(i => i.price)) <= 6 * starsForRound(4), `something costs ${6 * starsForRound(4)} stars or less`);
 });
 
 /* ---- the shop rules ---- */

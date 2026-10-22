@@ -10,12 +10,12 @@ import { SEASONAL } from "./seasonal.js";
 const effect = (id, name, emoji, price) => ({ id, slot: "effect", name, emoji, price });
 
 const BASE_EFFECTS = [
-  effect("sparkle", "Sparkle", "✨", 40),
-  effect("bubbles", "Bubbles", "🧼", 60),
-  effect("stars", "Shooting stars", "⭐", 60),
-  effect("hearts", "Hearts", "💖", 80),
-  effect("leaves", "Falling leaves", "🍂", 80),
-  effect("fireworks", "Fireworks", "🎆", 120),
+  effect("sparkle", "Sparkle", "✨", 80),
+  effect("bubbles", "Bubbles", "🧼", 120),
+  effect("stars", "Shooting stars", "⭐", 120),
+  effect("hearts", "Hearts", "💖", 160),
+  effect("leaves", "Falling leaves", "🍂", 160),
+  effect("fireworks", "Fireworks", "🎆", 240),
 ];
 
 // Plus this slot's items from the seasonal shelves (shared/looks/seasons/).

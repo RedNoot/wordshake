@@ -27,10 +27,20 @@ built to. The code it points at is the detail.
 | `theme` | the device's colours (`data-ws-theme`) | `shared/looks/themes.js` | `classic` (free) |
 | `dice` | die faces only (`data-ws-dice`), on top of any theme | `shared/looks/dice.js` | the theme's dice |
 | `effect` | a burst on the board when a word counts | `shared/looks/effects.js` + drawing in `src/effects.jsx` | none |
-| `avatar` | an emoji beside the name: device, splash, big-screen lobby | `shared/looks/avatars.js` | none |
+| `avatar` | an emoji beside the name: device, splash, big-screen lobby | `shared/looks/avatars.js`, `emoji-avatars.js` | none |
 | `cover` | trophy cabinet and sticker book (`data-ws-cover`) | `shared/looks/covers.js` | the theme's (or classic's) |
 | `marble` | the word jar's marbles: five colours (one per word length) and a finish (`data-ws-marble`) | `shared/looks/marbles.js` + drawing in `src/jarArt.js` | rainbow glass |
 | `jar` | the word jar's shape (also its physics), glass tint, lid and decorations (`data-ws-jar`) | `shared/looks/jars.js` + drawing in `src/jarArt.js` | the plain glass jar |
+
+**Prices were doubled on 2026-10-23** (every non-free item, seasonal shelves included). The cheapest thing is now 50 ⭐,
+about six ordinary rounds; `test/looks.test.js` guards that.
+
+**Emoji avatars.** Besides the hand-picked avatars, nearly the whole emoji keyboard is for sale as avatars
+(`shared/looks/emoji-avatars.js`, about 940 of them, 50 ⭐ each, ids `emoji-<name>`). Each has a `group` (Smileys, Animals,
+Food, Travel, Activities, Objects, Symbols) and the Shop's Avatars shelf shows one group at a time (Favourites = the
+hand-picked ones, Mine = what the student owns), 48 cards a page. Left out: people/skin tones, flags, anything rude, scary,
+violent or adult, religious symbols, the tease-prone animals and foods, and anything newer than Unicode 11. The file's
+header says how to change that.
 
 Each file's header says the item format. Every item has `{ id, slot, name, emoji, price, unlock? }`.
 `unlock: "<trophy id>"` means the item can't be bought: it's free once that trophy is won.

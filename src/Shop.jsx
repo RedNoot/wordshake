@@ -20,6 +20,10 @@ import { marbleSetOf, jarOf } from "./jarArt.js";
 const SLOT_EMOJI = { theme: "🎨", dice: "🎲", effect: "✨", avatar: "🙂", cover: "📒", marble: "🔮", jar: "🏺" };
 // The words in a shop jar: some of every length, so each card shows the whole set.
 const SAMPLE = "cat sun hat pig web map tin fox cup bed rain frog tree jump sing ship grape plant train cloud snail rocket garden spider planet rainbow dolphin".split(" ").map(w => ({ w, t: 0 }));
+// The avatar shelf is hundreds of emoji, so it is shown one group at a time: the hand-picked favourites first, then the
+// rest of the emoji keyboard by kind, and a "Mine" group so a student can find what they've got. Long groups show a page at a time.
+const AVATAR_GROUPS = ["Favourites", "Mine", "Smileys", "Animals", "Food", "Travel", "Activities", "Objects", "Symbols"];
+const PAGE = 48;
 const pill = { fontSize: 18, fontWeight: 700, border: "none", borderRadius: 14, padding: "12px 18px", minHeight: 48, cursor: "pointer", width: "100%" };
 
 // The little picture on each card, drawn in the student's current theme so it looks like it will on their device.
@@ -145,6 +149,8 @@ export function Shop({ name, cached, ownLooks = true, onLoaded, onWorn, onClose,
   const [busy, setBusy] = useState(false);
   const [ask, setAsk] = useState(null);       // { item, done } while the buy dialog is open
   const [trying, setTrying] = useState(null); // the sparkle being tried out
+  const [group, setGroup] = useState("Favourites");   // which part of the avatar shelf is open
+  const [shown, setShown] = useState(PAGE);           // how many cards of a long shelf are showing
   const [reload, setReload] = useState(0);
   const alive = useRef(true);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
@@ -199,8 +205,13 @@ export function Shop({ name, cached, ownLooks = true, onLoaded, onWorn, onClose,
   const seasonTabs = SEASONS.filter(s => shelf[s.id]);
   const worn = data ? data.worn : null;
   const theme = wornIn(worn, "theme");
-  const list = shelf[tab] || [];
+  let list = shelf[tab] || [];
+  if (tab === "avatar" && data) {
+    const mine = i => i.id && ["wearing", "owned"].includes(itemState(i, data.wallet, data.trophies, worn).state);
+    list = group === "Mine" ? list.filter(mine) : list.filter(i => (i.group || "Favourites") === group);
+  }
   const real = SEASON_BY_ID[tab] ? list : list.filter(i => i.id && !(i.slot === "theme" && i.price === 0));   // what's actually for sale here
+  const page = tab === "avatar" ? list.slice(0, shown) : list;
 
   return (
     <div className="ws-fade" style={{ width: "100%", display: "grid", gap: 18 }}>
@@ -234,25 +245,43 @@ export function Shop({ name, cached, ownLooks = true, onLoaded, onWorn, onClose,
         <>
           <div role="tablist" aria-label="Shop shelves" style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             {[...seasonTabs.map(s => ({ id: s.id, emoji: s.emoji, name: s.name })), ...SLOTS.map(slot => ({ id: slot, emoji: SLOT_EMOJI[slot], name: SLOT_NAMES[slot] }))].map(t => (
-              <button key={t.id} type="button" role="tab" id={`ws-shop-tab-${t.id}`} aria-selected={tab === t.id} aria-controls="ws-shop-shelf" onClick={() => { setTab(t.id); setTrying(null); }}
+              <button key={t.id} type="button" role="tab" id={`ws-shop-tab-${t.id}`} aria-selected={tab === t.id} aria-controls="ws-shop-shelf" onClick={() => { setTab(t.id); setTrying(null); setShown(PAGE); }}
                 className="ws-btn ws-display" style={{ fontSize: 17, fontWeight: 600, minHeight: 48, padding: "8px 16px", borderRadius: 999, cursor: "pointer", border: `2px solid ${tab === t.id ? T.amber : "rgb(var(--ws-fg) / .2)"}`, background: tab === t.id ? "rgb(var(--ws-amber-rgb) / .15)" : "transparent", color: "var(--ws-text)" }}>
                 <span aria-hidden="true">{t.emoji} </span>{t.name}
               </button>
             ))}
           </div>
+          {tab === "avatar" && (
+            <div role="group" aria-label="Kinds of avatar" style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {AVATAR_GROUPS.map(g => (
+                <button key={g} type="button" aria-pressed={group === g} onClick={() => { setGroup(g); setShown(PAGE); }}
+                  className="ws-btn ws-display" style={{ fontSize: 16, fontWeight: 600, minHeight: 44, padding: "6px 14px", borderRadius: 999, cursor: "pointer", border: `2px solid ${group === g ? T.amber : "rgb(var(--ws-fg) / .2)"}`, background: group === g ? "rgb(var(--ws-amber-rgb) / .15)" : "transparent", color: "var(--ws-text)" }}>
+                  {g}
+                </button>
+              ))}
+            </div>
+          )}
           <div id="ws-shop-shelf" role="tabpanel" aria-labelledby={`ws-shop-tab-${tab}`} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 220px), 1fr))", gap: 14 }}>
             {SEASON_BY_ID[tab] && (
               <div style={{ gridColumn: "1 / -1", fontSize: 18, color: T.mist }}>
                 Only in the shop {SEASON_BY_ID[tab].when}. Anything you get is yours to keep all year.
               </div>
             )}
-            {list.map(item => (
+            {page.map(item => (
               <ItemCard key={item.id || "none"} item={item} name={name} theme={theme} worn={worn} items={items} busy={busy}
                 look={itemState(item, data.wallet, data.trophies, worn)}
                 onWear={() => wear(item)} onBuy={() => { setNote(""); setAsk({ item, done: false }); }}
                 trying={trying === item.id} onTry={() => setTrying(item.id)} />
             ))}
-            {real.length < 2 && (
+            {page.length < list.length && (
+              <button type="button" className="ws-btn ws-display" onClick={() => setShown(n => n + PAGE)} style={{ ...pill, gridColumn: "1 / -1", width: "auto", justifySelf: "center", background: "rgb(var(--ws-fg) / .1)", color: "var(--ws-text)" }}>
+                Show more ({list.length - page.length} more)
+              </button>
+            )}
+            {tab === "avatar" && group === "Mine" && list.length === 0 && (
+              <div style={{ gridColumn: "1 / -1", color: T.mist, fontSize: 18 }}>Avatars you buy will be here.</div>
+            )}
+            {real.length < 2 && tab !== "avatar" && (
               <div style={{ display: "grid", placeItems: "center", textAlign: "center", gap: 6, minHeight: 160, border: "2px dashed rgb(var(--ws-fg) / .18)", borderRadius: 18, padding: 16, color: T.mist, fontSize: 18 }}>
                 <span aria-hidden="true" style={{ fontSize: 40 }}>📦</span>
                 More coming soon!

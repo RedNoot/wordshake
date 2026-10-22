@@ -32,7 +32,7 @@ export const HALLOWEEN = [
   {
     // A moonlit Halloween night: deep plum page, a candle-cream die, pumpkin-orange highlights, a big soft moon,
     // a few stars, and bats drifting slowly across far behind everything.
-    id: "halloween-night", slot: "theme", name: "Pumpkin night", emoji: "🌕", price: 120, scheme: "dark", season,
+    id: "halloween-night", slot: "theme", name: "Pumpkin night", emoji: "🌕", price: 240, scheme: "dark", season,
     vars: {
       ink: "#1A1030", "ink-rgb": "26 16 48", text: "#F6F0FF", fg: "255 255 255", glow: "#3A2160",
       well: "#3B2563", "well-edge": "#22143D", dice: "#FFF4E2", "dice-edge": "#E0B98A", letter: "#2A1440", "letter-lit": "#2A1440",
@@ -50,7 +50,7 @@ export const HALLOWEEN = [
   },
   {
     // A pumpkin to play with: orange face, a dark letter, faint ribs down the sides and a little green stalk on top.
-    id: "halloween-pumpkins", slot: "dice", name: "Pumpkins", emoji: "🎃", price: 100, season,
+    id: "halloween-pumpkins", slot: "dice", name: "Pumpkins", emoji: "🎃", price: 200, season,
     vars: {
       dice: "#FFA43A", "dice-edge": "#C2610E", letter: "#2B1404",
       // the ribs keep to the sides and the stalk to the top edge, clear of the letter in the middle
@@ -65,10 +65,10 @@ export const HALLOWEEN = [
     },
     css: round("32% 32% 28% 28% / 30% 30% 34% 34%"),
   },
-  { id: "halloween-bats", slot: "effect", name: "Bat flutter", emoji: "🦇", price: 80, season },
+  { id: "halloween-bats", slot: "effect", name: "Bat flutter", emoji: "🦇", price: 160, season },
   {
     // A cabinet in the dark with soft cobwebs in its top corners; cream pages with faint pumpkins and bats.
-    id: "halloween-cobwebs", slot: "cover", name: "Cobwebs", emoji: "🕸️", price: 100, season,
+    id: "halloween-cobwebs", slot: "cover", name: "Cobwebs", emoji: "🕸️", price: 200, season,
     vars: {
       cabinet: "#2E1F47", "cabinet-edge": "#170E26", shelf: "#A8703F", "shelf-edge": "#6B4321",
       silhouette: WHITE_GHOST(0.18), "sticker-font": "var(--ws-font-display)",
@@ -82,10 +82,10 @@ export const HALLOWEEN = [
     ].join(","))
       + page(coverSvg(`width='96' height='96'><g fill='%23E07B1A' fill-opacity='.2'><ellipse cx='18' cy='20' rx='7' ry='5.5'/><ellipse cx='68' cy='70' rx='6' ry='4.8'/></g><g fill='%234E7A2A' fill-opacity='.3'><rect x='17' y='12.5' width='2' height='3'/><rect x='67' y='63.5' width='2' height='3'/></g><g fill='%237A4BC2' fill-opacity='.16'><path transform='translate(72 22) scale(.55)' d='${BAT}'/><path transform='translate(24 70) scale(.45)' d='${BAT}'/></g>`)),
   },
-  { id: "halloween-pumpkin", slot: "avatar", name: "Pumpkin", emoji: "🎃", price: 30, season },
-  { id: "halloween-ghost", slot: "avatar", name: "Friendly ghost", emoji: "👻", price: 40, season },
-  { id: "halloween-bat", slot: "avatar", name: "Bat", emoji: "🦇", price: 30, season },
+  { id: "halloween-pumpkin", slot: "avatar", name: "Pumpkin", emoji: "🎃", price: 60, season },
+  { id: "halloween-ghost", slot: "avatar", name: "Friendly ghost", emoji: "👻", price: 80, season },
+  { id: "halloween-bat", slot: "avatar", name: "Bat", emoji: "🦇", price: 60, season },
   // The word jar (shared/looks/marbles.js, jars.js; drawn in src/jarArt.js)
-  { id: "halloween-potion", slot: "marble", name: "Potion drops", emoji: "🧪", price: 80, colours: ["#C6FF4D", "#3DDCB0", "#FF9A2E", "#FF4FA3", "#9B5CFF"], finish: "glow", season },
-  { id: "halloween-pumpkin-jar", slot: "jar", name: "Pumpkin jar", emoji: "🎃", price: 100, shape: [[0.34, 0.14], [0.34, 0.2], ...arc(0.6, 0.48, 0.75, Math.PI * 0.9)], tint: "#FF8A1F", season },
+  { id: "halloween-potion", slot: "marble", name: "Potion drops", emoji: "🧪", price: 160, colours: ["#C6FF4D", "#3DDCB0", "#FF9A2E", "#FF4FA3", "#9B5CFF"], finish: "glow", season },
+  { id: "halloween-pumpkin-jar", slot: "jar", name: "Pumpkin jar", emoji: "🎃", price: 200, shape: [[0.34, 0.14], [0.34, 0.2], ...arc(0.6, 0.48, 0.75, Math.PI * 0.9)], tint: "#FF8A1F", season },
 ];

@@ -35,7 +35,7 @@ const WHITE_GHOST = a => `brightness(0) invert(1) opacity(${a})`;
 
 const BASE_COVERS = [
   {
-    id: "treehouse", slot: "cover", name: "Treehouse", emoji: "🌳", price: 60,
+    id: "treehouse", slot: "cover", name: "Treehouse", emoji: "🌳", price: 120,
     vars: {
       cabinet: "#2D5A27", "cabinet-edge": "#5B3B1E", shelf: "#A8703F", "shelf-edge": "#6B4321",
       silhouette: WHITE_GHOST(0.18), "sticker-font": "var(--ws-font-display)",
@@ -45,7 +45,7 @@ const BASE_COVERS = [
       + page(`${noise(0.6, 0.28)}, linear-gradient(180deg, rgba(255,255,255,.18), transparent 40%)`),
   },
   {
-    id: "castle", slot: "cover", name: "Castle", emoji: "🏰", price: 100,
+    id: "castle", slot: "cover", name: "Castle", emoji: "🏰", price: 200,
     vars: {
       cabinet: "#575B62", "cabinet-edge": "#33363B", shelf: "#9C7A52", "shelf-edge": "#5E4930",
       silhouette: WHITE_GHOST(0.2), "sticker-font": "var(--ws-font-display)",
@@ -55,7 +55,7 @@ const BASE_COVERS = [
       + page(`radial-gradient(ellipse at 15% 8%, rgba(255,255,255,.55), transparent 55%), radial-gradient(ellipse at 95% 100%, rgba(150,105,40,.2), transparent 60%), ${noise(0.04, 0.12)}`),
   },
   {
-    id: "station", slot: "cover", name: "Space station", emoji: "🚀", price: 100,
+    id: "station", slot: "cover", name: "Space station", emoji: "🚀", price: 200,
     vars: {
       cabinet: "#3A4452", "cabinet-edge": "#7F8B9A", shelf: "#8A96A5", "shelf-edge": "#4B5563",
       silhouette: WHITE_GHOST(0.2), "sticker-font": "var(--ws-font-display)",
@@ -78,7 +78,7 @@ const BASE_COVERS = [
       ].join(",")),
   },
   {
-    id: "seaside", slot: "cover", name: "Seaside", emoji: "🌊", price: 60,
+    id: "seaside", slot: "cover", name: "Seaside", emoji: "🌊", price: 120,
     vars: {
       cabinet: "#6B5F51", "cabinet-edge": "#433A30", shelf: "#A89070", "shelf-edge": "#6A5A44",
       silhouette: WHITE_GHOST(0.22), "sticker-font": "var(--ws-font-display)",
@@ -88,7 +88,7 @@ const BASE_COVERS = [
       + page(`${svg(`width='64' height='64'><g fill='%23946A30' fill-opacity='.28'><circle cx='6' cy='9' r='1'/><circle cx='22' cy='30' r='.8'/><circle cx='41' cy='12' r='1.1'/><circle cx='56' cy='44' r='.9'/><circle cx='12' cy='52' r='1'/><circle cx='34' cy='58' r='.7'/><circle cx='50' cy='24' r='.7'/><circle cx='28' cy='5' r='.6'/></g>`)}, radial-gradient(ellipse at 100% 100%, rgba(12,104,132,.1), transparent 55%)`),
   },
   {
-    id: "sweets", slot: "cover", name: "Sweet shop", emoji: "🍭", price: 100,
+    id: "sweets", slot: "cover", name: "Sweet shop", emoji: "🍭", price: 200,
     vars: {
       cabinet: "#A8336A", "cabinet-edge": "#F4BBD4", shelf: "#C0803F", "shelf-edge": "#7A4A1C",
       silhouette: WHITE_GHOST(0.26), "sticker-font": "var(--ws-font-display)",
@@ -98,7 +98,7 @@ const BASE_COVERS = [
       + page(svg(`width='72' height='72'><g fill-opacity='.35'><circle cx='10' cy='12' r='3' fill='%238FD6B4'/><circle cx='44' cy='20' r='2.5' fill='%23FFD36E'/><circle cx='26' cy='46' r='3' fill='%238EC5F0'/><circle cx='62' cy='54' r='2.5' fill='%23C9A4F0'/><circle cx='54' cy='4' r='2' fill='%238EC5F0'/><circle cx='6' cy='64' r='2' fill='%23FFD36E'/></g>`)),
   },
   {
-    id: "notebook", slot: "cover", name: "Spotty notebook", emoji: "📒", price: 150,
+    id: "notebook", slot: "cover", name: "Spotty notebook", emoji: "📒", price: 300,
     vars: {
       cabinet: "#17747D", "cabinet-edge": "#F5B700", shelf: "#D0703A", "shelf-edge": "#8E3E17",
       silhouette: WHITE_GHOST(0.2), "sticker-font": "var(--ws-font-display)",
