@@ -225,6 +225,31 @@ test("tapping a name in class remembers the device; pictures are shown only the 
   await call(host, "host:close");
 });
 
+test("a device that was in the game before it was signed in is remembered, and shown its pictures, when it comes back", async () => {
+  states.set("s2", { pinShown: false });
+  const host = await client();
+  const { room } = await call(host, "host:open", { idToken: "tok-a", classId: "class1" });
+  const kid = await client();
+  const old = await call(kid, "player:join", { code: room.code, studentId: "s2" });   // the old app: no remember
+  assert.equal(old.pass, undefined);
+  kid.disconnect();
+  const back = await client();
+  const j = await call(back, "player:rejoin", { code: room.code, token: old.token, remember: true });
+  assert.equal(j.ok, true);
+  assert.ok(j.pass, "remembered now");
+  assert.deepEqual(j.reveal, CLASS.students[1].pin);
+  assert.deepEqual(j.practice, { pin: CLASS.students[1].pin, mode: "first" });
+  // Coming back again on a signed-in device (the iPad slept): nothing new.
+  back.disconnect();
+  const again = await client();
+  await call(again, "student:resume", { pass: j.pass });
+  const k = await call(again, "player:rejoin", { code: room.code, token: j.token, remember: false });
+  assert.equal(k.ok, true);
+  assert.equal(k.pass, undefined);
+  assert.equal(k.reveal, undefined);
+  await call(host, "host:close");
+});
+
 test("the game appearing and going away reaches signed-in devices", async () => {
   states.set("s2", { pinShown: true });
   const kid = await client();

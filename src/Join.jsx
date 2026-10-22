@@ -187,8 +187,11 @@ export function Join({ initialCode }) {
     const token = store.get(tokenKey(c));
     if (token) {
       setStep("loading");
-      const res = await call("player:rejoin", { code: c, token });
-      if (res.ok) return joined(c, res);
+      const res = await call("player:rejoin", { code: c, token, remember: !studentRef.current });
+      if (res.ok) {
+        if (res.pass) signedIn({ pass: res.pass, name: res.name, className: res.className });
+        return joined(c, res);
+      }
       if (res.error !== "offline") store.del(tokenKey(c));
     }
     if (studentRef.current) {

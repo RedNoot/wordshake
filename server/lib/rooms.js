@@ -992,7 +992,8 @@ export function attachRooms(io, {
     });
 
     // A device that joined before (saved token) comes straight back, e.g. after the iPad slept.
-    on("player:rejoin", async ({ code, token }, ack) => {
+    // remember: as player:join; a device that was in the game before it was signed in is remembered (and shown its pictures) now.
+    on("player:rejoin", async ({ code, token, remember }, ack) => {
       const { room, error } = await studentRoom(socket, code);
       if (error) return ack({ error });
       const find = () => typeof token === "string" && players(room).find(x => x.token === token);
@@ -1001,7 +1002,12 @@ export function attachRooms(io, {
       const saved = await loadStudent(room, p.studentId);
       // Closed, kicked, or taken over by another device while the wallet was being read.
       if (rooms.get(room.code) !== room || find() !== p) return ack({ error: "no-player" });
-      ack(attachPlayer(socket, room, p, saved));
+      const out = attachPlayer(socket, room, p, saved);
+      const student = p.studentId != null && !room.home && room.roster && room.roster.find(s => s.id === p.studentId);
+      if (student && remember === true && !socket.data.student) Object.assign(out, await rememberInClass(socket, room, student));
+      const practice = out.reveal ? { pin: out.reveal, mode: "first" } : student ? await practiceFor(room, student.id, p) : null;
+      if (practice) out.practice = practice;
+      ack(out);
     });
 
     on("player:word", async ({ n, word }, ack) => {
