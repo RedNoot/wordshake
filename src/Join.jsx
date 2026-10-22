@@ -97,6 +97,7 @@ export function Join({ initialCode }) {
   const [busy, setBusy] = useState(false);
   const stepRef = useRef(step);
   stepRef.current = step;
+  const justSignedOut = useRef(false);
   const codeRef = useRef(code);
   codeRef.current = code;
 
@@ -296,7 +297,9 @@ export function Join({ initialCode }) {
       setHosting(null);
       setRound(null);
       setPractice(null);
-      setMessage(ENDED[why] || ENDED.closed);
+      // Signed out while running a home game: the game closes straight after, so say why.
+      setMessage(justSignedOut.current ? ERRORS["signed-out"] : ENDED[why] || ENDED.closed);
+      justSignedOut.current = false;
       // A signed-in student goes back to their home screen, still dressed in their own looks.
       if (studentRef.current) { setCode(""); goHome(null); return; }
       undress();
@@ -310,6 +313,8 @@ export function Join({ initialCode }) {
     // The teacher signed this device out.
     const onSignedOut = () => {
       dropPass();
+      studentRef.current = null;   // the home game's "closed" can arrive before the next render
+      justSignedOut.current = inHomeGame.current && stepRef.current === "joined";
       setStudent(null);
       setPractice(null);
       if (stepRef.current === "home" || ["pin", "classNames"].includes(stepRef.current)) { undress(); setBalance(null); setMessage(ERRORS["signed-out"]); setStep("code"); }

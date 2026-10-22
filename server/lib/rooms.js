@@ -600,6 +600,17 @@ export function attachRooms(io, {
       socket.data.student = null;
       socket.leave(classChannel(teacherId, classId));
       socket.emit("student:signed-out");
+      // The home game this device is running ends with it (it would otherwise go on earning stars).
+      const home = socket.data.hostOf && rooms.get(socket.data.hostOf);
+      if (home && home.home) closeRoom(home);
+    }
+    // A student or a whole class signed out: their home games end too, even with no device connected right now.
+    if (!deviceId) {
+      for (const [key, code] of [...byHome]) {
+        const room = rooms.get(code);
+        if (room && room.teacherId === teacherId && room.classId === classId && (!studentId || room.home.studentId === studentId)) closeRoom(room);
+        else if (!room) byHome.delete(key);
+      }
     }
   }
 
@@ -684,7 +695,11 @@ export function attachRooms(io, {
       notify(room);
       saveNow(room);
       // At home the host is a player too, so its device never gets the answers before the round is over.
-      if (room.home) { homeCountdown(room, room.round); return ack({ ok: true, n: room.round.n }); }
+      if (room.home) {
+        io.to(`players:${room.code}`).emit("room:phase", "playing");   // "Play again" goes straight from the answers to a new round
+        homeCountdown(room, room.round);
+        return ack({ ok: true, n: room.round.n });
+      }
       ack({ ok: true, n: room.round.n, game, teams: room.round.teams ? room.round.teams.count : 0, coop: !!room.round.coop });
     });
 

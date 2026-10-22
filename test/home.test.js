@@ -29,7 +29,7 @@ const PASSES = { "pass-ava": { classId: "class1", studentId: "s1" }, "pass-ben":
 const GAME = { tiles: ["C", "A", "T", "S", ...Array(12).fill("X")], rots: Array(16).fill("0"), solution: { list: ["cat", "cats"], total: 2, longest: [{ word: "cats" }], phonics: null } };
 const ROUND = { seconds: 60, size: 4, minLen: 3 };
 
-let server, url, clock = Date.parse("2026-10-22T08:00:00Z");
+let server, url, roomsApi, clock = Date.parse("2026-10-22T08:00:00Z");
 let pending = [];
 const savedClass = [], savedHome = [], kept = [];
 const runTimers = () => { const due = pending; pending = []; due.forEach(t => t.fn()); };
@@ -39,7 +39,7 @@ const sockets = [];
 before(async () => {
   server = http.createServer();
   const io = new Server(server);
-  attachRooms(io, {
+  roomsApi = attachRooms(io, {
     verifyTeacher: async t => { if (t !== "tok-a") throw new AuthError(401, "token-invalid"); return { id: "teacherA", name: "A" }; },
     getClass: async (tid, cid) => (tid === "teacherA" && classes[cid]) || null,
     makeGame: async () => GAME,
@@ -184,4 +184,26 @@ test("closing a home game sends everyone home and forgets it", async () => {
   assert.equal(kept.includes(`removed ${code}`), false);
   // A new one gets a new code.
   assert.notEqual((await call(ava, "home:open")).code, code);
+});
+
+test("signed out by the teacher: the student's home game ends for everyone", async () => {
+  const ava = await signedIn("pass-ava");
+  const { code } = await call(ava, "home:open");
+  const mum = await client();
+  await call(mum, "player:join", { code, guestName: "Mum" });
+  const closed = new Promise(r => mum.once("room:closed", r));
+  const told = new Promise(r => ava.once("student:signed-out", r));
+  roomsApi.signedOut("teacherA", "class1", "s1");
+  await told;
+  assert.equal(await closed, "closed");
+  assert.deepEqual(await call(ava, "host:start", { settings: ROUND }), { error: "no-room" });
+  assert.deepEqual(await call(ava, "home:open"), { error: "signed-out" });
+
+  // The whole class signed out (or the class deleted), with the host's device away: its game ends too.
+  const again = await signedIn("pass-ava");
+  const second = await call(again, "home:open");
+  again.disconnect();
+  await new Promise(r => setTimeout(r, 50));
+  roomsApi.signedOut("teacherA", "class1");
+  assert.deepEqual(await call(mum, "player:lookup", { code: second.code }), { error: "no-room" });
 });
