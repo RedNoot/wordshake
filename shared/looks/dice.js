@@ -19,7 +19,7 @@ import { SEASONAL } from "./seasonal.js";
 // Textures stay faint, and their gloss and marks sit near the edges and corners, away from the letter in the middle.
 const BASE_DICE = [
   {
-    id: "wood", slot: "dice", name: "Wooden blocks", emoji: "🌳", price: 80,
+    id: "wood", slot: "dice", name: "Wooden blocks", emoji: "🌳", price: 160,
     vars: {
       dice: "#E3C08F", "dice-edge": "#A87843", letter: "#3B2412",
       "dice-texture": [
@@ -33,7 +33,7 @@ const BASE_DICE = [
     css: round("10%"),
   },
   {
-    id: "chalk", slot: "dice", name: "Chalkboard", emoji: "🖍️", price: 100,
+    id: "chalk", slot: "dice", name: "Chalkboard", emoji: "🖍️", price: 200,
     vars: {
       dice: "#2E3A36", "dice-edge": "#151C1A", letter: "#F7F5EC",
       // a faint chalk-dust rim (so the dark face still shows on a dark tray) and a rubbed-out smudge in the corner
@@ -47,7 +47,7 @@ const BASE_DICE = [
     css: round("8%"),
   },
   {
-    id: "ice", slot: "dice", name: "Ice cubes", emoji: "🧊", price: 120,
+    id: "ice", slot: "dice", name: "Ice cubes", emoji: "🧊", price: 240,
     vars: {
       dice: "#DDF0FA", "dice-edge": "#93C3DF", letter: "#0B3A5C",
       // frost: a bright glint top-left, a cooler blue deep in the bottom, a frosty rim, icicles and a hairline crack in a corner
@@ -64,7 +64,7 @@ const BASE_DICE = [
     css: round("16%"),
   },
   {
-    id: "jelly", slot: "dice", name: "Jelly", emoji: "🍮", price: 100,
+    id: "jelly", slot: "dice", name: "Jelly", emoji: "🍮", price: 200,
     vars: {
       dice: "#FF9CCF", "dice-edge": "#D9478F", letter: "#4A0730",
       // a wet gloss along the top, a little shine spot, and a deeper pink pooling at the bottom
@@ -77,7 +77,7 @@ const BASE_DICE = [
     css: round("30%"),
   },
   {
-    id: "stone", slot: "dice", name: "Stone", emoji: "⛰️", price: 120,
+    id: "stone", slot: "dice", name: "Stone", emoji: "⛰️", price: 240,
     vars: {
       dice: "#C8C3B8", "dice-edge": "#857E72", letter: "#2A2723",
       // speckles in the rock, light on the top-left and a shaded rim, on a slightly uneven pebble shape
@@ -93,7 +93,7 @@ const BASE_DICE = [
     css: round("40% 32% 36% 30% / 34% 38% 30% 36%"),
   },
   {
-    id: "gold", slot: "dice", name: "Gold", emoji: "🥇", price: 300,
+    id: "gold", slot: "dice", name: "Gold", emoji: "🥇", price: 600,
     vars: {
       dice: "#F2C94C", "dice-edge": "#A87A0C", letter: "#3D2A00",
       // polished: a bright rim, a shine on the top-left, a glint band across the bottom-right corner, a warmer shade low down

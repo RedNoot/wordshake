@@ -32,7 +32,7 @@ export const CHRISTMAS = [
   {
     // Christmas night in the garden: a deep pine page, a cranberry tray, cream dice, star-gold highlights, a string of
     // fairy lights along the top (every other bulb slowly glows brighter) and a few faint gold stars.
-    id: "christmas-lights", slot: "theme", name: "Fairy lights", emoji: "🌟", price: 120, scheme: "dark", season: "christmas",
+    id: "christmas-lights", slot: "theme", name: "Fairy lights", emoji: "🌟", price: 240, scheme: "dark", season: "christmas",
     vars: {
       ink: "#0E2219", "ink-rgb": "14 34 25", text: "#F3F8EF", fg: "255 255 255", glow: "#1C3D2B",
       well: "#7D1E2A", "well-edge": "#4A0E16", dice: "#FBF6EA", "dice-edge": "#D8C8A4", letter: "#1A2A1F", "letter-lit": "#1A2A1F",
@@ -47,7 +47,7 @@ export const CHRISTMAS = [
   },
   {
     // A candy cane: a white face with red-and-white stripes round the rim (the middle stays plain for the letter).
-    id: "christmas-candy", slot: "dice", name: "Candy cane", emoji: "🎀", price: 100, season: "christmas",
+    id: "christmas-candy", slot: "dice", name: "Candy cane", emoji: "🎀", price: 200, season: "christmas",
     vars: {
       dice: "#FFFDF8", "dice-edge": "#C42A3A", letter: "#5C0B16",
       "dice-texture": [
@@ -61,11 +61,11 @@ export const CHRISTMAS = [
     css: round("14%"),
   },
   // Shiny baubles pop off the last letter and drop away, with gold stars along the word.
-  { id: "christmas-baubles", slot: "effect", name: "Baubles", emoji: "🎄", price: 80, season: "christmas" },
+  { id: "christmas-baubles", slot: "effect", name: "Baubles", emoji: "🎄", price: 160, season: "christmas" },
   {
     // Christmas at the beach: a sea-blue cabinet with a string of lights along the top and gentle waves,
     // driftwood shelves, and sandy pages sprinkled with little stars and baubles.
-    id: "christmas-beach", slot: "cover", name: "Beach Christmas", emoji: "🏖️", price: 100, season: "christmas",
+    id: "christmas-beach", slot: "cover", name: "Beach Christmas", emoji: "🏖️", price: 200, season: "christmas",
     vars: {
       cabinet: "#125A66", "cabinet-edge": "#0A3940", shelf: "#A8825A", "shelf-edge": "#6B4F30",
       silhouette: "brightness(0) invert(1) opacity(.2)", "sticker-font": "var(--ws-font-display)",
@@ -77,10 +77,10 @@ export const CHRISTMAS = [
     ].join(","))
       + page(`${csvg(`width='90' height='90'><g fill='%23946A30' fill-opacity='.24'><circle cx='6' cy='9' r='1'/><circle cx='41' cy='12' r='1.1'/><circle cx='70' cy='60' r='.9'/><circle cx='12' cy='70' r='1'/><circle cx='52' cy='84' r='.7'/></g><path d='M28 40l1.6 3.4 3.7.4-2.8 2.5.8 3.6-3.3-1.9-3.3 1.9.8-3.6-2.8-2.5 3.7-.4z' fill='%23E0A82E' fill-opacity='.35'/><circle cx='74' cy='26' r='4' fill='%23C8323C' fill-opacity='.22'/><rect x='72.6' y='20.4' width='2.8' height='1.8' fill='%23946A30' fill-opacity='.3'/>`)}, radial-gradient(ellipse at 100% 100%, rgba(18,90,102,.1), transparent 55%)`),
   },
-  { id: "christmas-present", slot: "avatar", name: "Present", emoji: "🎁", price: 25, season: "christmas" },
-  { id: "christmas-snowman", slot: "avatar", name: "Snowman", emoji: "⛄", price: 40, season: "christmas" },
-  { id: "christmas-reindeer", slot: "avatar", name: "Reindeer", emoji: "🦌", price: 60, season: "christmas" },
+  { id: "christmas-present", slot: "avatar", name: "Present", emoji: "🎁", price: 50, season: "christmas" },
+  { id: "christmas-snowman", slot: "avatar", name: "Snowman", emoji: "⛄", price: 80, season: "christmas" },
+  { id: "christmas-reindeer", slot: "avatar", name: "Reindeer", emoji: "🦌", price: 120, season: "christmas" },
   // The word jar (shared/looks/marbles.js, jars.js; drawn in src/jarArt.js)
-  { id: "christmas-bauble-marbles", slot: "marble", name: "Baubles", emoji: "🎄", price: 80, colours: ["#E8EEF5", "#2FA84F", "#FFC93C", "#E23B4E", "#3D6FE0"], finish: "bauble", season: "christmas" },
-  { id: "christmas-snow-globe", slot: "jar", name: "Snow globe", emoji: "❄️", price: 100, shape: arc(0.5, 0.44, 0.14, Math.PI * 0.8), tint: "#CFEFFF", season: "christmas" },
+  { id: "christmas-bauble-marbles", slot: "marble", name: "Baubles", emoji: "🎄", price: 160, colours: ["#E8EEF5", "#2FA84F", "#FFC93C", "#E23B4E", "#3D6FE0"], finish: "bauble", season: "christmas" },
+  { id: "christmas-snow-globe", slot: "jar", name: "Snow globe", emoji: "❄️", price: 200, shape: arc(0.5, 0.44, 0.14, Math.PI * 0.8), tint: "#CFEFFF", season: "christmas" },
 ];

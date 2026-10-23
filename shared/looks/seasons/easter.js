@@ -31,7 +31,7 @@ export const EASTER = [
   {
     // An autumn Easter garden: lilac-white page, a mint tray, white dice with a lilac lip, a violet highlight,
     // painted eggs and daisies scattered behind everything and a soft green lawn along the bottom.
-    id: "easter-garden", slot: "theme", name: "Easter garden", emoji: "🌷", price: 100, scheme: "light", season: "easter",
+    id: "easter-garden", slot: "theme", name: "Easter garden", emoji: "🌷", price: 200, scheme: "light", season: "easter",
     vars: {
       ink: "#FBF7FF", "ink-rgb": "251 247 255", text: "#34204A", fg: "52 32 74", glow: "#FFF4C9",
       well: "#8FD4B8", "well-edge": "#4FA586", dice: "#FFFFFF", "dice-edge": "#D6C3F0", letter: "#34204A", "letter-lit": "#FFFFFF",
@@ -46,7 +46,7 @@ export const EASTER = [
   {
     // Dyed eggs: a buttery face with a pink zigzag band across the top and a blue one across the bottom, dots in
     // the corners, on an egg shape (a touch narrower at the top). Everything stays out of the middle, where the letter is.
-    id: "easter-eggs", slot: "dice", name: "Painted eggs", emoji: "🎨", price: 100, season: "easter",
+    id: "easter-eggs", slot: "dice", name: "Painted eggs", emoji: "🎨", price: 200, season: "easter",
     vars: {
       dice: "#FFF1C7", "dice-edge": "#E0B65A", letter: "#3A2348",
       "dice-texture": [
@@ -60,11 +60,11 @@ export const EASTER = [
     css: round("50% 50% 46% 46% / 56% 56% 44% 44%"),
   },
   // Word sparkle: the drawing is EggToss in src/effects/easter.jsx.
-  { id: "easter-toss", slot: "effect", name: "Egg toss", emoji: "🥚", price: 80, season: "easter" },
+  { id: "easter-toss", slot: "effect", name: "Egg toss", emoji: "🥚", price: 160, season: "easter" },
   {
     // A woven basket for a cabinet (wicker criss-cross on honey brown), pale lemon pages with a few painted eggs in
     // the corners, berry headings and a lilac binding.
-    id: "easter-basket", slot: "cover", name: "Egg basket", emoji: "🧺", price: 100, season: "easter",
+    id: "easter-basket", slot: "cover", name: "Egg basket", emoji: "🧺", price: 200, season: "easter",
     vars: {
       cabinet: "#8A5A2E", "cabinet-edge": "#5A3815", shelf: "#B07A42", "shelf-edge": "#6E4520",
       silhouette: "brightness(0) invert(1) opacity(.2)", "sticker-font": "var(--ws-font-display)",
@@ -82,10 +82,10 @@ export const EASTER = [
         "radial-gradient(ellipse at 100% 0%, rgba(156,116,212,.12), transparent 50%)",
       ].join(",")),
   },
-  { id: "easter-chick", slot: "avatar", name: "Hatchling", emoji: "🐣", price: 40, season: "easter" },
-  { id: "easter-bunny", slot: "avatar", name: "Easter bunny", emoji: "🐇", price: 40, season: "easter" },
-  { id: "easter-chicky", slot: "avatar", name: "Little chick", emoji: "🐥", price: 30, season: "easter" },
+  { id: "easter-chick", slot: "avatar", name: "Hatchling", emoji: "🐣", price: 80, season: "easter" },
+  { id: "easter-bunny", slot: "avatar", name: "Easter bunny", emoji: "🐇", price: 80, season: "easter" },
+  { id: "easter-chicky", slot: "avatar", name: "Little chick", emoji: "🐥", price: 60, season: "easter" },
   // The word jar (shared/looks/marbles.js, jars.js; drawn in src/jarArt.js)
-  { id: "easter-egg-marbles", slot: "marble", name: "Speckled eggs", emoji: "🥚", price: 80, colours: ["#FFE680", "#A8E6A1", "#9FD3FF", "#FFB3C7", "#C9A8FF"], finish: "speckle", season: "easter" },
-  { id: "easter-egg-jar", slot: "jar", name: "Egg jar", emoji: "🐣", price: 100, shape: [[0.4, 0.06], [0.4, 0.1], [0.27, 0.16], [0.16, 0.28], [0.1, 0.45], [0.1, 0.64], [0.15, 0.8], [0.25, 0.92], [0.37, 0.975]], tint: "#FFD6E7", season: "easter" },
+  { id: "easter-egg-marbles", slot: "marble", name: "Speckled eggs", emoji: "🥚", price: 160, colours: ["#FFE680", "#A8E6A1", "#9FD3FF", "#FFB3C7", "#C9A8FF"], finish: "speckle", season: "easter" },
+  { id: "easter-egg-jar", slot: "jar", name: "Egg jar", emoji: "🐣", price: 200, shape: [[0.4, 0.06], [0.4, 0.1], [0.27, 0.16], [0.16, 0.28], [0.1, 0.45], [0.1, 0.64], [0.15, 0.8], [0.25, 0.92], [0.37, 0.975]], tint: "#FFD6E7", season: "easter" },
 ];

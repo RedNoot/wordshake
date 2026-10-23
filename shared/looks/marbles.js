@@ -17,12 +17,12 @@ const marble = (id, name, emoji, price, colours, finish, unlock) =>
 export const DEFAULT_MARBLES = { colours: ["#4FA3F7", "#57C785", "#FFB020", "#FF6F91", "#B48CFF"], finish: "glass" };
 
 const BASE_MARBLES = [
-  marble("marbles-sea-glass", "Sea glass", "🌊", 40, ["#A6F0D8", "#3FC8D8", "#1E8BD6", "#2F55C9", "#13307A"], "glass"),
-  marble("marbles-sweets", "Sweet shop", "🍬", 60, ["#FFF07A", "#9EF0C4", "#9CCBFF", "#FFA8D0", "#D3A6FF"], "pearl"),
-  marble("marbles-cats-eye", "Cat's-eyes", "🌀", 80, ["#38B6FF", "#3DDC84", "#FFC93C", "#FF5E7E", "#A774FF"], "swirl"),
-  marble("marbles-galaxy", "Galaxy", "🌌", 100, ["#5DA9FF", "#3ECFB2", "#B892FF", "#F25FB5", "#4A3AB8"], "speckle"),
-  marble("marbles-glow", "Glow sticks", "💡", 120, ["#4DF3FF", "#7CFF6B", "#FFE94D", "#FF5CC8", "#B66BFF"], "glow"),
-  marble("marbles-gems", "Gems", "💎", 150, ["#7FD8FF", "#36D17C", "#FFC233", "#F0446A", "#9B5CF6"], "gem"),
+  marble("marbles-sea-glass", "Sea glass", "🌊", 80, ["#A6F0D8", "#3FC8D8", "#1E8BD6", "#2F55C9", "#13307A"], "glass"),
+  marble("marbles-sweets", "Sweet shop", "🍬", 120, ["#FFF07A", "#9EF0C4", "#9CCBFF", "#FFA8D0", "#D3A6FF"], "pearl"),
+  marble("marbles-cats-eye", "Cat's-eyes", "🌀", 160, ["#38B6FF", "#3DDC84", "#FFC93C", "#FF5E7E", "#A774FF"], "swirl"),
+  marble("marbles-galaxy", "Galaxy", "🌌", 200, ["#5DA9FF", "#3ECFB2", "#B892FF", "#F25FB5", "#4A3AB8"], "speckle"),
+  marble("marbles-glow", "Glow sticks", "💡", 240, ["#4DF3FF", "#7CFF6B", "#FFE94D", "#FF5CC8", "#B66BFF"], "glow"),
+  marble("marbles-gems", "Gems", "💎", 300, ["#7FD8FF", "#36D17C", "#FFC233", "#F0446A", "#9B5CF6"], "gem"),
   // Won with a trophy, never sold
   marble("marbles-treasure", "Treasure", "🏅", 0, ["#E2E8EE", "#7FB3D9", "#FFD24A", "#E6957A", "#B87333"], "metal", "words-250"),
 ];

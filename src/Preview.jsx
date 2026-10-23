@@ -24,7 +24,7 @@ const loadNotes = () => { try { return JSON.parse(localStorage.getItem(NOTES_KEY
 
 const TABS = [
   { id: "theme", items: THEMES.filter(i => !i.season) }, { id: "dice", items: DICE.filter(i => !i.season) }, { id: "effect", items: EFFECTS.filter(i => !i.season) },
-  { id: "avatar", items: AVATARS.filter(i => !i.season) }, { id: "cover", items: COVERS.filter(i => !i.season) },
+  { id: "avatar", items: AVATARS.filter(i => !i.season && !i.group) }, { id: "cover", items: COVERS.filter(i => !i.season) },
   { id: "marble", items: MARBLES.filter(i => !i.season) }, { id: "jar", items: JARS.filter(i => !i.season) },
   // One tab per seasonal shelf, whatever today's date (the gallery is for proofing ahead of time).
   ...SEASONS.map(s => ({ id: s.id, season: s, items: SEASONAL.filter(i => i.season === s.id) })),
@@ -88,7 +88,7 @@ function Mix() {
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 10 }}>
-        {pick("theme", THEMES)}{pick("dice", DICE)}{pick("effect", EFFECTS)}{pick("avatar", AVATARS)}{pick("cover", COVERS)}
+        {pick("theme", THEMES)}{pick("dice", DICE)}{pick("effect", EFFECTS)}{pick("avatar", AVATARS.filter(i => !i.group))}{pick("cover", COVERS)}
       </div>
       <Look theme={w.theme} dice={w.dice} cover={w.cover} style={{ display: "grid", gap: 16, justifyItems: "center", padding: 24 }}>
         <div className="ws-display" style={{ fontSize: 30, fontWeight: 700 }}>{avatar && <span aria-hidden="true">{avatar.emoji} </span>}You're in, <span style={{ color: T.amber }}>Ava</span>!</div>

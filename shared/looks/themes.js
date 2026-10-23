@@ -52,7 +52,7 @@ const BASE_THEMES = [
   {
     // The RedNut design system ("Sunbaked" riso zine: warm paper, red/marigold inks, teal contrast, chunky ink borders, grain).
     // Its red is a shade deeper than rednut-tokens.css (#FF4D2E), so cream button text clears 3:1.
-    id: "rednut", slot: "theme", name: "RedNut", emoji: "🌰", price: 150, scheme: "light",
+    id: "rednut", slot: "theme", name: "RedNut", emoji: "🌰", price: 300, scheme: "light",
     vars: {
       ink: "#FBF3E0", "ink-rgb": "251 243 224", text: "#231F1A", fg: "35 31 26", glow: "#FFF9EC",
       well: "#0FA091", "well-edge": "#231F1A", dice: "#FFFBF2", "dice-edge": "#D8C9A8", letter: "#231F1A", "letter-lit": "#231F1A",
@@ -77,7 +77,7 @@ $SEL .ws-root::after{content:"";position:fixed;inset:0;pointer-events:none;z-ind
   },
   {
     // Under the sea: deep teal water, white-shell dice, a sunlit-gold highlight, bubbles drifting up behind everything.
-    id: "ocean", slot: "theme", name: "Ocean", emoji: "🌊", price: 60, scheme: "dark",
+    id: "ocean", slot: "theme", name: "Ocean", emoji: "🌊", price: 120, scheme: "dark",
     vars: {
       ink: "#082C3D", "ink-rgb": "8 44 61", text: "#ECF8FB", fg: "255 255 255", glow: "#0F5468",
       well: "#0B6577", "well-edge": "#05394A", dice: "#F3FBFA", "dice-edge": "#BCDCDA", letter: "#0A2A3A", "letter-lit": "#0A2A3A",
@@ -94,7 +94,7 @@ $SEL .ws-root::after{content:"";position:fixed;inset:0;pointer-events:none;z-ind
   },
   {
     // A mossy wood: dark moss page, a bark-brown dice tray, birch-cream dice and an acorn-gold highlight.
-    id: "forest", slot: "theme", name: "Forest", emoji: "🌲", price: 60, scheme: "dark",
+    id: "forest", slot: "theme", name: "Forest", emoji: "🌲", price: 120, scheme: "dark",
     vars: {
       ink: "#15241A", "ink-rgb": "21 36 26", text: "#EEF5E8", fg: "255 255 255", glow: "#24402B",
       well: "#5C3F2A", "well-edge": "#362416", dice: "#F5EFDC", "dice-edge": "#D1C29C", letter: "#1F2A1B", "letter-lit": "#1F2A1B",
@@ -110,7 +110,7 @@ $SEL .ws-root::after{content:"";position:fixed;inset:0;pointer-events:none;z-ind
   {
     // A bright day out: pale-sky page, a sky-blue tray, a sunny glow at the top and a marigold highlight.
     // (A pure sunshine yellow can't carry text on a light page, so the highlight is a deep marigold and the yellow is the sun.)
-    id: "sunny", slot: "theme", name: "Sunny Day", emoji: "☀️", price: 60, scheme: "light",
+    id: "sunny", slot: "theme", name: "Sunny Day", emoji: "☀️", price: 120, scheme: "light",
     vars: {
       ink: "#EAF5FF", "ink-rgb": "234 245 255", text: "#10314C", fg: "16 49 76", glow: "#FFF1A8",
       well: "#3B95DC", "well-edge": "#1F6AA8", dice: "#FFFFFF", "dice-edge": "#FFD84A", letter: "#10314C", "letter-lit": "#FFFFFF",
@@ -126,7 +126,7 @@ $SEL .ws-root::after{content:"";position:fixed;inset:0;pointer-events:none;z-ind
   },
   {
     // Sweet shop: pale candy-pink page, a mint tray, white dice with a pink lip and a raspberry highlight.
-    id: "bubblegum", slot: "theme", name: "Bubblegum", emoji: "🍬", price: 60, scheme: "light",
+    id: "bubblegum", slot: "theme", name: "Bubblegum", emoji: "🍬", price: 120, scheme: "light",
     vars: {
       ink: "#FFF0F6", "ink-rgb": "255 240 246", text: "#4A1238", fg: "74 18 56", glow: "#FFFFFF",
       well: "#7ED9C0", "well-edge": "#3FAF92", dice: "#FFFFFF", "dice-edge": "#F6BFD6", letter: "#4A1238", "letter-lit": "#FFFFFF",
@@ -140,7 +140,7 @@ $SEL .ws-root::after{content:"";position:fixed;inset:0;pointer-events:none;z-ind
   },
   {
     // Deep space: near-black with a violet nebula glow, a starfield that slowly twinkles, and star-gold highlights.
-    id: "space", slot: "theme", name: "Outer Space", emoji: "🚀", price: 150, scheme: "dark",
+    id: "space", slot: "theme", name: "Outer Space", emoji: "🚀", price: 300, scheme: "dark",
     vars: {
       ink: "#07071A", "ink-rgb": "7 7 26", text: "#F2F1FF", fg: "255 255 255", glow: "#24195A",
       well: "#2A2266", "well-edge": "#4B3FA8", dice: "#F4F3FF", "dice-edge": "#C6C1EC", letter: "#16133A", "letter-lit": "#16133A",
@@ -157,7 +157,7 @@ $SEL .ws-root::after{content:"";position:fixed;inset:0;pointer-events:none;z-ind
   },
   {
     // A volcano at night: charcoal rock, a basalt tray, lava-orange highlights and an ember glow rising from below.
-    id: "volcano", slot: "theme", name: "Volcano", emoji: "🌋", price: 150, scheme: "dark",
+    id: "volcano", slot: "theme", name: "Volcano", emoji: "🌋", price: 300, scheme: "dark",
     vars: {
       ink: "#1A1715", "ink-rgb": "26 23 21", text: "#F8F0EA", fg: "255 255 255", glow: "#3B2117",
       well: "#3A302B", "well-edge": "#FF6A1A", dice: "#F6EDE4", "dice-edge": "#D3BFAC", letter: "#241A15", "letter-lit": "#241A15",
@@ -171,7 +171,7 @@ $SEL .ws-root::after{content:"";position:fixed;inset:0;pointer-events:none;z-ind
   },
   {
     // Polar ice: ice-white page, a glacier-blue tray, frosted dice, a deep glacier-blue highlight and a slow snowfall.
-    id: "arctic", slot: "theme", name: "Arctic", emoji: "❄️", price: 150, scheme: "light",
+    id: "arctic", slot: "theme", name: "Arctic", emoji: "❄️", price: 300, scheme: "light",
     vars: {
       ink: "#EEF6FB", "ink-rgb": "238 246 251", text: "#0B2D44", fg: "11 45 68", glow: "#FFFFFF",
       well: "#5AA6D0", "well-edge": "#2F739A", dice: "#FFFFFF", "dice-edge": "#C4DDEC", letter: "#0B2D44", "letter-lit": "#FFFFFF",
@@ -188,7 +188,7 @@ $SEL .ws-root::after{content:"";position:fixed;inset:0;pointer-events:none;z-ind
   },
   {
     // An arcade after dark: purple-black, dark glowing dice with cyan letters, neon-pink highlights, a retro floor grid.
-    id: "neon", slot: "theme", name: "Neon Arcade", emoji: "🕹️", price: 350, scheme: "dark",
+    id: "neon", slot: "theme", name: "Neon Arcade", emoji: "🕹️", price: 700, scheme: "dark",
     vars: {
       ink: "#0C0718", "ink-rgb": "12 7 24", text: "#F7F2FF", fg: "255 255 255", glow: "#2D0F45",
       well: "#1A1033", "well-edge": "#FF4FB5", dice: "#18122E", "dice-edge": "#00C8E0", letter: "#7DF4FF", "letter-lit": "#0C0718",
