@@ -421,7 +421,8 @@ export function Join({ initialCode }) {
             <button type="submit" disabled={!codeReady(code) || busy} className="ws-btn ws-display" style={{ ...big, background: codeReady(code) ? T.amber : "rgb(var(--ws-fg) / .12)", color: codeReady(code) ? T.ink : "rgb(var(--ws-fg) / .4)" }}>
               {busy ? "Looking…" : "Go →"}
             </button>
-            {student && <button type="button" onClick={() => { setMessage(""); setCode(""); setStep("home"); }} style={link}>Back</button>}
+            {student ? <button type="button" onClick={() => { setMessage(""); setCode(""); setStep("home"); }} style={link}>Back</button>
+              : <a href="/" style={{ ...link, textDecoration: "underline" }}>Back</a>}
           </form>
         )}
 

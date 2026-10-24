@@ -27,6 +27,18 @@ const ROOM_ERRORS = {
 };
 
 /* ================= main app ================= */
+const studentDevice = () => { try { return !!localStorage.getItem("wordshake-student"); } catch { return false; } };
+
+// The splash's dice: dropped in one by one, then a little wobble now and then.
+const SPLASH_CSS = `
+.ws-splash-die { width: min(15vw, 66px); height: min(15vw, 66px); display: grid; place-items: center; border-radius: 14px;
+  font-size: min(9vw, 40px); font-weight: 700; box-shadow: 0 5px 0 rgb(0 0 0 / .3); transform: rotate(var(--tilt));
+  animation: ws-splash-drop .5s cubic-bezier(.3,1.5,.6,1) both, ws-splash-wobble 6s 1.2s ease-in-out infinite; }
+@keyframes ws-splash-drop { from { opacity: 0; transform: translateY(-40px) rotate(-20deg); } to { opacity: 1; transform: rotate(var(--tilt)); } }
+@keyframes ws-splash-wobble { 0%, 90%, 100% { transform: rotate(var(--tilt)); } 93% { transform: rotate(calc(var(--tilt) + 9deg)); } 96% { transform: rotate(calc(var(--tilt) - 7deg)); } }
+@media (prefers-reduced-motion: reduce) { .ws-splash-die { animation: none; } }
+`;
+
 export default function WordShakeWorkbook() {
   const [phase, setPhase] = useState(signInConfigured ? "loading" : "setup");
   const [settings, setSettings] = useState({ seconds: 180, size: 4, minLen: 3, sound: true, showCount: true, phSound: null, phTicked: [], phBonus: false, hints: true, hintSeconds: 15, wordOfGame: false, mode: signInConfigured ? "online" : "workbook", classId: null, ownLooks: true });
@@ -90,7 +102,11 @@ export default function WordShakeWorkbook() {
 
   /* ---- teacher sign-in: needed for online rooms, class lists and saved settings (workbook mode works signed out) ---- */
   const loadAccount = async user => {
-    if (!user) return setPhase(p => (p === "loading" ? "home" : p));
+    if (!user) {
+      // A device a student has signed in on goes straight to their own home screen (Join.jsx keeps the pass).
+      if (studentDevice()) return window.location.replace("/join");
+      return setPhase(p => (p === "loading" ? "home" : p));
+    }
     setAccountNote("");
     const res = await authFetch("/api/me").catch(() => null);
     if (!res) {
@@ -544,34 +560,41 @@ export default function WordShakeWorkbook() {
 
       {phase === "loading" && <main style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: T.mist, fontSize: 18 }}>Loading…</main>}
 
-      {/* ---------- HOME (signed out) ---------- */}
+      {/* ---------- HOME (signed out): students first, teachers underneath ---------- */}
       {phase === "home" && (
-        <main className="ws-fade" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 28, padding: "30px 20px 40px" }}>
-          <div style={{ textAlign: "center", maxWidth: 680 }}>
-            <h1 className="ws-display" style={{ fontSize: "min(12vw, 64px)", fontWeight: 700, margin: 0 }}>Word<span style={{ color: T.amber }}>Shake</span></h1>
-            <p style={{ color: T.mist, fontSize: 19, marginTop: 6 }}>Shake the dice, then race the clock to find words. A word game for the whole class.</p>
+        <main className="ws-fade" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 26, padding: "24px 16px 40px" }}>
+          <style>{SPLASH_CSS}</style>
+          <div aria-label="WordShake" role="img" style={{ display: "grid", gap: 8, justifyItems: "center", marginTop: "min(4vh, 30px)" }}>
+            {["WORD", "SHAKE"].map((w, row) => (
+              <div key={w} style={{ display: "flex", gap: "min(2vw, 10px)" }}>
+                {w.split("").map((ch, i) => (
+                  <span key={i} className="ws-display ws-splash-die" aria-hidden="true"
+                    style={{ "--tilt": `${((row * 5 + i) % 3 - 1) * 4}deg`, animationDelay: `${(row * 4 + i) * 0.07}s`, background: row ? T.amber : "var(--ws-text)", color: T.ink }}>{ch}</span>
+                ))}
+              </div>
+            ))}
           </div>
+          <p style={{ color: T.mist, fontSize: 19, margin: 0, textAlign: "center", maxWidth: 520 }}>Shake the dice, then race the clock to find words.</p>
           {accountNote && <div role="status" style={{ maxWidth: 680, background: "rgb(var(--ws-amber-rgb) / .1)", border: "1px solid rgb(var(--ws-amber-rgb) / .4)", borderRadius: 12, padding: "10px 14px", fontSize: 14.5, color: T.mist }}>{accountNote}</div>}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 20, justifyContent: "center", width: "min(860px, 100%)" }}>
-            <section style={{ flex: "1 1 340px", border: `1px solid rgb(var(--ws-amber-rgb) / .4)`, background: "rgb(var(--ws-amber-rgb) / .06)", borderRadius: 20, padding: "22px 24px", display: "grid", gap: 14, alignContent: "start" }}>
-              <h2 className="ws-display" style={{ margin: 0, fontSize: 28 }}>Teachers</h2>
-              <p style={{ margin: 0, color: T.mist, fontSize: 16, lineHeight: 1.5 }}>Sign in to run online games, keep class lists and have your settings remembered.</p>
-              {signInConfigured ? (
-                <button className="ws-btn ws-display" onClick={signInHere} style={{ fontSize: 21, fontWeight: 700, background: T.amber, color: T.ink, border: "none", borderRadius: 14, padding: "14px 22px", cursor: "pointer", boxShadow: "0 5px 0 var(--ws-amber-edge)" }}>
-                  Sign in with Google
-                </button>
-              ) : <div style={{ color: T.amber, fontSize: 15 }}>Sign-in is unavailable right now.</div>}
-              <p style={{ margin: 0, color: "rgb(var(--ws-fg) / .5)", fontSize: 13.5, lineHeight: 1.5 }}>New here? Signing in for the first time creates your free account. Any Google account works, school or personal.</p>
-              <button className="ws-btn" onClick={() => { setSettings(v => ({ ...v, mode: "workbook" })); setPhase("setup"); }} style={{ background: "none", border: "none", color: T.mist, textDecoration: "underline", cursor: "pointer", fontSize: 15, padding: 0, justifySelf: "start" }}>
-                Or play a workbook round without signing in →
+
+          <a href="/join" className="ws-btn ws-display" style={{ width: "min(460px, 100%)", boxSizing: "border-box", display: "grid", gap: 4, justifyItems: "center", background: T.green, color: T.ink, borderRadius: 24, padding: "26px 20px", textDecoration: "none", boxShadow: "0 7px 0 rgb(0 0 0 / .25)" }}>
+            <span style={{ fontSize: 44, lineHeight: 1 }} aria-hidden="true">🎒</span>
+            <span style={{ fontSize: 34, fontWeight: 700 }}>I'm a student</span>
+            <span style={{ fontFamily: "'Atkinson Hyperlegible',sans-serif", fontSize: 16 }}>Sign in, or join your class's game</span>
+          </a>
+
+          <section style={{ width: "min(460px, 100%)", boxSizing: "border-box", border: `1px solid ${T.faint}`, background: "rgb(var(--ws-fg) / .04)", borderRadius: 18, padding: "16px 20px", display: "grid", gap: 10 }}>
+            <h2 className="ws-display" style={{ margin: 0, fontSize: 22 }}>Teachers</h2>
+            <p style={{ margin: 0, color: T.mist, fontSize: 15, lineHeight: 1.5 }}>Sign in to run class games, keep class lists and see progress. Any Google account works, school or personal.</p>
+            {signInConfigured ? (
+              <button className="ws-btn ws-display" onClick={signInHere} style={{ fontSize: 19, fontWeight: 700, background: T.amber, color: T.ink, border: "none", borderRadius: 12, padding: "11px 18px", cursor: "pointer", boxShadow: "0 4px 0 var(--ws-amber-edge)" }}>
+                Sign in with Google
               </button>
-            </section>
-            <section style={{ flex: "1 1 340px", border: `1px solid ${T.faint}`, background: "rgb(var(--ws-fg) / .04)", borderRadius: 20, padding: "22px 24px", display: "grid", gap: 14, alignContent: "start" }}>
-              <h2 className="ws-display" style={{ margin: 0, fontSize: 28 }}>Students</h2>
-              <p style={{ margin: 0, color: T.mist, fontSize: 16, lineHeight: 1.5 }}>Got a code from the big screen? Join your class's game here.</p>
-              <a href="/join" className="ws-btn ws-display" style={{ fontSize: 21, fontWeight: 700, background: T.green, color: T.ink, borderRadius: 14, padding: "14px 22px", textAlign: "center", textDecoration: "none" }}>Join a game</a>
-            </section>
-          </div>
+            ) : <div style={{ color: T.amber, fontSize: 15 }}>Sign-in is unavailable right now.</div>}
+            <button className="ws-btn" onClick={() => { setSettings(v => ({ ...v, mode: "workbook" })); setPhase("setup"); }} style={{ background: "none", border: "none", color: T.mist, textDecoration: "underline", cursor: "pointer", fontSize: 14.5, padding: 0, justifySelf: "start" }}>
+              Or play a workbook round without signing in →
+            </button>
+          </section>
         </main>
       )}
 
