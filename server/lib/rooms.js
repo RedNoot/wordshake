@@ -19,10 +19,10 @@ const PHASES = ["lobby", "playing", "reveal"];
 const CLOCK_STATES = ["playing", "paused", "over"];
 const HOST_GONE_MS = 2 * 60 * 60 * 1000;   // a room with no teacher for 2 hours is closed
 const MAX_AGE_MS = 12 * 60 * 60 * 1000;    // and no room outlives a school day
-const LOOKUP_FAILS = { max: 100, windowMs: 10 * 60 * 1000 }; // per school IP: room codes can't be guessed
+const LOOKUP_FAILS = { max: 500, windowMs: 10 * 60 * 1000 }; // per IP, and a whole school can share one: room codes can't be guessed
 const SAVE_RETRY_MS = [1000, 3000, 10000, 30000];      // a failed save is tried again after these waits...
 const SAVE_RETRY_LATER_MS = 5 * 60 * 1000;            // ...then every 5 minutes for as long as the server runs
-const SNAPSHOT_MS = 2000;                             // a room's changes are written to the database at most this often
+const SNAPSHOT_MS = 10000;                            // a room's changes are written to the database at most this often
 const SNAPSHOT_MAX = 900 * 1000;                      // Firestore's limit is 1MB a document
 const WALL_MS = 500;                                  // Class together: the big screen's word wall is updated at most this often
 const HOME_GONE_MS = 30 * 60 * 1000;                  // a home game whose student's device has gone for half an hour is closed
@@ -57,9 +57,9 @@ export function attachRooms(io, {
   const lookupFails = new Map();
 
   /*
-   * Keeping rooms through a restart. Every change marks the room; it's written at most every couple of seconds
+   * Keeping rooms through a restart. Every change marks the room; it's written at most every 10 seconds
    * (a whole class swiping words would otherwise be a write per word), and straight away for the big moments
-   * (start, phase, teams). One write per room at a time, so an older copy can never land after a newer one.
+   * (start, pause, end of the round, phase, teams, kick). A crash loses at most the last few seconds of words. One write per room at a time, so an older copy can never land after a newer one.
    * A failed write is only logged and tried again: the lesson carries on from memory either way.
    * A room picked up from the database after a restart isn't written back until its teacher's screen reconnects,
    * so a copy loaded while the old server is still finishing up can't overwrite the old server's last word.
@@ -211,7 +211,7 @@ export function attachRooms(io, {
         sendClassFound(room, round);
         if (room.round === round) io.to(`players:${room.code}`).emit("round:clock", { n: round.n, state: "over", remainingMs: 0 });
         if (room.home) homeReveal(room, round);
-        markDirty(room);
+        saveNow(room);
       }
     }, Math.max(0, round.endsAt - now()) + 50);
   }
@@ -245,7 +245,7 @@ export function attachRooms(io, {
       return;
     }
     round.save = "done";
-    markDirty(room);
+    saveNow(room);
     if (out.status === "no-class") return;   // the class was deleted mid-lesson
     tellHost(room, "round:saved", { n: round.n, ok: true });
     if (out.status === "saved") giveRewards(room, round, out.earned || {}, out.summaries || {});
@@ -713,6 +713,7 @@ export function attachRooms(io, {
       setClock(room.round, state, ms, now());
       watchClock(room, room.round);
       io.to(`players:${room.code}`).emit("round:clock", { n, state, remainingMs: remainingMs(room.round, now()) });
+      saveNow(room);
       ack({ ok: true });
     });
 
@@ -808,6 +809,7 @@ export function attachRooms(io, {
       const s = p.socketId && io.sockets.sockets.get(p.socketId);
       if (s) { s.emit("room:kicked"); s.leave(`players:${room.code}`); s.data.player = null; }
       notify(room);
+      saveNow(room);
       ack({ ok: true });
     });
 

@@ -763,7 +763,7 @@ test("guessing room codes gets throttled, whichever message is used", async () =
     () => call(kid, "player:rejoin", { code: "ZZZZ", token: "x" }),
     () => call(kid, "player:join", { code: "ZZZZ", guestName: "Max" }),
   ];
-  for (let i = 0; i < 100; i++) assert.deepEqual(await guesses[i % 3](), { error: "no-room" });
+  for (let i = 0; i < 500; i++) assert.deepEqual(await guesses[i % 3](), { error: "no-room" });
   for (const g of guesses) assert.deepEqual(await g(), { error: "too-many" });
 });
 
