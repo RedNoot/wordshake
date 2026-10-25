@@ -1,3 +1,16 @@
+// The fonts are served from WordShake itself (bundled from @fontsource), so no student's device contacts Google.
+import "@fontsource/fredoka/500.css";
+import "@fontsource/fredoka/600.css";
+import "@fontsource/fredoka/700.css";
+import "@fontsource/atkinson-hyperlegible/400.css";
+import "@fontsource/atkinson-hyperlegible/700.css";
+import "@fontsource/syne/600.css";
+import "@fontsource/syne/700.css";
+import "@fontsource/syne/800.css";
+import "@fontsource/work-sans/400.css";
+import "@fontsource/work-sans/500.css";
+import "@fontsource/work-sans/600.css";
+import "@fontsource/work-sans/700.css";
 /* ---------- look & feel ----------
  * Every colour is a CSS variable, so the whole app can switch look without re-rendering.
  * "classic" is WordShake's own night-sky look, and what the big screen always shows. Every other look (themes,
@@ -28,7 +41,6 @@ export function applyTheme() {
 
 
 export const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Atkinson+Hyperlegible:wght@400;700&family=Syne:wght@600;700;800&family=Work+Sans:wght@400;500;600;700&display=swap');
 ${LOOKS_CSS}
 html,body{background:var(--ws-ink)}
 .ws-root{font-family:var(--ws-font-body);}

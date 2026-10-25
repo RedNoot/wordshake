@@ -1189,5 +1189,13 @@ export function attachRooms(io, {
     if (snap && snap.classId === classId) await liveStore.remove(teacherId, snap.code);
   }
 
-  return { rooms, sweep, rewardsChanged, signedOut, classDeleted, shutdown };
+  // A teacher is deleting their account: every class's room and devices go, and an open room of guests too.
+  async function teacherDeleted(teacherId, classIds) {
+    for (const classId of classIds) await classDeleted(teacherId, classId);
+    const open = rooms.get(byTeacher.get(teacherId));
+    if (open) closeRoom(open);
+    await (open && open.writing);
+  }
+
+  return { rooms, sweep, rewardsChanged, signedOut, classDeleted, teacherDeleted, shutdown };
 }

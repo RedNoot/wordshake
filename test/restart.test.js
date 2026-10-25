@@ -283,3 +283,13 @@ test("kept rooms nobody came back to are tidied away after a school day", async 
   assert.equal(db.kept.has("teacherA"), false, "one past a school day goes");
   B.stop();
 });
+
+test("deleting a teacher's account closes their room and forgets its kept copy", async () => {
+  const db = fakeDb();
+  const { A, code } = await midRound(db);
+  await A.api.teacherDeleted("teacherA", ["class1"]);
+  assert.equal(A.api.rooms.has(code), false);
+  await settle();
+  assert.equal(db.kept.has("teacherA"), false);
+  A.stop();
+});

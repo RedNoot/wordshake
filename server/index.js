@@ -9,7 +9,7 @@ import { generateGame } from "./lib/generate.js";
 import { loadDictionary } from "./lib/dictionary.js";
 import { PH_STATS, SW_WORDS, resolveSound } from "./lib/phonics.js";
 import { AUTH, AuthError, verifyTeacher } from "./lib/auth.js";
-import { storeReady, loadTeacher, saveSettings, listClasses, getClass, countClasses, createClass, updateClass, deleteClass, saveRound, listGames, deleteGame, GAMES_SHOWN,
+import { storeReady, loadTeacher, saveSettings, listClasses, getClass, countClasses, createClass, updateClass, deleteClass, deleteTeacher, removeInactiveClasses, saveRound, listGames, deleteGame, GAMES_SHOWN,
   getStudent, getWords, listSummaries, addAward, removeAward, buyItem, equipItem, liveRoomStore,
   classByCode, createPass, passOwner, forgetPass, listDevices, forgetDevices, getSignin, setSignin, listSignin, resetPin } from "./lib/store.js";
 import { PASS_COOKIE, PRACTICE_STREAK } from "./lib/signin.js";
@@ -118,6 +118,14 @@ app.put("/api/me/settings", teacherRoute(async (req, res, teacher) => {
   const settings = pickSettings(req.body);
   if (!settings) return res.status(400).json({ error: "invalid settings" });
   await saveSettings(teacher.id, settings);
+  res.json({ ok: true });
+}));
+
+// Deleting a teacher's account: their rooms close first, then every class, their settings and their Google sign-in go.
+app.delete("/api/me", teacherRoute(async (req, res, teacher) => {
+  const classes = await listClasses(teacher.id);
+  await roomsApi.teacherDeleted(teacher.id, classes.map(c => c.id));
+  await deleteTeacher(teacher.id);
   res.json({ ok: true });
 }));
 
@@ -318,6 +326,16 @@ const roomsApi = attachRooms(io, {
   // Student sign-in needs the database: without it, students join by tapping their name as before.
   signin: storeReady ? { classByCode, createPass, passOwner, forgetPass, getSignin, setSignin, resetPin } : null,
 });
+
+// Classes unused for 360 days are deleted: checked a minute after starting and then daily (the store makes sure it runs at most once a day).
+const tidyClasses = () => {
+  if (!storeReady) return;
+  removeInactiveClasses(Date.now())
+    .then(async gone => { for (const c of gone) await roomsApi.classDeleted(c.teacherId, c.classId); if (gone.length) console.log(`Deleted ${gone.length} unused class(es)`); })
+    .catch(err => console.error("Deleting unused classes failed:", err.message));
+};
+setTimeout(tidyClasses, 60 * 1000).unref();
+setInterval(tidyClasses, 24 * 60 * 60 * 1000).unref();
 
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => console.log(`WordShake server listening on port ${PORT}`));

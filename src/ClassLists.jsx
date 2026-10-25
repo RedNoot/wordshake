@@ -131,7 +131,7 @@ function Editor({ cls, onSaved, onCancel }) {
   );
 }
 
-export function ClassLists({ classes, setClasses, onCreated, onDone }) {
+export function ClassLists({ classes, setClasses, onCreated, onDone, onAccountDeleted }) {
   const [editing, setEditing] = useState(null); // null | "new" | class
   const [signin, setSignin] = useState(null);   // the class whose sign-in page is open
   const [error, setError] = useState("");
@@ -152,6 +152,18 @@ export function ClassLists({ classes, setClasses, onCreated, onDone }) {
 
   if (editing) return <Editor cls={editing === "new" ? null : editing} onSaved={c => { saved(c); if (signin) setSignin(c); }} onCancel={() => setEditing(null)} />;
   if (signin) return <ClassSignin cls={signin} onBack={() => setSignin(null)} onEdit={() => setEditing(signin)} />;
+
+  // Everything goes: every class, every student's progress, the teacher's settings and their sign-in.
+  const deleteAccount = async () => {
+    const n = classes.length;
+    const typed = window.prompt(`Delete your WordShake account? This deletes ${n ? `your ${n} class${n === 1 ? "" : "es"}, every student's progress, ` : ""}your settings and your sign-in. It can't be undone.
+
+Type DELETE to go ahead.`);
+    if ((typed || "").trim().toUpperCase() !== "DELETE") return;
+    const res = await authFetch("/api/me", { method: "DELETE" }).catch(() => null);
+    if (!res || !res.ok) return setError("Your account wasn't deleted. Check your connection and try again.");
+    onAccountDeleted();
+  };
 
   return (
     <div className="ws-fade" style={{ display: "grid", gap: 18, width: "min(720px, 94vw)" }}>
@@ -180,6 +192,12 @@ export function ClassLists({ classes, setClasses, onCreated, onDone }) {
       ))}
       {error && <div role="alert" style={{ color: T.red }}>{error}</div>}
       {classes && <div><button className="ws-btn ws-display" onClick={() => setEditing("new")} style={primary}>+ New class</button></div>}
+      {classes && (
+        <div style={{ marginTop: 24, paddingTop: 14, borderTop: `1px solid ${T.faint}`, color: T.mist, fontSize: 14.5, display: "flex", gap: 12, alignItems: "baseline", flexWrap: "wrap" }}>
+          <span style={{ flex: 1, minWidth: 220 }}>Classes nobody has played or edited for 360 days are deleted automatically.</span>
+          <button className="ws-btn" onClick={deleteAccount} style={{ ...btn, color: T.red }}>Delete my account</button>
+        </div>
+      )}
     </div>
   );
 }

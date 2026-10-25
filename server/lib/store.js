@@ -1,4 +1,5 @@
 import { getFirestore, FieldValue, FieldPath, Timestamp } from "firebase-admin/firestore";
+import { getAuth } from "firebase-admin/auth";
 import { createHash, randomBytes } from "crypto";
 import { applyRound } from "../../shared/rewards.js";
 import { newWords, bankFromGames } from "../../shared/wordbank.js";
@@ -32,7 +33,8 @@ export async function saveSettings(teacherId, settings) {
 }
 
 /*
- * ---- class lists: teachers/{uid}/classes/{classId} = { name, code, students: [{ id, name, pin }] } ----
+ * ---- class lists: teachers/{uid}/classes/{classId} = { name, code, students: [{ id, name, pin }], activeAt } ----
+ * activeAt (ms) is when the class was last made, edited or played; a class unused for INACTIVE_MS is deleted.
  * The class code students sign in with is also kept in classCodes/{CODE} = { teacherId, classId }, so a student
  * can find their class from the code alone. The two are written together, so no two classes can share a code.
  */
@@ -77,7 +79,7 @@ async function writeClass(teacherId, ref, cls, isNew) {
       if (old.exists && old.get("teacherId") === teacherId && old.get("classId") === ref.id) tx.delete(old.ref);
     }
     if (cls.code) tx.set(classCodes().doc(cls.code), { teacherId, classId: ref.id });
-    const stamp = { updatedAt: FieldValue.serverTimestamp(), ...(isNew ? { createdAt: FieldValue.serverTimestamp() } : {}) };
+    const stamp = { updatedAt: FieldValue.serverTimestamp(), activeAt: Date.now(), ...(isNew ? { createdAt: FieldValue.serverTimestamp() } : {}) };
     tx.set(ref, { ...cls, ...stamp }, { merge: !isNew });
     return { id: ref.id, ...cls };
   });
@@ -114,6 +116,43 @@ export async function deleteClass(teacherId, classId) {
   }
   await forgetDevices(teacherId, classId);
   await db.recursiveDelete(classesOf(teacherId).doc(classId));
+}
+
+/*
+ * Classes nobody has made, edited or played for INACTIVE_MS are deleted, everything with them (see deleteClass).
+ * A class from before activeAt was kept starts its count now. Every teacher's classes are read, so it runs at most
+ * once a day, however often the server restarts (meta/classTidy remembers when). Returns the deleted classes as [{ teacherId, classId }].
+ */
+export const INACTIVE_MS = 360 * 24 * 60 * 60 * 1000;
+const TIDY_EVERY_MS = 20 * 60 * 60 * 1000;
+export async function removeInactiveClasses(t) {
+  const due = await db.runTransaction(async tx => {
+    const ref = db.collection("meta").doc("classTidy"), doc = await tx.get(ref);
+    if (doc.exists && t - (doc.get("at") || 0) < TIDY_EVERY_MS) return false;
+    tx.set(ref, { at: t });
+    return true;
+  });
+  if (!due) return [];
+  const gone = [];
+  for (const teacher of await db.collection("teachers").listDocuments()) gone.push(...await removeInactiveOf(teacher.id, t));
+  return gone;
+}
+export async function removeInactiveOf(teacherId, t) {
+  const gone = [];
+  for (const doc of (await classesOf(teacherId).get()).docs) {
+    const at = doc.get("activeAt");
+    if (typeof at !== "number") await doc.ref.update({ activeAt: t });
+    else if (t - at > INACTIVE_MS) { await deleteClass(teacherId, doc.id); gone.push({ teacherId, classId: doc.id }); }
+  }
+  return gone;
+}
+
+// A teacher deleting their account: every class (and everything in it), their open room, their settings and their sign-in.
+export async function deleteTeacher(teacherId) {
+  for (const ref of await classesOf(teacherId).listDocuments()) await deleteClass(teacherId, ref.id);
+  await liveRooms().doc(teacherId).delete();
+  await db.recursiveDelete(teacherDoc(teacherId));
+  await getAuth(firebaseApp).deleteUser(teacherId).catch(err => { if (err.code !== "auth/user-not-found") throw err; });
 }
 
 // The class a student's typed code belongs to: { teacherId, classId } or null.
@@ -261,9 +300,8 @@ export async function saveRound(teacherId, classId, gameId, record, endedAt, { h
     tx.set(gameRef, { ...record, endedAt: Timestamp.fromMillis(endedAt) });
     // Class together: the class's own best for this kind of board (most words found between them).
     const c = record.coop, best = c && (cls.get("coopBest") || {})[c.key];
-    if (c && !home && c.words.length && (!best || c.words.length > best.words)) {
-      tx.set(clsRef, { coopBest: { [c.key]: { words: c.words.length, points: c.points, at: endedAt } } }, { merge: true });
-    }
+    const newBest = c && !home && c.words.length && (!best || c.words.length > best.words);
+    tx.set(clsRef, { activeAt: endedAt, ...(newBest ? { coopBest: { [c.key]: { words: c.words.length, points: c.points, at: endedAt } } } : {}) }, { merge: true });
     return { status: "saved", earned, summaries };
   });
 }

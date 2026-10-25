@@ -5,15 +5,8 @@ import { T, CSS, applyTheme } from "./theme.js";
  * /privacy: what WordShake keeps about teachers and students, where, for how long, and how it's deleted.
  * Written for teachers and parents. Keep it in step with the server: if a new kind of data is stored
  * (a new collection in server/lib/store.js, a new localStorage key), it belongs here too.
- * <Confirm> marks a commitment the owner hasn't decided yet; none should be left before schools are told about the page.
  */
 const UPDATED = "26 October 2026";
-
-const Confirm = ({ children }) => (
-  <span style={{ display: "inline", background: "rgb(var(--ws-amber-rgb) / .14)", border: "1px dashed rgb(var(--ws-amber-rgb) / .7)", borderRadius: 6, padding: "1px 6px", color: "var(--ws-text)" }}>
-    <b style={{ color: T.amber }}>To confirm:</b> {children}
-  </span>
-);
 
 const Section = ({ title, children }) => (
   <section style={{ display: "grid", gap: 10 }}>
@@ -45,7 +38,7 @@ export function Privacy() {
         </div>
 
         <Section title="Who runs WordShake">
-          <p style={{ margin: 0 }}><Confirm>who runs WordShake (a person or a school), and which schools it's offered to.</Confirm></p>
+          <p style={{ margin: 0 }}>WordShake is made and run by Rob's Education Tools, in Melbourne.</p>
         </Section>
 
         <Section title="What WordShake keeps">
@@ -85,10 +78,10 @@ export function Privacy() {
 
         <Section title="Where it's kept">
           <List items={[
-            <>The database is Google Firebase (Cloud Firestore), in Google's Melbourne data centre (australia-southeast2). <Confirm>that this is still the database's location.</Confirm></>,
-            "Teachers sign in through Firebase Authentication (Google).",
-            <>The app runs on Render, a hosting service. Information passes through Render's servers but isn't stored there, apart from short server logs. <Confirm>Render's region and how long its logs are kept.</Confirm></>,
-            <>The app's lettering comes from Google Fonts, so Google sees each device's internet address when the page loads. <Confirm>keep Google Fonts, or serve the fonts from WordShake itself so no student device contacts Google.</Confirm></>,
+            "The database is Google Firebase (Cloud Firestore), in Google's Melbourne data centre. Everything about classes and students is stored there, in Australia.",
+            "Teachers sign in through Firebase Authentication, a Google service that keeps each teacher's sign-in (name and email) on Google's servers, which may be outside Australia.",
+            "The app runs on Render, a hosting service whose servers are overseas. Information passes through them on its way to the database but isn't stored there, apart from short-lived server logs that don't include names.",
+            "Everything a student's device loads, including the lettering, comes from WordShake itself. Students' devices don't contact Google or anyone else.",
           ]} />
         </Section>
 
@@ -97,7 +90,7 @@ export function Privacy() {
             "A class's teacher sees their own classes only: names, secret pictures, rounds and progress. No other teacher can.",
             "A signed-in student sees their own progress, stars and word jar on their own device.",
             "During a lesson, the big screen shows the names of students in the game, the answers, and team or whole-class totals. In \"Class together\" games, the words being found appear live.",
-            <>The person who runs WordShake can reach the database to keep it working and fix problems. <Confirm>who that is, and that they only look when they need to.</Confirm></>,
+            "Rob's Education Tools can reach the database to keep WordShake working, and only looks when that's needed to fix a problem.",
           ]} />
         </Section>
 
@@ -106,7 +99,7 @@ export function Privacy() {
             "Class lists, rounds and progress are kept until the teacher deletes them.",
             "A copy of an open game: until it closes, or 12 hours at most.",
             "Signed-in devices: until the student signs out, the teacher signs the device out, the student is taken off the class list, or the class is deleted.",
-            <><Confirm>whether classes nobody has used for a long time (for example 18 months) are deleted automatically.</Confirm></>,
+            "A class nobody has played or edited for 360 days is deleted automatically, with everything in it.",
           ]} />
         </Section>
 
@@ -114,15 +107,12 @@ export function Privacy() {
           <List items={[
             <><b style={{ color: "var(--ws-text)" }}>A whole class:</b> in My classes, press Delete. This removes the class list, secret pictures, every saved round and home game, every student's progress, stars and word jar, signs out every device, closes the class's open game and frees the class code. It can't be undone.</>,
             <><b style={{ color: "var(--ws-text)" }}>One round:</b> on the Progress page, delete it from the round history.</>,
-            <><b style={{ color: "var(--ws-text)" }}>One student:</b> taking a student off the class list signs out their devices straight away. Their past rounds and progress stay with the class until the class is deleted. <Confirm>whether taking a student off the list should delete their progress and their words in past rounds too.</Confirm></>,
-            <><b style={{ color: "var(--ws-text)" }}>A teacher's account:</b> <Confirm>how a teacher asks for their own account (name, email, settings) to be deleted.</Confirm></>,
+            <><b style={{ color: "var(--ws-text)" }}>One student:</b> taking a student off the class list signs out their devices straight away. Their past rounds and progress stay with the class until the class is deleted.</>,
+            <><b style={{ color: "var(--ws-text)" }}>A teacher's whole account:</b> in My classes, press Delete my account. This deletes every class (as above), your settings, your name and email, and your sign-in.</>,
             <><b style={{ color: "var(--ws-text)" }}>Families:</b> ask your child's teacher. They can delete your child's data, or take your child off the class list.</>,
           ]} />
         </Section>
 
-        <Section title="Questions">
-          <p style={{ margin: 0 }}><Confirm>how to get in touch (the contact page).</Confirm></p>
-        </Section>
       </main>
     </div>
   );

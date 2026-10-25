@@ -603,7 +603,8 @@ export default function WordShakeWorkbook() {
       {/* ---------- CLASS LISTS ---------- */}
       {phase === "classes" && (
         <main style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", padding: "18px 20px 40px" }}>
-          <ClassLists classes={classes} setClasses={setClasses} onCreated={id => setSettings(v => ({ ...v, classId: id }))} onDone={() => setPhase("setup")} />
+          <ClassLists classes={classes} setClasses={setClasses} onCreated={id => setSettings(v => ({ ...v, classId: id }))} onDone={() => setPhase("setup")}
+            onAccountDeleted={async () => { roomRef.current = null; await signOutHere(); setAccountNote("Your WordShake account and all its classes have been deleted."); }} />
         </main>
       )}
 
