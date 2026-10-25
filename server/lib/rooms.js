@@ -28,6 +28,7 @@ const WALL_MS = 500;                                  // Class together: the big
 const HOME_GONE_MS = 30 * 60 * 1000;                  // a home game whose student's device has gone for half an hour is closed
 const HOME_COUNTDOWN_MS = 3000;                       // a home game has no big screen: the server says "Get ready" for this long
 const HOME_START_MS = 5000;                           // and can't start another round sooner than this
+const TIDY_MS = 60 * 60 * 1000;                       // kept rooms left behind are looked for in the database this often
 const MISSED_MAX = 40;                                 // the words a home player missed, longest first, shown after the round
 
 const newToken = () => randomBytes(16).toString("base64url");
@@ -1151,7 +1152,14 @@ export function attachRooms(io, {
       if (t - room.createdAt > MAX_AGE_MS || (!room.hostSocket && t - room.hostSeenAt > gone)) closeRoom(room, "expired");
     }
     for (const [ip, f] of lookupFails) if (f.until <= t) lookupFails.delete(ip);
+    // Kept rooms nobody came back to after a restart (their names and words) go once they're past a school day.
+    if (liveStore && liveStore.removeOlder && t - lastTidy >= TIDY_MS) {
+      lastTidy = t;
+      Promise.resolve().then(() => liveStore.removeOlder(t - MAX_AGE_MS))
+        .catch(err => console.error("Tidying kept rooms failed:", err.message));
+    }
   }
+  let lastTidy = 0;
   const timer = setInterval(sweep, 10 * 60 * 1000);
   timer.unref();
 
@@ -1170,5 +1178,16 @@ export function attachRooms(io, {
     }
   }
 
-  return { rooms, sweep, rewardsChanged, signedOut, shutdown };
+  // A class was deleted: its open room closes (which forgets its kept copy), and a kept copy waiting for a restart goes too.
+  async function classDeleted(teacherId, classId) {
+    signedOut(teacherId, classId);
+    const open = rooms.get(byTeacher.get(teacherId));
+    if (open && open.classId === classId) closeRoom(open);
+    if (!liveStore) return;
+    await (open && open.writing);
+    const snap = await liveStore.byTeacher(teacherId);
+    if (snap && snap.classId === classId) await liveStore.remove(teacherId, snap.code);
+  }
+
+  return { rooms, sweep, rewardsChanged, signedOut, classDeleted, shutdown };
 }

@@ -156,7 +156,7 @@ app.put("/api/classes/:id", teacherRoute(async (req, res, teacher) => {
 app.delete("/api/classes/:id", teacherRoute(async (req, res, teacher) => {
   if (!validClassId(req.params.id)) return res.status(404).json({ error: "class-not-found" });
   await deleteClass(teacher.id, req.params.id);
-  roomsApi.signedOut(teacher.id, req.params.id);
+  await roomsApi.classDeleted(teacher.id, req.params.id);
   res.json({ ok: true });
 }));
 

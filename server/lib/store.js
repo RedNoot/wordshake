@@ -374,4 +374,9 @@ export const liveRoomStore = {
       if (doc.exists && doc.get("code") === code) tx.delete(ref);
     });
   },
+  // Rooms made before this time (ms): past a school day, nobody can pick them up again.
+  async removeOlder(t) {
+    const snap = await liveRooms().where("createdAt", "<", t).get();
+    await Promise.all(snap.docs.map(d => d.ref.delete()));
+  },
 };

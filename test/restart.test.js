@@ -244,3 +244,42 @@ test("own looks and avatars come through a restart", async () => {
   assert.equal(old.ownLooks, true);
   assert.equal("theme" in old, false);
 });
+
+test("deleting a class closes its room and forgets the kept copy, even one waiting for a restart", async () => {
+  const db = fakeDb();
+  const { A, code } = await midRound(db);
+  assert.ok(db.kept.has("teacherA"));
+  await A.api.classDeleted("teacherA", "class1");
+  assert.equal(A.api.rooms.has(code), false, "the open room closes");
+  await settle();
+  assert.equal(db.kept.has("teacherA"), false, "and its names and words leave the database");
+  A.stop();
+
+  // Kept, then the server restarted and nobody came back before the class was deleted.
+  const again = await midRound(db);
+  await again.A.api.shutdown();
+  again.A.stop();
+  const B = await startServer(db);
+  await B.api.classDeleted("teacherA", "class1");
+  assert.equal(db.kept.has("teacherA"), false);
+  B.stop();
+});
+
+test("kept rooms nobody came back to are tidied away after a school day", async () => {
+  const db = fakeDb();
+  let cutoff = null;
+  db.liveStore.removeOlder = async t => { cutoff = t; for (const [k, d] of db.kept) if (d.createdAt < t) db.kept.delete(k); };
+  const { A } = await midRound(db);
+  await A.api.shutdown();
+  A.stop();
+  const B = await startServer(db);
+  B.api.sweep();
+  await settle();
+  assert.ok(db.kept.has("teacherA"), "a room from today stays");
+  clock += 13 * 60 * 60 * 1000;
+  B.api.sweep();
+  await settle();
+  assert.equal(cutoff, clock - 12 * 60 * 60 * 1000);
+  assert.equal(db.kept.has("teacherA"), false, "one past a school day goes");
+  B.stop();
+});
