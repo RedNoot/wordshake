@@ -548,6 +548,7 @@ export default function WordShakeWorkbook() {
             {phase !== "setup" || !showGuide ? <button className="ws-btn" onClick={() => { setGuide(true); setPhase("setup"); }} style={{ background: "none", border: `1px solid ${T.faint}`, color: "var(--ws-text)", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 13 }}>How it works</button> : null}
             {phase !== "classes" && <button className="ws-btn" onClick={() => setPhase("classes")} style={{ background: "none", border: `1px solid ${T.faint}`, color: "var(--ws-text)", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 13 }}>My classes</button>}
             {phase !== "progress" && <button className="ws-btn" onClick={() => setPhase("progress")} style={{ background: "none", border: `1px solid ${T.faint}`, color: "var(--ws-text)", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 13 }}>Progress</button>}
+            <a href="/privacy" style={{ color: T.mist, fontSize: 14 }}>Privacy</a>
             <span>Signed in as <b style={{ color: "var(--ws-text)" }}>{account.displayName || account.email}</b></span>
             <button className="ws-btn" onClick={signOutHere} style={{ background: "none", border: "none", color: T.mist, textDecoration: "underline", cursor: "pointer", fontSize: 14, padding: 0 }}>Sign out</button>
           </div>
@@ -595,6 +596,7 @@ export default function WordShakeWorkbook() {
               Or play a workbook round without signing in →
             </button>
           </section>
+          <a href="/privacy" style={{ color: T.mist, fontSize: 14 }}>Privacy</a>
         </main>
       )}
 

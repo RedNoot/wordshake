@@ -423,6 +423,7 @@ export function Join({ initialCode }) {
             </button>
             {student ? <button type="button" onClick={() => { setMessage(""); setCode(""); setStep("home"); }} style={link}>Back</button>
               : <a href="/" style={{ ...link, textDecoration: "underline" }}>Back</a>}
+            {!student && <a href="/privacy" style={{ ...link, fontSize: 14 }}>Privacy</a>}
           </form>
         )}
 
@@ -471,6 +472,7 @@ export function Join({ initialCode }) {
             </div>
             <button onClick={() => { setMessage(""); setCode(""); setStep("code"); }} style={{ ...link, marginTop: 14 }}>Got a code from the big screen?</button>
             <button onClick={notMe} style={link}>Not {student.name}? Sign out</button>
+            <a href="/privacy" style={{ ...link, fontSize: 14 }}>Privacy</a>
           </div>
         )}
 
