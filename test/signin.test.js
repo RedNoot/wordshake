@@ -151,9 +151,13 @@ test("class code: a wrong one counts as a guess, a right one shows names but nev
   assert.deepEqual(out.roster, [{ id: "s1", name: "Ava" }, { id: "s2", name: "Ben" }, { id: "s3", name: "Cy" }]);
 });
 
-test("first time: pictures are only shown in class, then the device is remembered", async () => {
+test("first time: the class code is enough, then the device is remembered", async () => {
+  // No class game open (a student who was away, or signing in at home): straight in, and shown their pictures.
+  const away = await call(await client(), "student:signin", { code: "BIRDS34", studentId: "s2" });
+  assert.deepEqual([away.ok, away.reveal, away.room], [true, [3, 4, 5], null]);
+  states.delete("s2");
+
   const kid = await client();
-  assert.deepEqual(await call(kid, "student:signin", { code: "BIRDS34", studentId: "s1" }), { error: "first-in-class" }, "no game open: no teacher in the room");
 
   const host = await client();
   const opened = await call(host, "host:open", { idToken: "tok-a", classId: "class1" });

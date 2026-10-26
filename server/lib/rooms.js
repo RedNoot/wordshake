@@ -915,8 +915,8 @@ export function attachRooms(io, {
       ack({ ok: true, className: cls.name, roster: cls.students.map(s => ({ id: s.id, name: s.name })) });
     });
 
-    // Without pin: { error: "need-pin" } (or "locked"), unless the student has never seen their pictures, which is
-    // only allowed while the class's game is open; then they're shown them ({ reveal }).
+    // Without pin: { error: "need-pin" } (or "locked"), unless the student has never seen their pictures: then the
+    // class code is enough and they're shown them ({ reveal }), in class or not (a student away on game day still gets in).
     on("student:signin", async ({ code, studentId, pin }, ack) => {
       const { teacherId, cls, error } = await classFromCode(code);
       if (error) return ack({ error });
@@ -925,7 +925,6 @@ export function attachRooms(io, {
       const owner = { teacherId, classId: cls.id, studentId: student.id };
       const state = await signin.getSignin(teacherId, cls.id, student.id);
       if (!state.pinShown || !validPin(student.pin)) {
-        if (!await classRoom(teacherId, cls.id)) return ack({ error: "first-in-class" });
         const reveal = await revealPin(owner, student);
         const pass = await newPass(socket, owner);
         return ack({ ...await signIn(socket, owner, cls.name, student.name, pass), reveal, practice: { pin: reveal, mode: "first" } });

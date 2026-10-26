@@ -21,7 +21,6 @@ const ERRORS = {
   "no-student": "That name isn't on the list any more. Ask your teacher.",
   offline: "We can't reach the game. Check the wifi, then try again.",
   "no-class": "We can't find a class with that code. Check it with your teacher.",
-  "first-in-class": "The first time, you sign in at school. Ask your teacher to open the game on the big screen, then tap your name again.",
   "wrong-pin": "Not quite. Try again!",
   locked: "Too many wrong tries. Wait 15 minutes, or ask your teacher.",
   "signed-out": "You've been signed out. Type your class code to sign in again.",

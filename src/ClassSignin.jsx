@@ -56,8 +56,8 @@ export function ClassSignin({ cls, onBack, onEdit }) {
             : data && <div style={{ fontSize: 17 }}>Not set yet. <button className="ws-btn" onClick={onEdit} style={{ ...btn, marginLeft: 6 }}>Set a class code</button></div>}
         </div>
         <p style={{ margin: 0, flex: 1, minWidth: 240, color: T.mist, fontSize: 14.5, lineHeight: 1.5 }}>
-          The first time a student taps their name in your game, their device shows them their secret pictures and remembers them.
-          On a new device, or at home, they type the class code, tap their name, then tap their pictures.
+          The first time a student signs in (tapping their name in your game, or with the class code anywhere), their device shows them their secret pictures and remembers them.
+          After that, on a new device they type the class code, tap their name, then tap their pictures.
         </p>
       </div>
 
