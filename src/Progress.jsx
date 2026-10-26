@@ -15,6 +15,13 @@ const card = { background: "rgb(var(--ws-fg) / .04)", border: `1px solid ${T.fai
 const th = { textAlign: "left", fontWeight: 600, color: T.mist, fontSize: 13, textTransform: "uppercase", letterSpacing: 1, padding: "8px 10px", borderBottom: `1px solid ${T.faint}`, whiteSpace: "nowrap" };
 const td = { padding: "10px", borderBottom: `1px solid ${T.faint}`, fontSize: 16, verticalAlign: "top" };
 const rowBtn = { cursor: "pointer" };
+// Class games and home games are told apart by colour and always by a label too (projectors and colour-blind eyes).
+const HOME = "#6FB2F2";
+const kindOf = g => (g.home ? (g.task ? ["Teacher's home game", HOME] : ["Home", HOME]) : ["Class", T.green]);
+function Where({ g }) {
+  const [label, colour] = kindOf(g);
+  return <span style={{ display: "inline-block", fontSize: 13, fontWeight: 700, color: colour, border: `1.5px solid ${colour}`, borderRadius: 999, padding: "1px 9px", whiteSpace: "nowrap" }}>{label}</span>;
+}
 
 const byName = (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
 const when = ms => ms ? new Date(ms).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "just now";
@@ -80,12 +87,12 @@ function Trend({ points, height = 34, width = 150, colour = T.amber, label = "Sc
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMinYMax meet" style={{ maxWidth: "100%", height: "auto", display: "block" }} role="img" aria-label={`${label}, oldest to newest: ${pts.map(p => fmt(p.v)).join(", ")}`}>
       {pts.map((p, i) => {
         const h = Math.max(2, (p.v / max) * (height - 2));
-        return <rect key={i} x={i * w + 1} y={height - h} width={Math.max(2, w - 3)} height={h} rx="2" style={{ fill: colour }} opacity={0.45 + 0.55 * ((i + 1) / pts.length)}><title>{`${day(p.t)}: ${fmt(p.v)}`}</title></rect>;
+        return <rect key={i} x={i * w + 1} y={height - h} width={Math.max(2, w - 3)} height={h} rx="2" style={{ fill: p.home ? HOME : colour }} opacity={0.45 + 0.55 * ((i + 1) / pts.length)}><title>{`${day(p.t)}${p.home ? " (home)" : ""}: ${fmt(p.v)}`}</title></rect>;
       })}
     </svg>
   );
 }
-const sharePoints = rounds => rounds.filter(r => shareOf(r) != null).map(r => ({ v: Math.round(shareOf(r) * 100), t: r.game.endedAt }));
+const sharePoints = rounds => rounds.filter(r => shareOf(r) != null).map(r => ({ v: Math.round(shareOf(r) * 100), t: r.game.endedAt, home: !!r.game.home }));
 
 // A section of a student's page that folds away, with a one-line summary beside its title (as in the settings drawer).
 function Fold({ title, note, open: startOpen = false, children }) {
@@ -117,7 +124,7 @@ function StudentCard({ s, trend, rewards, onOpen }) {
         <span className="ws-display" style={{ fontSize: 21, fontWeight: 700, minWidth: 0, overflowWrap: "anywhere" }}>{s.name}</span>
         <span style={{ fontSize: 13, fontWeight: 700, color: colour, textAlign: "right" }}>{label}</span>
       </div>
-      <div style={{ height: 34 }}><Trend points={sharePoints(s.rounds).slice(-8)} width={140} colour={flag ? T.amber : T.green} label="Share of the board found" fmt={v => `${v}%`} /></div>
+      <div style={{ height: 34 }}><Trend points={sharePoints(s.rounds).slice(-8)} width={140} colour={T.green} label="Share of the board found" fmt={v => `${v}%`} /></div>
       <div style={{ fontSize: 15 }}>
         {trend.latest == null ? <span style={{ color: T.mist }}>No rounds yet</span>
           : <><b className="ws-display" style={{ fontSize: 20, color: T.amber }}>{pct(trend.latest)}</b> of the board last round <span style={{ color: T.mist }}>· {plural(s.rounds.length, "round")}</span></>}
@@ -148,7 +155,10 @@ export function Progress({ classes, onDone }) {
   const [gameId, setGameId] = useState(null);
   const [filter, setFilter] = useState("all");
   const [find, setFind] = useState("");
+  const [where, setWhere] = useState("all");     // all | class | home
   const narrow = useNarrow();
+  // The rounds the page is about: everything below (students, trends, the rounds list) is built from these.
+  const games = useMemo(() => (data ? data.games.filter(g => where === "all" || (where === "home") === !!g.home) : []), [data, where]);
 
   const load = async id => {
     setData(null); setError(""); setStudentId(null); setGameId(null);
@@ -167,18 +177,18 @@ export function Progress({ classes, onDone }) {
   const students = useMemo(() => {
     if (!data) return [];
     const map = new Map(data.class.students.map(s => [s.id, { id: s.id, name: s.name, current: true, rounds: [] }]));
-    for (const g of [...data.games].reverse()) {
+    for (const g of [...games].reverse()) {
       for (const [sid, p] of Object.entries(g.players || {})) {
         if (!map.has(sid)) map.set(sid, { id: sid, name: p.name, current: false, rounds: [] });
         map.get(sid).rounds.push({ game: g, p });
       }
     }
     return [...map.values()].sort(byName);
-  }, [data]);
+  }, [data, games]);
 
   const removeGame = async g => {
     if (!window.confirm(`Delete the round from ${when(g.endedAt)}? It will disappear from the round history and charts. Trophies and stickers already earned are kept. This can't be undone.`)) return;
-    const res = await authFetch(`/api/classes/${classId}/games/${g.id}`, { method: "DELETE" }).catch(() => null);
+    const res = await authFetch(`/api/classes/${classId}/games/${g.id}${g.home ? "?home=1" : ""}`, { method: "DELETE" }).catch(() => null);
     if (!res || !res.ok) return setError("That round wasn't deleted. Check your connection and try again.");
     setGameId(null);
     setData(d => ({ ...d, games: d.games.filter(x => x.id !== g.id) }));
@@ -215,9 +225,9 @@ export function Progress({ classes, onDone }) {
   const game = gameId && data && data.games.find(g => g.id === gameId);
 
   const trends = useMemo(() => {
-    const lastAt = data && data.games.length ? data.games[0].endedAt : 0;   // games come newest first
+    const lastAt = games.length ? games[0].endedAt : 0;   // games come newest first
     return Object.fromEntries(students.map(s => [s.id, trendOf(s, lastAt)]));
-  }, [students, data]);
+  }, [students, games]);
   const weekAgo = Date.now() - 7 * DAY;
   const FILTERS = [
     ["all", "Everyone", () => true],
@@ -262,20 +272,37 @@ export function Progress({ classes, onDone }) {
             {!data && !error && <div style={{ color: T.mist }}>Loading…</div>}
 
             {data && !data.games.length && (
-              <div style={card}>No rounds saved for {data.class.name} yet. A round is saved when you open a room with this class and it reaches the answers (the timer runs out, or you press End round now). Guests aren't saved.</div>
+              <div style={card}>No rounds saved for {data.class.name} yet. A round is saved when you open a room with this class and it reaches the answers (the timer runs out, or you press End round now). Rounds students play at home are saved too. Guests aren't saved.</div>
             )}
 
-            {data && data.games.length > 0 && !student && !game && (
+            {data && data.games.length > 0 && !game && (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }} role="group" aria-label="Which games">
+                {[["all", "All games", data.games.length], ["class", "Class games", data.games.filter(g => !g.home).length], ["home", "Home games", data.games.filter(g => g.home).length]].map(([k, label, n]) => (
+                  <button key={k} className="ws-btn" aria-pressed={where === k} onClick={() => setWhere(k)} style={chip(where === k)}>{label} {n}</button>
+                ))}
+                <span style={{ fontSize: 13.5, color: T.mist, display: "flex", gap: 12, marginLeft: 6 }}>
+                  <span><span aria-hidden="true" style={{ display: "inline-block", width: 10, height: 10, borderRadius: 3, background: T.green, marginRight: 5 }} />Class</span>
+                  <span><span aria-hidden="true" style={{ display: "inline-block", width: 10, height: 10, borderRadius: 3, background: HOME, marginRight: 5 }} />Home</span>
+                </span>
+              </div>
+            )}
+
+            {data && data.games.length > 0 && !games.length && !student && !game && (
+              <div style={card}>No {where === "home" ? "home" : "class"} games saved for {data.class.name} yet.</div>
+            )}
+
+            {data && games.length > 0 && !student && !game && (
               <>
                 <div style={{ display: "flex", gap: 8 }} role="tablist">
-                  {[["students", `Students (${students.length})`], ["rounds", `Rounds (${data.games.length})`]].map(([k, label]) => (
+                  {[["students", `Students (${students.length})`], ["rounds", `Rounds (${games.length})`]].map(([k, label]) => (
                     <button key={k} role="tab" aria-selected={view === k} className="ws-btn ws-display" onClick={() => setView(k)}
                       style={{ fontSize: 17, fontWeight: 600, padding: "8px 18px", borderRadius: 10, cursor: "pointer", border: "none", background: view === k ? "rgb(var(--ws-fg) / .14)" : "transparent", color: view === k ? "var(--ws-text)" : T.mist }}>
                       {label}
                     </button>
                   ))}
                 </div>
-                {data.games.length >= data.limit && <div style={{ fontSize: 14, color: T.mist }}>Showing the most recent {data.limit} rounds.</div>}
+                {data.games.filter(g => !g.home).length >= data.limit && where !== "home" && <div style={{ fontSize: 14, color: T.mist }}>Showing the most recent {data.limit} class rounds.</div>}
+                {data.games.filter(g => g.home).length >= data.limit && where !== "class" && <div style={{ fontSize: 14, color: T.mist }}>Showing the most recent {data.limit} home rounds.</div>}
 
                 {view === "students" && (
                   <>
@@ -294,20 +321,21 @@ export function Progress({ classes, onDone }) {
                       {shown.map(s => <StudentCard key={s.id} s={s} trend={trends[s.id]} rewards={rewardsOf(s.id)} onOpen={() => setStudentId(s.id)} />)}
                     </div>
                     {!shown.length && <div style={{ color: T.mist }}>Nobody here right now.</div>}
-                    <div style={{ fontSize: 14, color: T.mist }}>The bars show the share of each board's words found in the last 8 rounds, so a 3×3 round and a 5×5 round compare fairly. Each student is only compared with their own past. An orange edge means worth a look.</div>
+                    <div style={{ fontSize: 14, color: T.mist }}>The bars show the share of each board's words found in the last 8 rounds, so a 3×3 round and a 5×5 round compare fairly: green for class games, blue for home games. Each student is only compared with their own past. An orange edge means worth a look.</div>
                   </>
                 )}
 
                 {view === "rounds" && (
                   <div style={{ overflowX: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                      <thead><tr><th style={th}>When</th><th style={th}>Sound</th><th style={th}>Board</th><th style={th}>Students</th><th style={th}>Avg score</th><th style={th}>Words on board</th></tr></thead>
+                      <thead><tr><th style={th}>When</th><th style={th}>Where</th><th style={th}>Sound</th><th style={th}>Board</th><th style={th}>Students</th><th style={th}>Avg score</th><th style={th}>Words on board</th></tr></thead>
                       <tbody>
-                        {data.games.map(g => {
+                        {games.map(g => {
                           const ps = Object.values(g.players || {});
                           return (
                             <tr key={g.id} onClick={() => setGameId(g.id)} style={rowBtn}>
                               <td style={td}><button className="ws-btn" onClick={() => setGameId(g.id)} style={{ background: "none", border: "none", color: "var(--ws-text)", fontSize: 16, fontWeight: 700, padding: 0, cursor: "pointer", textAlign: "left" }}>{when(g.endedAt)}</button></td>
+                              <td style={td}><Where g={g} /></td>
                               <td style={td}>{soundName(g.settings.phSound)}</td>
                               <td style={td}>{g.settings.size}×{g.settings.size} · {g.settings.seconds / 60} min</td>
                               <td style={td}>{ps.length}</td>
@@ -450,7 +478,7 @@ function StudentDetail({ s, trend, summary, onGive, onRemove, onBack, onRound })
       {shares.length > 0 && (
         <Fold title="Each round" open>
           <Trend points={sharePoints(rounds)} height={80} width={Math.min(560, 46 * Math.min(12, shares.length))} colour={T.green} label="Share of the board found" fmt={v => `${v}%`} />
-          <div style={{ fontSize: 13, color: T.mist }}>The share of the board's words found in each of the last 12 rounds, oldest on the left. Hover a bar for its date.</div>
+          <div style={{ fontSize: 13, color: T.mist }}>The share of the board's words found in each of the last 12 rounds, oldest on the left: green for class games, blue for home games. Hover a bar for its date.</div>
         </Fold>
       )}
 
@@ -500,7 +528,10 @@ function StudentDetail({ s, trend, summary, onGive, onRemove, onBack, onRound })
         {[...rounds].reverse().map(({ game, p }) => (
           <div key={game.id} style={{ ...card, display: "grid", gap: 6 }}>
             <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-              <button className="ws-btn" onClick={() => onRound(game.id)} style={{ background: "none", border: "none", color: "var(--ws-text)", fontWeight: 700, fontSize: 16, padding: 0, cursor: "pointer" }}>{when(game.endedAt)} · {soundName(game.settings.phSound)}</button>
+              <span style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
+                <button className="ws-btn" onClick={() => onRound(game.id)} style={{ background: "none", border: "none", color: "var(--ws-text)", fontWeight: 700, fontSize: 16, padding: 0, cursor: "pointer" }}>{when(game.endedAt)} · {soundName(game.settings.phSound)}</button>
+                <Where g={game} />
+              </span>
               <span><b style={{ color: T.amber }}>{p.score}</b> pts · {plural(p.words.length, "word")}</span>
             </div>
             <div style={{ fontSize: 15, color: p.words.length ? "var(--ws-text)" : T.mist }}>{p.words.length ? p.words.map(UP).join(", ") : "No words this round"}</div>
@@ -525,6 +556,7 @@ function RoundDetail({ g, students, onBack, onDelete, onStudent }) {
         <div style={{ display: "flex", alignItems: "baseline", gap: 14, flexWrap: "wrap" }}>
           <button className="ws-btn" onClick={onBack} style={btn}>← All rounds</button>
           <h2 className="ws-display" style={{ margin: 0, fontSize: 28 }}>{when(g.endedAt)}</h2>
+          <Where g={g} />
         </div>
         <button className="ws-btn" onClick={onDelete} style={{ ...btn, color: T.red }}>Delete this round</button>
       </div>

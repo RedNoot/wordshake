@@ -43,12 +43,14 @@ const obj = d => (d && typeof d === "object" ? d : {});
  *          players: Map<playerId, { id, name, studentId, token, socketId, avatar: emoji | null }>, phase, createdAt, hostSeenAt,
  *          round: see round.js | null, roundNo, teams: null | { count, of: Map<playerId, team number> }, ownLooks,
  *          coop: Class together on, coopBest: { [coopKey]: { words, points, at } } the class's own bests,
- *          home: null | { studentId, name } a student's own game at home (see "home games") }
+ *          home: null | { studentId, name, task, done: Set of teacher's-board ids finished here } a student's own game at home (see "home games") }
  * Socket.IO rooms: host:CODE (the big screen), players:CODE (joined devices), lookup:CODE (devices on the name grid).
  */
 export function attachRooms(io, {
   verifyTeacher, getClass, makeGame, isRealWord,
   saveRound = null, saveHomeRound = null, getStudent = null, getWords = null, buyItem = null, equipItem = null, liveStore = null,
+  // The teacher's home game (store.js homeTaskFor): (teacherId, classId, studentId) -> { id, settings, game, done } | null.
+  homeTaskFor = null,
   // Student sign-in (store.js): classByCode, createPass, passOwner, forgetPass, getSignin, setSignin, resetPin. null: no accounts.
   signin = null,
   now = Date.now, later = (fn, ms) => setTimeout(fn, ms),
@@ -166,6 +168,7 @@ export function attachRooms(io, {
     code: room.code, className: room.className, phase: room.phase, ownLooks: room.ownLooks, teams: room.teams ? room.teams.count : 0, coop: !!room.coop,
     roster: room.roster && room.roster.map(s => ({ id: s.id, name: s.name })),
     players: players(room).map(p => ({ id: p.id, name: p.name, studentId: p.studentId, guest: !p.studentId, connected: !!p.socketId, team: teamOf(room, p.id), avatar: p.avatar || null })),
+    ...(room.home ? { task: room.home.task } : {}),
   });
   const lookupView = room => ({
     code: room.code, className: room.className, phase: room.phase,
@@ -198,6 +201,11 @@ export function attachRooms(io, {
     if (!round || round.aborted || round.save || room.replaced || !room.classId || !saverFor(room)) return;
     round.save = "pending";
     round.endedAt = round.state === "playing" ? Math.min(now(), round.endsAt) : now();
+    // The teacher's home game counts as done once it's over (the save follows, and "Play again" mustn't wait for it).
+    if (room.home && round.task) {
+      room.home.done.add(round.task);
+      if (room.home.task && room.home.task.id === round.task) { room.home.task = { ...room.home.task, done: true }; notify(room); }
+    }
     if (round.state !== "over") setClock(round, "over", 0, now());
     if (grace) later(() => flushRound(room, round), GRACE_MS + 100);
     else flushRound(room, round);
@@ -223,6 +231,7 @@ export function attachRooms(io, {
     round.save = "saving";
     const record = roundRecord(round);
     if (round.cutShort) record.cutShort = true;
+    if (round.task) record.task = round.task;
     if (!Object.keys(record.players).length) { round.save = "done"; markDirty(room); return; }
     runSave({ room, round, record, tries: 0 });
   }
@@ -366,6 +375,13 @@ export function attachRooms(io, {
    * its rounds are saved apart (saveHomeRound), and the server runs the clock and shows the answers itself.
    */
   const homeKey = (teacherId, classId, studentId) => `${teacherId}/${classId}/${studentId}`;
+  // The teacher's home game, read afresh (the teacher may have changed it or switched it off): what the lobby shows, and
+  // the board itself for a round on it. A board finished in this game counts as done even before its save lands.
+  async function readTask(room) {
+    const t = homeTaskFor ? await homeTaskFor(room.teacherId, room.classId, room.home.studentId) : null;
+    room.home.task = t ? { id: t.id, settings: t.settings, done: t.done || room.home.done.has(t.id) } : null;
+    return t;
+  }
   // The words this player didn't find, longest first: only once the round is over.
   function missedWords(round, playerId) {
     const mine = round.found.get(playerId) || new Map();
@@ -674,20 +690,31 @@ export function attachRooms(io, {
     });
 
     // A new round: the server builds the board and keeps the answers; devices get the letters only.
-    on("host:start", async ({ settings }, ack) => {
+    on("host:start", async ({ settings, task: askTask }, ack) => {
       const room = hostRoom(socket);
+      const wantTask = askTask === true;
       if (!room) return ack({ error: "no-room" });
-      const picked = pickRoundSettings(settings);
+      // At home the teacher's board comes first: until it's done, it's the only board a student can play.
+      let task = null;
+      if (room.home) {
+        task = await readTask(room).catch(() => undefined);
+        if (task === undefined) return ack({ error: "offline" });
+        if (wantTask && !task) { notify(room); return ack({ error: "no-task" }); }
+        if (!wantTask && task && !room.home.task.done) { notify(room); return ack({ error: "task-first" }); }
+        if (!wantTask) task = null;
+      }
+      const picked = task ? task.settings : pickRoundSettings(settings);
       if (!picked) return ack({ error: "invalid settings" });
       // Building a board is the server's heaviest job: a home game (anyone signed in) can't ask for them back to back.
       if (room.home && room.startedAt && now() - room.startedAt < HOME_START_MS) return ack({ error: "slow-down" });
       room.startedAt = now();
-      const game = await makeGame(picked);
+      const game = task ? task.game : await makeGame(picked);
       if (game.error) return ack({ error: game.error });
       // The last round ran out of time but the big screen's "answers" message never arrived: it still counts.
       if (room.round && timeUp(room.round)) finishRound(room, room.round);
       room.round = newRound(++room.roundNo, picked, game, [...room.players.keys()]);
       room.round.id = randomBytes(10).toString("hex");  // the saved round's id, so a retried save can't count it twice
+      if (task) room.round.task = task.id;
       // Who played, captured now so the saved record doesn't depend on who is still in the room later.
       room.round.who = new Map(players(room).map(p => [p.id, { studentId: p.studentId, name: p.name }]));
       // The teams as they stand now; moving someone mid-round only counts from the next round.
@@ -841,12 +868,12 @@ export function attachRooms(io, {
           code, teacherId: s.teacherId, hostSocket: null, classId: s.classId, className: `${student.name}'s game`,
           roster: null, homeRoster: cls.students.map(x => ({ id: x.id, name: x.name })),
           players: new Map(), phase: "lobby", createdAt: now(), hostSeenAt: now(), round: null, roundNo: 0,
-          ownLooks: true, teams: null, coop: false, coopBest: {}, home: { studentId: student.id, name: student.name },
+          ownLooks: true, teams: null, coop: false, coopBest: {}, home: { studentId: student.id, name: student.name, task: null, done: new Set() },
         };
         rooms.set(code, room);
         byHome.set(key, code);
       }
-      const saved = await loadStudent(room, student.id);
+      const [saved] = await Promise.all([loadStudent(room, student.id), readTask(room).catch(() => null)]);
       if (rooms.get(room.code) !== room) return ack({ error: "no-room" });
       attachHost(socket, room);
       let p = players(room).find(x => x.studentId === student.id);

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { T } from "./theme.js";
 import { authFetch } from "./auth.js";
 import { ClassSignin } from "./ClassSignin.jsx";
+import { HomeTask } from "./HomeTask.jsx";
 import { CLASS_CODE_MAX, cleanClassCode, suggestClassCode, validClassCode } from "../shared/pictures.js";
 
 const MAX_STUDENTS = 60;
@@ -133,6 +134,7 @@ function Editor({ cls, onSaved, onCancel }) {
 
 export function ClassLists({ classes, setClasses, onCreated, onDone, onAccountDeleted }) {
   const [editing, setEditing] = useState(null); // null | "new" | class
+  const [homeFor, setHomeFor] = useState(null);  // the id of the class whose home game is open
   const [signin, setSignin] = useState(null);   // the class whose sign-in page is open
   const [error, setError] = useState("");
 
@@ -152,6 +154,10 @@ export function ClassLists({ classes, setClasses, onCreated, onDone, onAccountDe
 
   if (editing) return <Editor cls={editing === "new" ? null : editing} onSaved={c => { saved(c); if (signin) setSignin(c); }} onCancel={() => setEditing(null)} />;
   if (signin) return <ClassSignin cls={signin} onBack={() => setSignin(null)} onEdit={() => setEditing(signin)} />;
+  if (homeFor) {
+    const cls = classes.find(c => c.id === homeFor);
+    if (cls) return <HomeTask cls={cls} onBack={() => setHomeFor(null)} onChange={task => setClasses(cs => cs.map(c => (c.id === cls.id ? { ...c, homeTask: task } : c)))} />;
+  }
 
   // Everything goes: every class, every student's progress, the teacher's settings and their sign-in.
   const deleteAccount = async () => {
@@ -186,6 +192,7 @@ Type DELETE to go ahead.`);
             <div style={{ fontSize: 14, color: c.code ? T.mist : T.amber }}>{c.code ? <>Class code <b style={{ letterSpacing: "0.08em", color: "var(--ws-text)" }}>{c.code}</b></> : "No class code yet: edit the class to add one"}</div>
           </div>
           <button className="ws-btn" onClick={() => setSignin(c)} style={btn}>Sign-in</button>
+          <button className="ws-btn" onClick={() => setHomeFor(c.id)} style={{ ...btn, ...(c.homeTask ? { color: T.amber, borderColor: "rgb(var(--ws-amber-rgb) / .5)" } : {}) }}>{c.homeTask ? "Home game ✓" : "Home game"}</button>
           <button className="ws-btn" onClick={() => setEditing(c)} style={btn}>Edit</button>
           <button className="ws-btn" onClick={() => remove(c)} style={{ ...btn, color: T.red }}>Delete</button>
         </div>

@@ -9,13 +9,14 @@ import { generateGame } from "./lib/generate.js";
 import { loadDictionary } from "./lib/dictionary.js";
 import { PH_STATS, SW_WORDS, resolveSound } from "./lib/phonics.js";
 import { AUTH, AuthError, verifyTeacher } from "./lib/auth.js";
-import { storeReady, loadTeacher, saveSettings, listClasses, getClass, countClasses, createClass, updateClass, deleteClass, deleteTeacher, removeInactiveClasses, saveRound, listGames, deleteGame, GAMES_SHOWN,
+import { storeReady, loadTeacher, saveSettings, listClasses, getClass, countClasses, createClass, updateClass, deleteClass, deleteTeacher, removeInactiveClasses, saveRound, listGames, deleteGame, GAMES_SHOWN, setHomeTask, clearHomeTask, homeTaskFor, homeTaskResults,
   getStudent, getWords, listSummaries, addAward, removeAward, buyItem, equipItem, liveRoomStore,
   classByCode, createPass, passOwner, forgetPass, listDevices, forgetDevices, getSignin, setSignin, listSignin, resetPin } from "./lib/store.js";
 import { PASS_COOKIE, PRACTICE_STREAK } from "./lib/signin.js";
 import { AWARD_PRESETS, CUSTOM_AWARD_EMOJI, AWARD_LABEL_MAX, AWARDS_MAX } from "../shared/rewards.js";
 import { randomBytes } from "crypto";
 import { pickSettings } from "./lib/settings.js";
+import { homeRoundSettings } from "../shared/home.js";
 import { pickClass, newPin, LIMITS } from "./lib/classes.js";
 import { attachRooms } from "./lib/rooms.js";
 import { RELAY, VERSION, reportServerError } from "./lib/reporting.js";
@@ -188,7 +189,33 @@ app.get("/api/classes/:id/games", teacherRoute(async (req, res, teacher) => {
 
 app.delete("/api/classes/:id/games/:gameId", teacherRoute(async (req, res, teacher) => {
   if (!validClassId(req.params.id) || !validClassId(req.params.gameId)) return res.status(404).json({ error: "not-found" });
-  await deleteGame(teacher.id, req.params.id, req.params.gameId);
+  await deleteGame(teacher.id, req.params.id, req.params.gameId, { home: req.query.home === "1" });
+  res.json({ ok: true });
+}));
+
+/* ---- the teacher's home game: one board for the class, played at home before a student's own boards ---- */
+app.get("/api/classes/:id/home-task", teacherRoute(async (req, res, teacher) => {
+  const cls = validClassId(req.params.id) && await getClass(teacher.id, req.params.id);
+  if (!cls) return res.status(404).json({ error: "class-not-found" });
+  res.json({ task: cls.homeTask, results: cls.homeTask ? await homeTaskResults(teacher.id, cls.id, cls.homeTask.id) : {} });
+}));
+
+// A new board (everyone plays it, even those who finished the last one).
+app.put("/api/classes/:id/home-task", teacherRoute(async (req, res, teacher) => {
+  const cls = validClassId(req.params.id) && await getClass(teacher.id, req.params.id);
+  if (!cls) return res.status(404).json({ error: "class-not-found" });
+  const settings = homeRoundSettings(req.body);
+  if (!settings) return res.status(400).json({ error: "invalid settings" });
+  const game = await makeGame(settings);
+  if (game.error) return res.status(400).json(game);
+  const out = await setHomeTask(teacher.id, cls.id, settings, game, Date.now());
+  if (out.error) return res.status(404).json(out);
+  res.json({ task: out.task, results: {} });
+}));
+
+app.delete("/api/classes/:id/home-task", teacherRoute(async (req, res, teacher) => {
+  if (!validClassId(req.params.id)) return res.status(404).json({ error: "class-not-found" });
+  await clearHomeTask(teacher.id, req.params.id, Date.now());
   res.json({ ok: true });
 }));
 
@@ -328,6 +355,7 @@ const roomsApi = attachRooms(io, {
   },
   getStudent: async (teacherId, classId, studentId) => (storeReady ? getStudent(teacherId, classId, studentId) : null),
   getWords: async (teacherId, classId, studentId) => (storeReady ? getWords(teacherId, classId, studentId) : {}),
+  homeTaskFor: async (teacherId, classId, studentId) => (storeReady ? homeTaskFor(teacherId, classId, studentId) : null),
   // The shop: without a database there are no wallets, so nothing can be bought or worn.
   buyItem: async (...a) => (storeReady ? buyItem(...a) : { error: "no-item" }),
   equipItem: async (...a) => (storeReady ? equipItem(...a) : { error: "no-item" }),

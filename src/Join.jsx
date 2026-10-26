@@ -223,11 +223,14 @@ export function Join({ initialCode }) {
     window.history.replaceState(null, "", "/join");
     return true;
   };
-  const startHome = async board => {
+  // task: the teacher's home game (the server uses its board, not this device's settings).
+  const startHome = async (board, task = false) => {
     setBusy(true);
-    const res = await call("host:start", { settings: roundSettings(board) });
+    const res = await call("host:start", task ? { task: true } : { settings: roundSettings(board) });
     setBusy(false);
-    if (!res.ok && res.error !== "slow-down") setMessage(ERRORS.offline);
+    // "task-first" / "no-task": the teacher changed their game; the lobby has already been sent the new one.
+    if (!res.ok && !["slow-down", "task-first", "no-task"].includes(res.error)) setMessage(ERRORS.offline);
+    if (res.error === "task-first") setMessage("Your teacher has set a game. Play it first, then you can choose your own board.");
   };
   // The clock as this device sees it, for pausing (the server keeps the real one).
   const leftNow = r => Math.max(0, r.remainingMs - (r.state === "playing" ? Date.now() - r.clockAt : 0));
@@ -518,7 +521,7 @@ export function Join({ initialCode }) {
         {step === "joined" && me && round && <Play round={round} name={me.name} avatar={avatarEmoji} guest={me.guest} home={me.home} onResume={hosting ? () => pauseHome("playing") : null} onRound={setRound} />}
         {step === "joined" && me && round && hosting && (
           <HomeControls round={round} phase={phase} busy={busy} onPause={() => pauseHome("paused")}
-            onAgain={() => startHome(homeBoard())} onBoard={() => call("host:phase", { phase: "lobby" })} />
+            onAgain={() => (hosting.task && !hosting.task.done ? startHome(null, true) : startHome(homeBoard()))} onBoard={() => call("host:phase", { phase: "lobby" })} />
         )}
         {step === "joined" && me && round && me.home && !hosting && round.state === "over" && (
           <div style={{ fontSize: 20, color: T.mist, marginTop: 14 }}>Wait for {me.home.host} to start the next round.</div>

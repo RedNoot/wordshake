@@ -41,6 +41,7 @@ export async function saveSettings(teacherId, settings) {
 const classOut = doc => ({
   id: doc.id, name: doc.get("name"), code: doc.get("code") || null, students: doc.get("students") || [], coopBest: doc.get("coopBest") || {},
   homePlay: doc.get("homePlay") !== false,   // students can play at home unless the teacher turned it off
+  homeTask: doc.get("homeTask") || null,      // the teacher's home game, without its answers: { id, settings, tiles, setAt }
 });
 const classCodes = () => db.collection("classCodes");
 
@@ -289,7 +290,11 @@ export async function saveRound(teacherId, classId, gameId, record, endedAt, { h
       if (today && !today.stars) { summary.stars -= e.stars; e.stars = 0; e.noStars = true; }
       // The word jar: this round's new words, merged into the bank's map (set with merge only touches these keys).
       const fresh = newWords(doc.exists ? doc.get("bank") : null, record.players[sid].words, endedAt);
+      // The teacher's home game: only the first time counts (a replay comes after seeing the answers).
+      const p = record.players[sid], firstTask = home && record.task && !record.cutShort && !(doc.exists && (doc.get("homeTasks") || {})[record.task]);
+      const task = firstTask ? { homeTasks: { [record.task]: { at: endedAt, gameId, score: p.score, words: p.words.length, of: record.boardWords || 0 } } } : {};
       tx.set(doc.ref, {
+        ...task,
         ...pickSummary(summary), name: record.players[sid].name, updatedAt: FieldValue.serverTimestamp(), ...(Object.keys(fresh).length ? { bank: fresh } : {}),
         ...(today ? { homeDay: { day: today.day, rounds: today.rounds } } : {}),
       }, { merge: true });
@@ -371,16 +376,61 @@ export async function removeAward(teacherId, classId, studentId, awardId) {
   });
 }
 
+// The class's rounds and its students' home rounds (marked home: true), newest first. Each has its own limit,
+// so a busy week of home games can't push the lessons out.
 export async function listGames(teacherId, classId) {
-  const snap = await gamesOf(teacherId, classId).orderBy("endedAt", "desc").limit(GAMES_SHOWN).get();
-  return snap.docs.map(d => {
+  const [lessons, home] = await Promise.all([gamesOf, homeGamesOf].map(of => of(teacherId, classId).orderBy("endedAt", "desc").limit(GAMES_SHOWN).get()));
+  return [...lessons.docs.map(d => [d, false]), ...home.docs.map(d => [d, true])].map(([d, isHome]) => {
     const g = d.data();
-    return { ...g, id: d.id, endedAt: g.endedAt ? g.endedAt.toMillis() : null };
+    return { ...g, id: d.id, endedAt: g.endedAt ? g.endedAt.toMillis() : null, ...(isHome ? { home: true } : {}) };
+  }).sort((a, b) => (b.endedAt || 0) - (a.endedAt || 0));
+}
+
+export async function deleteGame(teacherId, classId, gameId, { home = false } = {}) {
+  await (home ? homeGamesOf : gamesOf)(teacherId, classId).doc(gameId).delete();
+}
+
+/*
+ * ---- the teacher's home game: one board for the whole class, played at home before a student's own boards ----
+ * The class document has { homeTask: { id, settings, tiles, setAt } } for the teacher's screens; the whole board,
+ * answers and all, is in classes/{classId}/homeTask/current as a JSON string (Firestore can't hold arrays inside arrays).
+ * A student's first finished round on it is kept on their document as homeTasks.{id} (see saveRound).
+ * A new board has a new id, so everyone plays it again.
+ */
+const taskRef = (teacherId, classId) => classesOf(teacherId).doc(classId).collection("homeTask").doc("current");
+
+export async function setHomeTask(teacherId, classId, settings, game, t) {
+  const clsRef = classesOf(teacherId).doc(classId);
+  const task = { id: randomBytes(8).toString("hex"), settings, tiles: game.tiles, setAt: t };
+  return db.runTransaction(async tx => {
+    if (!(await tx.get(clsRef)).exists) return { error: "class-not-found" };
+    tx.set(taskRef(teacherId, classId), { id: task.id, setAt: t, settings, game: JSON.stringify(game) });
+    tx.set(clsRef, { homeTask: task, activeAt: t }, { merge: true });
+    return { task };
   });
 }
 
-export async function deleteGame(teacherId, classId, gameId) {
-  await gamesOf(teacherId, classId).doc(gameId).delete();
+export async function clearHomeTask(teacherId, classId, t) {
+  const clsRef = classesOf(teacherId).doc(classId);
+  await db.runTransaction(async tx => {
+    if (!(await tx.get(clsRef)).exists) return;
+    tx.delete(taskRef(teacherId, classId));
+    tx.set(clsRef, { homeTask: FieldValue.delete(), activeAt: t }, { merge: true });
+  });
+}
+
+// For a home game starting: the teacher's board and whether this student has finished it, or null if there's none.
+export async function homeTaskFor(teacherId, classId, studentId) {
+  const [task, student] = await db.getAll(taskRef(teacherId, classId), studentsOf(teacherId, classId).doc(studentId));
+  if (!task.exists) return null;
+  const id = task.get("id");
+  return { id, settings: task.get("settings"), game: JSON.parse(task.get("game")), done: !!(student.exists && (student.get("homeTasks") || {})[id]) };
+}
+
+// The teacher's view: each student's first go at the current board, { studentId: { at, gameId, score, words, of } }.
+export async function homeTaskResults(teacherId, classId, taskId) {
+  const snap = await studentsOf(teacherId, classId).select("homeTasks").get();
+  return Object.fromEntries(snap.docs.map(d => [d.id, (d.get("homeTasks") || {})[taskId]]).filter(([, r]) => r));
 }
 
 /*

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { T } from "./theme.js";
+import { HOME_SIZES as SIZES, HOME_LENGTHS as LENGTHS, HOME_TIMES as TIMES } from "../shared/home.js";
 
 /*
  * A student's own game at home (server/lib/rooms.js "home games"): their device is the big screen and a player at once.
@@ -8,7 +9,6 @@ import { T } from "./theme.js";
  */
 
 const KEY = "wordshake-home-board";
-const SIZES = [4, 5, 6], LENGTHS = [2, 3, 4], TIMES = [60, 120, 180];
 const DEFAULT = { size: 4, minLen: 3, seconds: 120 };
 // The board the student picked last time (remembered on this device).
 export function homeBoard() {
@@ -45,8 +45,12 @@ function Choice({ label, options, value, show, onPick }) {
   );
 }
 
-// The student's lobby: pick a board, see who has joined, and start.
+// "5×5 · 3+ letters · 2 min"
+export const boardLine = b => `${b.size}×${b.size} · ${b.minLen}+ letters · ${b.seconds / 60} min`;
+
+// The student's lobby: pick a board (the teacher's home game first, if there is one), see who has joined, and start.
 export function HomeLobby({ host, me, avatar, busy, onStart, onKick, onFinish, extras }) {
+  const task = host.task;
   const [board, setBoard] = useState(homeBoard);
   const pick = patch => setBoard(b => { const n = { ...b, ...patch }; keepBoard(n); return n; });
   const joinUrl = `${window.location.origin}/join/${host.code}`;
@@ -60,13 +64,26 @@ export function HomeLobby({ host, me, avatar, busy, onStart, onKick, onFinish, e
     <div className="ws-fade" style={{ width: "min(560px, 100%)", display: "grid", gap: 20, justifyItems: "stretch" }}>
       <div className="ws-display" style={{ fontSize: 36, fontWeight: 700, textAlign: "center" }}>{avatar}<span style={{ color: T.amber }}>{me.name}</span>'s game</div>
 
-      <section aria-label="Your board" style={{ display: "grid", gap: 14, background: "rgb(var(--ws-fg) / .05)", borderRadius: 18, padding: 16 }}>
-        <Choice label="Board size" options={SIZES} value={board.size} show={n => `${n}×${n}`} onPick={size => pick({ size })} />
-        <Choice label="Shortest word" options={LENGTHS} value={board.minLen} show={n => `${n} letters`} onPick={minLen => pick({ minLen })} />
-        <Choice label="Time" options={TIMES} value={board.seconds} show={s => `${s / 60} min`} onPick={seconds => pick({ seconds })} />
-        <button type="button" disabled={busy} onClick={() => onStart(board)} className="ws-btn ws-display"
-          style={{ ...big, background: T.green, color: T.ink, marginTop: 4 }}>{busy ? "Shaking…" : "Shake the dice! 🎲"}</button>
-      </section>
+      {task && !task.done && (
+        <section aria-label="Your teacher's game" style={{ display: "grid", gap: 10, justifyItems: "center", textAlign: "center", background: "rgb(var(--ws-amber-rgb) / .1)", border: "2px solid rgb(var(--ws-amber-rgb) / .5)", borderRadius: 18, padding: 18 }}>
+          <div className="ws-display" style={{ fontSize: 26, fontWeight: 700 }}>Your teacher's game 📝</div>
+          <div style={{ color: T.mist, fontSize: 17, lineHeight: 1.4 }}>Your teacher has set a board for the whole class. Play it once, then you can choose your own boards.</div>
+          <div className="ws-display" style={{ fontSize: 19, fontWeight: 600 }}>{boardLine(task.settings)}</div>
+          <button type="button" disabled={busy} onClick={() => onStart(null, true)} className="ws-btn ws-display"
+            style={{ ...big, background: T.amber, color: T.ink, marginTop: 4 }}>{busy ? "Getting ready…" : "Play your teacher's game 🎲"}</button>
+        </section>
+      )}
+
+      {(!task || task.done) && (
+        <section aria-label="Your board" style={{ display: "grid", gap: 14, background: "rgb(var(--ws-fg) / .05)", borderRadius: 18, padding: 16 }}>
+          <Choice label="Board size" options={SIZES} value={board.size} show={n => `${n}×${n}`} onPick={size => pick({ size })} />
+          <Choice label="Shortest word" options={LENGTHS} value={board.minLen} show={n => `${n} letters`} onPick={minLen => pick({ minLen })} />
+          <Choice label="Time" options={TIMES} value={board.seconds} show={s => `${s / 60} min`} onPick={seconds => pick({ seconds })} />
+          <button type="button" disabled={busy} onClick={() => onStart(board)} className="ws-btn ws-display"
+            style={{ ...big, background: T.green, color: T.ink, marginTop: 4 }}>{busy ? "Shaking…" : "Shake the dice! 🎲"}</button>
+          {task && <button type="button" disabled={busy} onClick={() => onStart(null, true)} style={{ ...link, justifySelf: "center" }}>Play your teacher's game again</button>}
+        </section>
+      )}
 
       <section aria-label="Play with family or friends" style={{ display: "grid", gap: 10, justifyItems: "center", textAlign: "center", background: "rgb(var(--ws-fg) / .05)", borderRadius: 18, padding: 16 }}>
         <div className="ws-display" style={{ fontSize: 22, fontWeight: 700 }}>Play with family or friends</div>

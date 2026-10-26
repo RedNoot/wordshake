@@ -13,3 +13,11 @@ export function countHomeRound(prev, t) {
   const rounds = (prev && prev.day === day ? prev.rounds || 0 : 0) + 1;
   return { day, rounds, stars: rounds <= HOME_STAR_ROUNDS };
 }
+
+// The boards a home game can have (a student's own, or the teacher's home game for the class).
+export const HOME_SIZES = [4, 5, 6], HOME_LENGTHS = [2, 3, 4], HOME_TIMES = [60, 120, 180];
+// A home board as round settings (server/lib/settings.js pickRoundSettings), or null if it isn't one of the choices.
+export function homeRoundSettings(b) {
+  if (!b || !HOME_SIZES.includes(b.size) || !HOME_LENGTHS.includes(b.minLen) || !HOME_TIMES.includes(b.seconds)) return null;
+  return { seconds: b.seconds, size: b.size, minLen: b.minLen, phSound: null, phTicked: [], phBonus: false, hints: true, hintSeconds: 15, wordOfGame: false };
+}

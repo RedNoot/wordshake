@@ -28,6 +28,11 @@ const PASSES = { "pass-ava": { classId: "class1", studentId: "s1" }, "pass-ben":
 // C A T S on the top row: "cat" and "cats" are the only answers.
 const GAME = { tiles: ["C", "A", "T", "S", ...Array(12).fill("X")], rots: Array(16).fill("0"), solution: { list: ["cat", "cats"], total: 2, longest: [{ word: "cats" }], phonics: null } };
 const ROUND = { seconds: 60, size: 4, minLen: 3 };
+// The teacher's home game (store.js homeTaskFor): what the database would say, changed by the tests.
+let task = null;
+const tasksDone = new Set();   // "studentId:taskId"
+const TASK_GAME = { tiles: ["D", "O", "G", "S", ...Array(12).fill("Q")], rots: Array(16).fill("0"), solution: { list: ["dog", "dogs"], total: 2, longest: [{ word: "dogs" }], phonics: null } };
+const TASK_SETTINGS = { seconds: 60, size: 4, minLen: 3, phSound: null, phTicked: [], phBonus: false, hints: true, hintSeconds: 15, wordOfGame: false };
 
 let server, url, roomsApi, clock = Date.parse("2026-10-22T08:00:00Z");
 let pending = [];
@@ -52,6 +57,7 @@ before(async () => {
       return { status: "saved", earned, summaries };
     },
     getStudent: async () => ({ stars: 0 }),
+    homeTaskFor: async (tid, cid, sid) => (task && cid === "class1" ? { ...task, game: JSON.parse(JSON.stringify(task.game)), done: tasksDone.has(`${sid}:${task.id}`) } : null),
     liveStore: {
       save: async (tid, snap) => { kept.push(snap.code); },
       byTeacher: async () => null,
@@ -206,4 +212,62 @@ test("signed out by the teacher: the student's home game ends for everyone", asy
   await new Promise(r => setTimeout(r, 50));
   roomsApi.signedOut("teacherA", "class1");
   assert.deepEqual(await call(mum, "player:lookup", { code: second.code }), { error: "no-room" });
+});
+
+test("the teacher's home game: the same board for everyone, played before a student's own boards", async () => {
+  task = { id: "t1", settings: TASK_SETTINGS, game: TASK_GAME };
+  const ava = await signedIn("pass-ava"), ben = await signedIn("pass-ben");
+  const home = await call(ava, "home:open");
+  assert.deepEqual(home.host.task, { id: "t1", settings: TASK_SETTINGS, done: false });
+  pending = []; savedHome.length = 0;
+  clock += 10000;
+
+  assert.deepEqual(await call(ava, "host:start", { settings: ROUND }), { error: "task-first" }, "their own board waits");
+  const states = [];
+  ava.on("round:state", r => states.push(r));
+  const started = await call(ava, "host:start", { settings: { ...ROUND, size: 6 }, task: true });
+  assert.equal(started.ok, true);
+  await settle();
+  assert.deepEqual(states.at(-1).tiles, TASK_GAME.tiles, "the teacher's board, whatever settings the device sent");
+
+  // Ben, in his own home game, gets exactly the same letters.
+  const benStates = [];
+  ben.on("round:state", r => benStates.push(r));
+  await call(ben, "home:open");
+  assert.equal((await call(ben, "host:start", { task: true })).ok, true);
+  await settle();
+  assert.deepEqual(benStates.at(-1).tiles, TASK_GAME.tiles);
+
+  // Ava plays it to the end: done straight away, before the save lands, so "Play again" works.
+  runTimers();   // "Get ready"
+  assert.equal((await call(ava, "player:word", { n: started.n, word: "dog" })).result, "ok");
+  const updated = new Promise(r => ava.on("room:update", v => { if (v.task && v.task.done) r(v); }));
+  clock += 61000;
+  runTimers();
+  assert.equal((await updated).task.done, true);
+  runTimers();
+  await settle();
+  const saved = savedHome.find(x => x.record.players.s1);
+  assert.equal(saved.record.task, "t1", "the saved round says it was the teacher's game");
+  clock += 6000;
+  assert.equal((await call(ava, "host:start", { settings: ROUND })).ok, true, "now her own boards are open");
+  clock += 6000;
+  assert.equal((await call(ava, "host:start", { task: true })).ok, true, "and she can play the teacher's game again");
+
+  // A new board from the teacher: it comes first again. Switched off: nothing in the way.
+  task = { id: "t2", settings: TASK_SETTINGS, game: TASK_GAME };
+  clock += 6000;
+  assert.deepEqual(await call(ava, "host:start", { settings: ROUND }), { error: "task-first" });
+  task = null;
+  assert.equal((await call(ava, "host:start", { settings: ROUND })).ok, true);
+  clock += 6000;
+  assert.deepEqual(await call(ava, "host:start", { task: true }), { error: "no-task" });
+
+  // Finished on another day (the database says so): done when the game opens.
+  task = { id: "t3", settings: TASK_SETTINGS, game: TASK_GAME };
+  tasksDone.add("s2:t3");
+  assert.equal((await call(ben, "home:open")).host.task.done, true);
+  task = null;
+  await call(ava, "host:close"); await call(ben, "host:close");
+  pending = [];
 });

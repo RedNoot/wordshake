@@ -52,6 +52,7 @@ export function Privacy() {
             "The class name, its class code, and each student's name as the teacher types it. First names are all WordShake needs.",
             "Each student's secret pictures (their picture sign-in), so the teacher can look them up if a student forgets.",
             "Every finished round: the board, and the words each student found and their points. Home games are kept the same way.",
+            "If the teacher sets a home game (one board for the whole class), each student's first go at it: when they played it, how many words they found, and their points.",
             "Each student's progress: stickers, trophies, personal bests, their word jar (every different word they've found), awards from their teacher, and the stars they've spent and what they've chosen in the shop.",
           ]} />
           <p style={{ margin: 0 }}><b style={{ color: "var(--ws-text)" }}>Signed-in devices</b></p>
