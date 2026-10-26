@@ -10,6 +10,7 @@ import { MIN_TEAMS, MAX_TEAMS } from "../../shared/teams.js";
 import { snapshotRoom, restoreRoom } from "./snapshot.js";
 import { checkPin, deviceLabel, passFromCookie, practiceMode, practised, signedInFromMemory } from "./signin.js";
 import { cleanClassCode, validClassCode, validPin } from "../../shared/pictures.js";
+import { reportServerError } from "./reporting.js";
 import { newPin } from "./classes.js";
 
 // No vowels, so a code can't spell a word; no 0/O or 1/I to confuse.
@@ -629,6 +630,7 @@ export function attachRooms(io, {
       catch (e) {
         if (e && e.code && e.status) return reply({ error: e.code });
         console.error(`${event}:`, e);
+        reportServerError(e, { page: `socket:${event}`, context: { event } });
         reply({ error: "server-error" });
       }
       finally {

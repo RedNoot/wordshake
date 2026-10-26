@@ -64,7 +64,7 @@ export function Privacy() {
           <List items={[
             "While a game is open, a copy of it (players' names and the words found so far) is kept so the game can carry on if the server restarts. It's deleted when the game closes, and never kept longer than 12 hours.",
             "Guests (family or friends joining a home game, or anyone joining without signing in) type a name for that game only. Guests' names and words are never saved with the class.",
-            "If the app crashes, a short error report is sent to the server log so it can be fixed. It doesn't include names.",
+            "If the app crashes, a short error report is sent so it can be fixed: what went wrong, the app version, the kind of device and which buttons were pressed just before. It doesn't include names, class codes, secret pictures or anything typed.",
           ]} />
         </Section>
 
@@ -81,7 +81,8 @@ export function Privacy() {
             "The database is Google Firebase (Cloud Firestore), in Google's Melbourne data centre. Everything about classes and students is stored there, in Australia.",
             "Teachers sign in through Firebase Authentication, a Google service that keeps each teacher's sign-in (name and email) on Google's servers, which may be outside Australia.",
             "The app runs on Render, a hosting service whose servers are overseas. Information passes through them on its way to the database but isn't stored there, apart from short-lived server logs that don't include names.",
-            "Everything a student's device loads, including the lettering, comes from WordShake itself. Students' devices don't contact Google or anyone else.",
+            "Crash reports go from WordShake's server to its error tracker, which runs on Cloudflare (servers may be outside Australia), keeps them for up to 180 days, and posts each problem to a private Discord channel so it can be fixed.",
+            "Everything a student's device loads, including the lettering, comes from WordShake itself, and crash reports go through WordShake too. Students' devices don't contact Google or anyone else.",
           ]} />
         </Section>
 

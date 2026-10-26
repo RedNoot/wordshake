@@ -18,6 +18,7 @@ import { randomBytes } from "crypto";
 import { pickSettings } from "./lib/settings.js";
 import { pickClass, newPin, LIMITS } from "./lib/classes.js";
 import { attachRooms } from "./lib/rooms.js";
+import { RELAY, VERSION, reportServerError } from "./lib/reporting.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -26,20 +27,27 @@ const app = express();
 app.use((req, res, next) => { res.set("X-WordShake", "1"); next(); });
 
 /*
- * Crash reports from the app's error screen, so a problem in a lesson shows up in the server log.
- * Open to anyone, so: tiny bodies only, up to 100 per IP (a whole school can share one) per 10 minutes, and only short plain text is logged.
+ * Crash reports from the app (the AppReporter kit, see src/main.jsx), passed on to AppReporter so students' devices
+ * only ever talk to WordShake, and a school filter that blocks the relay can't stop them.
+ * Open to anyone, so: up to 100 per IP (a whole school can share one) per 10 minutes, and the relay checks and
+ * cleans everything again. Only the first line is logged.
  */
 const reportsFrom = new Map();
-app.post("/api/client-error", express.json({ limit: "4kb" }), (req, res) => {
+app.post("/api/report", express.text({ type: "*/*", limit: "64kb" }), async (req, res) => {
   const ip = (req.get("x-forwarded-for") || req.ip || "").split(",")[0].trim(), t = Date.now();
   const r = reportsFrom.get(ip);
   if (!r || r.until <= t) reportsFrom.set(ip, { count: 1, until: t + 10 * 60 * 1000 });
   else if (++r.count > 100) return res.status(429).end();
   if (reportsFrom.size > 5000) for (const [k, v] of reportsFrom) if (v.until <= t) reportsFrom.delete(k);
-  const text = (v, n) => (typeof v === "string" ? v : "").replace(/[^\x20-\x7E\n]/g, "?").slice(0, n);
-  const { kind, message, stack, page } = req.body || {};
-  console.error(`Client ${text(kind, 10)} on ${text(page, 40)}: ${text(message, 300)}\n${text(stack, 1500)}`);
-  res.status(204).end();
+  let report;
+  try { report = JSON.parse(req.body); } catch { return res.status(400).end(); }
+  if (!report || report.app !== "wordshake") return res.status(400).end();
+  console.error(`Client ${String(report.kind).slice(0, 10)}: ${String(report.message || "").replace(/[^\x20-\x7E]/g, "?").slice(0, 200)}`);
+  const out = await fetch(`${RELAY}/report`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: req.body, signal: AbortSignal.timeout(8000),
+  }).catch(() => null);
+  if (!out) return res.status(502).end();   // the kit keeps it and tries again later
+  res.status(out.status).type("json").send(await out.text().catch(() => "{}"));
 });
 
 app.use(express.json());
@@ -50,6 +58,7 @@ const dictPromise = loadDictionary();
 // Express 4 doesn't catch rejected promises, and an unhandled one would stop the server for every class.
 const route = handler => (req, res) => handler(req, res).catch(e => {
   console.error(e);
+  reportServerError(e, { page: (req.route && req.route.path) || "", context: { method: req.method } });
   if (!res.headersSent) res.status(500).json({ error: "server-error" });
 });
 
@@ -70,6 +79,7 @@ app.get("/api/status", route(async (req, res) => {
   res.json({
     dictStatus: dict.status, dictCount: dict.words.length, phonicsStats: PH_STATS,
     accounts: storeReady && !!AUTH.firebase.apiKey,
+    version: VERSION,
   });
 }));
 

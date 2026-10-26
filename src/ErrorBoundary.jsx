@@ -5,33 +5,50 @@ import { T, CSS } from "./theme.js";
  * If the screen ever crashes, show a friendly "carry on" button instead of a blank page.
  * Reloading is safe mid-lesson: the big screen gets its room back from the server, and a student's
  * device rejoins from the /join/CODE address and the pass it saved when it joined.
- * Each crash is also sent to the server log (without names or tokens) so it can be fixed.
+ * Each crash is also sent to AppReporter (without names, codes or secret pictures) so it can be fixed.
  */
-let reported = 0;
-export function reportError(kind, err) {
-  if (reported >= 5) return;   // one broken page shouldn't flood the log
-  reported++;
+
+// What a report must never carry: a room or class code in a path, ids in API paths, a name or picture in a
+// button's label (the name grid and the picture pad label their buttons with them), or quoted text in an error.
+const SCRUB_PATHS = [[/\/join\/[^/]+/i, "/join/:code"], [/\/(classes|students|devices|games|awards)\/[^/]+/g, "/$1/:id"]];
+const unquote = s => String(s || "").replace(/"[^"]*"|'[^']*'|“[^”]*”|‘[^’]*’/g, '"…"');
+const SLUG = /^[a-z][a-z0-9]*(-[a-z0-9]+)+$/;   // a data-report="start-round" name is fine; anything else in [ ] goes
+function scrubReport(r) {
   try {
-    const body = JSON.stringify({
-      kind,
-      message: String((err && err.message) || err || "").slice(0, 300),
-      stack: String((err && err.stack) || "").slice(0, 1500),
-      page: window.location.pathname.slice(0, 40),
-    });
-    fetch("/api/client-error", { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: true }).catch(() => {});
-  } catch { /* reporting must never cause a second error */ }
+    r.message = unquote(r.message);
+    r.stack = unquote(r.stack);
+    r.breadcrumbs = (r.breadcrumbs || []).map(b => ({
+      ...b,
+      msg: b.type === "click" ? b.msg.replace(/\[([^\]]*)\]$/, (m, label) => (SLUG.test(label) ? m : "")) : unquote(b.msg),
+    }));
+    return r;
+  } catch { return null; }   // the kit would send it unscrubbed if this threw, so drop it instead
 }
 
-// Errors outside drawing the screen (a button handler, a lost promise) don't blank the page, but are still worth knowing about.
-export function watchErrors() {
-  window.addEventListener("error", e => reportError("error", e.error || e.message));
-  window.addEventListener("unhandledrejection", e => reportError("promise", e.reason));
+// Errors outside drawing the screen (a button handler, a lost promise) are caught by the kit itself.
+// Reports go to WordShake's own server, which passes them on (server/index.js /api/report).
+export function startReporting(view) {
+  if (!window.AppReporter) return;
+  window.AppReporter.init({
+    app: "wordshake", endpoint: "/api", version: __APP_VERSION__,
+    env: import.meta.env.PROD ? "prod" : "dev",
+    button: false,             // no feedback button: children use this
+    scrubPaths: SCRUB_PATHS,
+    context: () => ({ view }),
+    beforeSend: scrubReport,
+  });
 }
 
 export class ErrorBoundary extends Component {
   state = { crashed: false };
   static getDerivedStateFromError() { return { crashed: true }; }
-  componentDidCatch(err, info) { reportError("crash", { message: err && err.message, stack: `${(err && err.stack) || ""}\n${(info && info.componentStack) || ""}` }); }
+  // React doesn't pass errors it caught here on to the page, so send them ourselves.
+  componentDidCatch(err, info) {
+    try {
+      const component = ((info && info.componentStack) || "").split("\n").map(l => l.trim()).find(Boolean) || "";
+      window.AppReporter && window.AppReporter.captureError(err, { kind: "crash", context: { component: component.slice(0, 80) } });
+    } catch { /* reporting must never cause a second error */ }
+  }
   render() {
     if (!this.state.crashed) return this.props.children;
     return (

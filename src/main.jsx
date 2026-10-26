@@ -1,10 +1,11 @@
+import "./app-reporter.js";   // crash reports; started by startReporting() below
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App.jsx";
 import { Join } from "./Join.jsx";
 import { Preview } from "./Preview.jsx";
 import { Privacy } from "./Privacy.jsx";
-import { ErrorBoundary, watchErrors } from "./ErrorBoundary.jsx";
+import { ErrorBoundary, startReporting } from "./ErrorBoundary.jsx";
 
 // Students land on /join (or /join/CODE from the QR code); everything else is the teacher's screen.
 const join = window.location.pathname.match(/^\/join(?:\/([A-Za-z0-9]{0,8}))?\/?$/i);
@@ -12,7 +13,7 @@ const join = window.location.pathname.match(/^\/join(?:\/([A-Za-z0-9]{0,8}))?\/?
 const preview = /^\/preview\/?$/i.test(window.location.pathname);
 const privacy = /^\/privacy\/?$/i.test(window.location.pathname);
 
-watchErrors();
+startReporting(join ? "student" : preview ? "preview" : privacy ? "privacy" : "teacher");
 // Our own "waking up" page while the server starts (public/sw.js). Not in development: Vite serves the pages there.
 if (import.meta.env.PROD && "serviceWorker" in navigator) {
   window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
