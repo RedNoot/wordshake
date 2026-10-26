@@ -9,10 +9,19 @@ import path from "path";
 // is deepened first, or the count would be wrong. `npm run dev` is always 0-dev.
 function gitVersion() {
   const git = args => execSync(`git ${args}`, { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+  const shallow = () => git("rev-parse --is-shallow-repository") === "true";
+  // Render's clone is shallow and its own remote won't deepen it, so fall back to the public repo.
+  for (const from of ["", "https://github.com/RedNoot/wordshake.git"]) {
+    try { if (shallow()) git(`fetch --unshallow --quiet ${from}`); } catch {}
+  }
   try {
-    if (git("rev-parse --is-shallow-repository") === "true") git("fetch --unshallow --quiet");
-  } catch { console.warn("version: couldn't deepen a shallow clone; the commit count may be wrong"); }
-  try { return `${git("rev-list --count HEAD")}-${git("rev-parse --short=7 HEAD")}`; }
+    const sha = git("rev-parse --short=7 HEAD");
+    if (shallow()) {
+      console.warn("version: couldn't deepen the shallow clone, so the version has no commit count");
+      return `0-${sha}`;
+    }
+    return `${git("rev-list --count HEAD")}-${sha}`;
+  }
   catch {
     console.warn("version: git isn't available here, so the version has no commit count");
     const sha = (process.env.RENDER_GIT_COMMIT || "").slice(0, 7);
