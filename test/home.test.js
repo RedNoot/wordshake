@@ -271,3 +271,28 @@ test("the teacher's home game: the same board for everyone, played before a stud
   await call(ava, "host:close"); await call(ben, "host:close");
   pending = [];
 });
+
+test("the teacher's home game can have today's sound: shown on the device, bonus for its words", async () => {
+  const rain = [{ spelling: "ai", ranges: [[1, 3]] }];
+  const settings = { ...TASK_SETTINGS, phSound: "ae", phTicked: ["ai", "ay"], phBonus: true };
+  const game = { tiles: ["R", "A", "I", "N", ...Array(12).fill("Q")], rots: Array(16).fill("0"),
+    solution: { list: ["rain", "ran"], total: 2, longest: [{ word: "rain" }], phonics: { soundId: "ae", spellings: ["ai", "ay"], covered: 1, bySpelling: { ai: [{ word: "rain", ranges: rain[0].ranges }] }, tagMap: { rain }, count: 1 } } };
+  task = JSON.parse(JSON.stringify({ id: "t9", settings, game }));   // as it comes back from the database
+  const ava = await signedIn("pass-ava");
+  await call(ava, "home:open");
+  clock += 60000;
+  const states = [];
+  ava.on("round:state", r => states.push(r));
+  const started = await call(ava, "host:start", { task: true });
+  assert.equal(started.ok, true);
+  await settle();
+  const view = states.at(-1);
+  assert.deepEqual([view.phSound, view.phTicked, view.phBonus], ["ae", ["ai", "ay"], true]);
+  runTimers();   // "Get ready"
+  const hit = await call(ava, "player:word", { n: started.n, word: "rain" });
+  assert.equal(hit.bonus, 2, "a word with today's sound earns the bonus");
+  assert.equal((await call(ava, "player:word", { n: started.n, word: "ran" })).bonus, 0);
+  task = null;
+  await call(ava, "host:close");
+  pending = [];
+});

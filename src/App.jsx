@@ -306,13 +306,6 @@ export default function WordShakeWorkbook() {
   const setCoop = on => call("host:coop", { on });
   const toSettings = () => setPhase(room ? "lobby" : "setup");
 
-  const pickSound = id => setSettings(v => ({
-    ...v, phSound: id,
-    phTicked: id ? SOUND_BY_ID[id].sp.filter(s => s[2]).map(s => s[0]) : [],
-  }));
-  const toggleSpelling = g => setSettings(v => ({
-    ...v, phTicked: v.phTicked.includes(g) ? v.phTicked.filter(x => x !== g) : [...v.phTicked, g],
-  }));
   const soundDef = settings.phSound ? SOUND_BY_ID[settings.phSound] : null;
   const targetSet = useMemo(() => {
     if (!soundDef) return null;
@@ -727,7 +720,7 @@ export default function WordShakeWorkbook() {
               </div>
             </main>
             {drawer && (
-              <GameSettings settings={settings} setSettings={setSettings} soundDef={soundDef} pickSound={pickSound} toggleSpelling={toggleSpelling}
+              <GameSettings settings={settings} setSettings={setSettings} soundDef={soundDef}
                 phStats={phStats} dict={dict} online={online} open={openSecs} setOpen={setOpenSecs} onClose={() => setDrawer(false)} />
             )}
           </div>

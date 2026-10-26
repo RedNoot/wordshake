@@ -1,5 +1,5 @@
 import { T } from "./theme.js";
-import { SOUNDS } from "./sounds.js";
+import { SOUNDS, SOUND_BY_ID } from "./sounds.js";
 import { Chip } from "./components/Chip.jsx";
 import { Toggle } from "./components/Toggle.jsx";
 
@@ -53,7 +53,7 @@ export function settingsSummary(settings, soundDef, online) {
   ].filter(Boolean);
 }
 
-export function GameSettings({ settings, setSettings, soundDef, pickSound, toggleSpelling, phStats, dict, online, open, setOpen, onClose }) {
+export function GameSettings({ settings, setSettings, soundDef, phStats, dict, online, open, setOpen, onClose }) {
   const set = patch => setSettings(v => ({ ...v, ...patch }));
   const flip = id => setOpen(o => ({ ...o, [id]: !o[id] }));
   const advanced = [
@@ -86,59 +86,7 @@ export function GameSettings({ settings, setSettings, soundDef, pickSound, toggl
 
       {/* ---- Sounds-Write target sound ---- */}
       <Section id="sound" title="Today's sound" summary={soundDef ? `${soundDef.lab} · ${settings.phTicked.join(", ") || "no spellings ticked"}` : "Off"} open={open.sound} onToggle={() => flip("sound")}>
-        <div style={{ borderRadius: 12, padding: "10px 14px", fontSize: 14.5, lineHeight: 1.45, color: T.mist, background: soundDef ? "rgb(var(--ws-amber-rgb) / .08)" : "rgb(var(--ws-fg) / .04)", border: `1px solid ${soundDef ? "rgb(var(--ws-amber-rgb) / .4)" : T.faint}` }}>
-          {soundDef ? (
-            <><b style={{ color: T.amber }}>Sounds-Write words only.</b> The board, the answers and the scoring use just the Sounds-Write high-frequency word list{phStats.words ? ` (${phStats.words.toLocaleString()} words)` : ""}. Other dictionary words don't count this round.</>
-          ) : (
-            <><b style={{ color: "var(--ws-text)" }}>Full dictionary.</b> Every word in the classroom-safe dictionary counts{dict.status === "full" ? ` (${dict.count.toLocaleString()} words)` : ""}. Pick a sound below to play with Sounds-Write high-frequency words only.</>
-          )}
-        </div>
-        <div>
-          <Chip small active={!settings.phSound} onClick={() => pickSound(null)}>Off</Chip>
-          {[["icv", "Initial Code — vowels"], ["ecv", "Extended Code — vowels"], ["con", "Consonant sounds"]].map(([grp, label]) => (
-            <div key={grp} style={{ marginTop: 12 }}>
-              <div style={{ color: "rgb(var(--ws-fg) / .55)", fontSize: 12.5, marginBottom: 6 }}>{label}</div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {SOUNDS.filter(s => s.grp === grp).map(s => (
-                  <button key={s.id} title={s.eg} onClick={() => pickSound(s.id)} className="ws-btn ws-display" aria-pressed={settings.phSound === s.id}
-                    style={{ padding: "6px 12px", minHeight: 40, borderRadius: 999, fontSize: 15, fontWeight: 600, cursor: "pointer", border: `2px solid ${settings.phSound === s.id ? T.amber : "rgb(var(--ws-fg) / 0.14)"}`, background: settings.phSound === s.id ? T.amber : "transparent", color: settings.phSound === s.id ? T.ink : T.mist }}>
-                    {s.lab}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-        {soundDef && (
-          <div className="ws-fade" style={{ borderTop: `1px solid ${T.faint}`, paddingTop: 12 }}>
-            <div style={{ fontSize: 15, color: T.mist, marginBottom: 8 }}>
-              Sound <b className="ws-display" style={{ color: T.amber }}>{soundDef.lab}</b> as in <i>{soundDef.eg}</i> — tick today's spellings:
-            </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {soundDef.sp.map(([g, eg]) => {
-                const on = settings.phTicked.includes(g);
-                return (
-                  <button key={g} onClick={() => toggleSpelling(g)} className="ws-btn" aria-pressed={on}
-                    style={{ cursor: "pointer", borderRadius: 12, padding: "7px 12px", textAlign: "center", border: `2px solid ${on ? T.amber : "rgb(var(--ws-fg) / 0.14)"}`, background: on ? "rgb(var(--ws-amber-rgb) / .15)" : "transparent", color: on ? "var(--ws-amber-soft)" : T.mist }}>
-                    <span className="ws-display" style={{ fontWeight: 700, fontSize: 17 }}>{g}</span>
-                    <span style={{ display: "block", fontSize: 11, opacity: 0.8 }}>{eg}</span>
-                  </button>
-                );
-              })}
-            </div>
-            {settings.size === 4 && settings.phTicked.length > 4 && (
-              <div style={{ marginTop: 10, fontSize: 12.5, color: T.amber }}>
-                Heads up: guaranteeing {settings.phTicked.length} spellings on a 4 × 4 board gets tight — a bigger board (or fewer ticks) covers every spelling more reliably.
-              </div>
-            )}
-            <div style={{ marginTop: 12 }}>
-              <Toggle on={settings.phBonus} onClick={() => set({ phBonus: !settings.phBonus })} label="+2 bonus points for target-sound words" />
-            </div>
-            <div style={{ marginTop: 10, fontSize: 12.5, color: "rgb(var(--ws-fg) / .55)" }}>
-              Every word on the board comes from the Sounds-Write list, so every answer with {soundDef.lab} in a ticked spelling is highlighted{settings.phBonus ? " and earns the +2 bonus" : ""}.
-            </div>
-          </div>
-        )}
+        <SoundPicker settings={settings} set={set} phStats={phStats} dict={dict} />
       </Section>
 
       <Section id="advanced" title="Advanced" summary={advanced} open={open.advanced} onToggle={() => flip("advanced")}>
@@ -166,5 +114,72 @@ export function GameSettings({ settings, setSettings, soundDef, pickSound, toggl
         </div>
       </Section>
     </aside>
+  );
+}
+
+/*
+ * Today's sound: Off or a Sounds-Write sound, the spellings that count, and the +2 bonus. settings needs phSound,
+ * phTicked, phBonus and size; set(patch) merges into them. Used here and for the teacher's home game (HomeTask.jsx).
+ */
+export function SoundPicker({ settings, set, phStats = {}, dict = {} }) {
+  const soundDef = settings.phSound ? SOUND_BY_ID[settings.phSound] : null;
+  const pickSound = id => set({ phSound: id, phTicked: id ? SOUND_BY_ID[id].sp.filter(sp => sp[2]).map(sp => sp[0]) : [] });
+  const toggleSpelling = g => set({ phTicked: settings.phTicked.includes(g) ? settings.phTicked.filter(x => x !== g) : [...settings.phTicked, g] });
+  return (
+    <>
+      <div style={{ borderRadius: 12, padding: "10px 14px", fontSize: 14.5, lineHeight: 1.45, color: T.mist, background: soundDef ? "rgb(var(--ws-amber-rgb) / .08)" : "rgb(var(--ws-fg) / .04)", border: `1px solid ${soundDef ? "rgb(var(--ws-amber-rgb) / .4)" : T.faint}` }}>
+        {soundDef ? (
+          <><b style={{ color: T.amber }}>Sounds-Write words only.</b> The board, the answers and the scoring use just the Sounds-Write high-frequency word list{phStats.words ? ` (${phStats.words.toLocaleString()} words)` : ""}. Other dictionary words don't count this round.</>
+        ) : (
+          <><b style={{ color: "var(--ws-text)" }}>Full dictionary.</b> Every word in the classroom-safe dictionary counts{dict.status === "full" ? ` (${dict.count.toLocaleString()} words)` : ""}. Pick a sound below to play with Sounds-Write high-frequency words only.</>
+        )}
+      </div>
+      <div>
+        <Chip small active={!settings.phSound} onClick={() => pickSound(null)}>Off</Chip>
+        {[["icv", "Initial Code — vowels"], ["ecv", "Extended Code — vowels"], ["con", "Consonant sounds"]].map(([grp, label]) => (
+          <div key={grp} style={{ marginTop: 12 }}>
+            <div style={{ color: "rgb(var(--ws-fg) / .55)", fontSize: 12.5, marginBottom: 6 }}>{label}</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {SOUNDS.filter(s => s.grp === grp).map(s => (
+                <button key={s.id} title={s.eg} onClick={() => pickSound(s.id)} className="ws-btn ws-display" aria-pressed={settings.phSound === s.id}
+                  style={{ padding: "6px 12px", minHeight: 40, borderRadius: 999, fontSize: 15, fontWeight: 600, cursor: "pointer", border: `2px solid ${settings.phSound === s.id ? T.amber : "rgb(var(--ws-fg) / 0.14)"}`, background: settings.phSound === s.id ? T.amber : "transparent", color: settings.phSound === s.id ? T.ink : T.mist }}>
+                  {s.lab}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      {soundDef && (
+        <div className="ws-fade" style={{ borderTop: `1px solid ${T.faint}`, paddingTop: 12 }}>
+          <div style={{ fontSize: 15, color: T.mist, marginBottom: 8 }}>
+            Sound <b className="ws-display" style={{ color: T.amber }}>{soundDef.lab}</b> as in <i>{soundDef.eg}</i> — tick today's spellings:
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {soundDef.sp.map(([g, eg]) => {
+              const on = settings.phTicked.includes(g);
+              return (
+                <button key={g} onClick={() => toggleSpelling(g)} className="ws-btn" aria-pressed={on}
+                  style={{ cursor: "pointer", borderRadius: 12, padding: "7px 12px", textAlign: "center", border: `2px solid ${on ? T.amber : "rgb(var(--ws-fg) / 0.14)"}`, background: on ? "rgb(var(--ws-amber-rgb) / .15)" : "transparent", color: on ? "var(--ws-amber-soft)" : T.mist }}>
+                  <span className="ws-display" style={{ fontWeight: 700, fontSize: 17 }}>{g}</span>
+                  <span style={{ display: "block", fontSize: 11, opacity: 0.8 }}>{eg}</span>
+                </button>
+              );
+            })}
+          </div>
+          {settings.size === 4 && settings.phTicked.length > 4 && (
+            <div style={{ marginTop: 10, fontSize: 12.5, color: T.amber }}>
+              Heads up: guaranteeing {settings.phTicked.length} spellings on a 4 × 4 board gets tight — a bigger board (or fewer ticks) covers every spelling more reliably.
+            </div>
+          )}
+          <div style={{ marginTop: 12 }}>
+            <Toggle on={settings.phBonus} onClick={() => set({ phBonus: !settings.phBonus })} label="+2 bonus points for target-sound words" />
+          </div>
+          <div style={{ marginTop: 10, fontSize: 12.5, color: "rgb(var(--ws-fg) / .55)" }}>
+            Every word on the board comes from the Sounds-Write list, so every answer with {soundDef.lab} in a ticked spelling is highlighted{settings.phBonus ? " and earns the +2 bonus" : ""}.
+          </div>
+        </div>
+      )}
+    </>
   );
 }

@@ -3,6 +3,7 @@ import { T } from "./theme.js";
 import { authFetch } from "./auth.js";
 import { HOME_SIZES, HOME_LENGTHS, HOME_TIMES } from "../shared/home.js";
 import { boardLine } from "./HomeGame.jsx";
+import { SoundPicker } from "./GameSettings.jsx";
 
 /*
  * My classes → Home game: the teacher sets one board for the whole class to play at home. Every student plays the same
@@ -37,7 +38,7 @@ export function HomeTask({ cls, onBack, onChange }) {
   const [data, setData] = useState(null);   // { task, results }
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [board, setBoard] = useState(() => (cls.homeTask ? cls.homeTask.settings : { size: 4, minLen: 3, seconds: 120 }));
+  const [board, setBoard] = useState(() => ({ size: 4, minLen: 3, seconds: 120, phSound: null, phTicked: [], phBonus: false, ...(cls.homeTask ? cls.homeTask.settings : {}) }));
 
   const load = async () => {
     setError("");
@@ -53,7 +54,7 @@ export function HomeTask({ cls, onBack, onChange }) {
   const set = async () => {
     if (task && !window.confirm("Make a new board? Everyone will need to play the new one, even students who've finished this one.")) return;
     setBusy(true); setError("");
-    const res = await authFetch(`/api/classes/${cls.id}/home-task`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(board) }).catch(() => null);
+    const res = await authFetch(`/api/classes/${cls.id}/home-task`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ size: board.size, minLen: board.minLen, seconds: board.seconds, phSound: board.phSound, phTicked: board.phTicked, phBonus: board.phBonus }) }).catch(() => null);
     setBusy(false);
     if (!res || !res.ok) return setError("The home game wasn't set. Check your connection and try again.");
     const body = await res.json();
@@ -137,6 +138,10 @@ export function HomeTask({ cls, onBack, onChange }) {
             <Pick label="Board size" options={HOME_SIZES} value={board.size} show={n => `${n}×${n}`} onPick={size => setBoard(b => ({ ...b, size }))} />
             <Pick label="Shortest word" options={HOME_LENGTHS} value={board.minLen} show={n => `${n} letters`} onPick={minLen => setBoard(b => ({ ...b, minLen }))} />
             <Pick label="Time" options={HOME_TIMES} value={board.seconds} show={s => `${s / 60} min`} onPick={seconds => setBoard(b => ({ ...b, seconds }))} />
+          </div>
+          <div style={{ display: "grid", gap: 12 }}>
+            <div style={{ color: T.mist, fontSize: 14 }}>Today's sound</div>
+            <SoundPicker settings={board} set={patch => setBoard(b => ({ ...b, ...patch }))} />
           </div>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
             <button className="ws-btn ws-display" onClick={set} disabled={busy} style={{ ...primary, opacity: busy ? 0.7 : 1 }}>{busy ? "Shaking…" : task ? "Shake a new board" : "Set this game"}</button>

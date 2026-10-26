@@ -15,7 +15,7 @@ import { storeReady, loadTeacher, saveSettings, listClasses, getClass, countClas
 import { PASS_COOKIE, PRACTICE_STREAK } from "./lib/signin.js";
 import { AWARD_PRESETS, CUSTOM_AWARD_EMOJI, AWARD_LABEL_MAX, AWARDS_MAX } from "../shared/rewards.js";
 import { randomBytes } from "crypto";
-import { pickSettings } from "./lib/settings.js";
+import { pickSettings, pickRoundSettings } from "./lib/settings.js";
 import { homeRoundSettings } from "../shared/home.js";
 import { pickClass, newPin, LIMITS } from "./lib/classes.js";
 import { attachRooms } from "./lib/rooms.js";
@@ -204,7 +204,9 @@ app.get("/api/classes/:id/home-task", teacherRoute(async (req, res, teacher) => 
 app.put("/api/classes/:id/home-task", teacherRoute(async (req, res, teacher) => {
   const cls = validClassId(req.params.id) && await getClass(teacher.id, req.params.id);
   if (!cls) return res.status(404).json({ error: "class-not-found" });
-  const settings = homeRoundSettings(req.body);
+  // The board choices a student has at home, plus today's sound (Sounds-Write words only), which only the teacher sets.
+  const board = homeRoundSettings(req.body), { phSound = null, phTicked = [], phBonus = false } = req.body || {};
+  const settings = board && pickRoundSettings({ ...board, phSound, phTicked, phBonus });
   if (!settings) return res.status(400).json({ error: "invalid settings" });
   const game = await makeGame(settings);
   if (game.error) return res.status(400).json(game);

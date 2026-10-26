@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { T } from "./theme.js";
+import { SOUND_BY_ID } from "./sounds.js";
 import { HOME_SIZES as SIZES, HOME_LENGTHS as LENGTHS, HOME_TIMES as TIMES } from "../shared/home.js";
 
 /*
@@ -45,8 +46,9 @@ function Choice({ label, options, value, show, onPick }) {
   );
 }
 
-// "5×5 · 3+ letters · 2 min"
-export const boardLine = b => `${b.size}×${b.size} · ${b.minLen}+ letters · ${b.seconds / 60} min`;
+// "5×5 · 3+ letters · 2 min", and the sound when there is one: "· sound /ae/ (ai, ay)"
+export const boardLine = b => `${b.size}×${b.size} · ${b.minLen}+ letters · ${b.seconds / 60} min`
+  + (b.phSound && SOUND_BY_ID[b.phSound] ? ` · sound ${SOUND_BY_ID[b.phSound].lab}${b.phTicked && b.phTicked.length ? ` (${b.phTicked.join(", ")})` : ""}` : "");
 
 // The student's lobby: pick a board (the teacher's home game first, if there is one), see who has joined, and start.
 export function HomeLobby({ host, me, avatar, busy, onStart, onKick, onFinish, extras }) {
