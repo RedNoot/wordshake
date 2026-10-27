@@ -210,7 +210,13 @@
     window.addEventListener("error", function (e) {
       if (e.target && e.target !== window && e.target.tagName) {   // a script/image/stylesheet failed to load
         var src = e.target.src || e.target.href || "";
-        if (e.target.tagName === "SCRIPT" || e.target.tagName === "LINK") captureError({ name: "LoadError", message: e.target.tagName.toLowerCase() + " failed to load: " + cleanPath(src.replace(/^https?:\/\/[^/]+/, "")) });
+        if (e.target.tagName !== "SCRIPT" && e.target.tagName !== "LINK") return;
+        if (/^(chrome|moz|safari(-web)?)-extension:/.test(src)) return;   // someone's browser extension
+        // The app's own files are reported by path; another site's keep their host, so a script injected
+        // by an extension or a school filter is plainly not the app's ("script failed to load: ads.example/js/api.js").
+        var m = /^https?:\/\/([^/]+)(.*)$/.exec(src);
+        var where = m && m[1] !== location.host ? m[1] + cleanPath(m[2]) : cleanPath(m ? m[2] : src);
+        captureError({ name: "LoadError", message: e.target.tagName.toLowerCase() + " failed to load: " + where });
         return;
       }
       captureError(e.error || { message: e.message, stack: e.filename ? "at " + e.filename + ":" + e.lineno + ":" + e.colno : "" });
