@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
 import { T, CSS, applyTheme } from "./theme.js";
 import { SOUNDS, SOUND_BY_ID } from "./sounds.js";
 import { Chip } from "./components/Chip.jsx";
@@ -27,6 +27,20 @@ const ROOM_ERRORS = {
 };
 
 /* ================= main app ================= */
+// The size of an element, kept up to date (null until it's on screen).
+function useBoxSize(el) {
+  const [size, setSize] = useState(null);
+  useLayoutEffect(() => {
+    if (!el) { setSize(null); return; }
+    const ro = new ResizeObserver(([e]) => setSize({ w: e.contentRect.width, h: e.contentRect.height }));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [el]);
+  return size;
+}
+// The board's padding sits outside its dim, so the square it draws is about 6% bigger than dim.
+const BOARD_EDGE = 1.06;
+
 const studentDevice = () => { try { return !!localStorage.getItem("wordshake-student"); } catch { return false; } };
 
 // The splash's dice: dropped in one by one, then a little wobble now and then.
@@ -77,6 +91,9 @@ export default function WordShakeWorkbook() {
   const [wall, setWall] = useState(null);                  // Class together: { words, counts, of } found by the class so far (null: not this round)
   const [coopResult, setCoopResult] = useState(null);      // Class together: the class's total once the round is over
   const [classFound, setClassFound] = useState(null);      // { n, words }: every different word the class found, once the round is over
+  // The big screen's board fills whatever room the timer, banners and word wall leave, so nothing needs scrolling.
+  const [boardBox, setBoardBox] = useState(null);
+  const boardRoom = useBoxSize(boardBox);
   const [saveStatus, setSaveStatus] = useState(null);  // { n, ok, retrying }: whether this round reached the class's progress
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
@@ -519,7 +536,7 @@ export default function WordShakeWorkbook() {
   );
 
   return (
-    <div className="ws-root" style={{ minHeight: "100vh", background: `radial-gradient(1200px 700px at 50% -10%, var(--ws-glow) 0%, ${T.ink} 55%)`, color: "var(--ws-text)", display: "flex", flexDirection: "column" }}>
+    <div className="ws-root" style={{ ...(["countdown", "playing", "reveal"].includes(phase) ? { height: "100dvh", overflow: "hidden" } : { minHeight: "100vh" }), background: `radial-gradient(1200px 700px at 50% -10%, var(--ws-glow) 0%, ${T.ink} 55%)`, color: "var(--ws-text)", display: "flex", flexDirection: "column" }}>
       <style>{CSS}</style>
 
       <header style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "baseline", justifyContent: "space-between", padding: "16px 26px 0" }}>
@@ -729,10 +746,10 @@ export default function WordShakeWorkbook() {
 
       {/* ---------- COUNTDOWN + PLAYING ---------- */}
       {(phase === "countdown" || phase === "playing") && game && (
-        <main style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 18, padding: "8px 20px 20px", position: "relative" }}>
+        <main style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "min(18px, 2vh)", padding: "8px 20px min(20px, 2vh)", position: "relative" }}>
           <div style={{ textAlign: "center" }}>
             <div className="ws-display" aria-live="polite" style={{
-              fontSize: "min(11vw, 92px)", fontWeight: 700, lineHeight: 1,
+              fontSize: "min(11vw, 92px, 10vh)", fontWeight: 700, lineHeight: 1,
               color: phase === "playing" && remaining <= 10 ? T.red : phase === "playing" && remaining <= 30 ? T.amber : "var(--ws-text)",
               animation: phase === "playing" && remaining <= 10 && !paused ? "ws-pulse 1s infinite" : "none",
             }}>
@@ -750,12 +767,13 @@ export default function WordShakeWorkbook() {
             )}
           </div>
 
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 24, alignItems: "center", justifyContent: "center", width: "100%" }}>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-            {soundDef && <div style={{ position: "relative", zIndex: 5, marginBottom: 14 }}><SoundCard soundDef={soundDef} ticked={settings.phTicked} bonus={settings.phBonus} /></div>}
-            {S && S.wordOfGame && phase !== "countdown" && <div style={{ marginBottom: 14 }}><WordOfGame word={S.wordOfGame} big /></div>}
+          <div style={{ flex: 1, minHeight: 0, display: "flex", gap: 24, alignItems: "stretch", justifyContent: "center", width: "100%" }}>
+          <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", alignItems: "center" }}>
+            {soundDef && <div style={{ position: "relative", zIndex: 5, marginBottom: "min(14px, 1.5vh)" }}><SoundCard soundDef={soundDef} ticked={settings.phTicked} bonus={settings.phBonus} /></div>}
+            {S && S.wordOfGame && phase !== "countdown" && <div style={{ marginBottom: "min(14px, 1.5vh)" }}><WordOfGame word={S.wordOfGame} big /></div>}
+            <div ref={setBoardBox} style={{ flex: 1, minHeight: 0, width: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <div style={{ position: "relative" }}>
-            <Board tiles={game.tiles} rots={game.rots} size={settings.size} dim={soundDef ? "min(90vw, 47vh)" : "min(90vw, 54vh)"} hidden={phase === "countdown"} tumble={phase === "playing"} targetSet={targetSet} />
+            <Board tiles={game.tiles} rots={game.rots} size={settings.size} dim={boardRoom ? `${Math.max(140, Math.floor(Math.min(boardRoom.w, boardRoom.h) / BOARD_EDGE))}px` : "min(90vw, 47vh)"} hidden={phase === "countdown"} tumble={phase === "playing"} targetSet={targetSet} />
             {phase === "countdown" && (
               <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <div key={count} className="ws-display" style={{ fontSize: "min(34vw,200px)", fontWeight: 700, color: count === 0 ? T.amber : "var(--ws-text)", animation: "ws-pop .5s ease both", textShadow: "0 6px 30px rgba(0,0,0,.6)" }}>
@@ -770,8 +788,9 @@ export default function WordShakeWorkbook() {
               </div>
             )}
             </div>
+            </div>
           </div>
-          {wall && phase === "playing" && <WordWall words={wall.words} counts={wall.counts} of={wall.of} height="min(66vh, 620px)" />}
+          {wall && phase === "playing" && <WordWall words={wall.words} counts={wall.counts} of={wall.of} height="100%" />}
           </div>
 
           {phase === "playing" && (
