@@ -62,7 +62,7 @@ function Counter({ n, label, colour, delay }) {
   const v = useCountUp(n, 1200);
   return (
     <div style={{ flex: "1 1 180px", borderRadius: 20, background: "rgb(var(--ws-fg) / .05)", border: `1px solid ${T.faint}`, padding: "18px 14px", textAlign: "center", animation: `ws-fade .6s ${delay}s ease both` }}>
-      <div className="ws-display" style={{ fontSize: "min(6vw, 68px)", fontWeight: 700, lineHeight: 1.05, color: colour, fontVariantNumeric: "tabular-nums" }}>{n == null ? "…" : v}</div>
+      <div className="ws-display" style={{ fontSize: "min(6vw, 7vh, 68px)", fontWeight: 700, lineHeight: 1.05, color: colour, fontVariantNumeric: "tabular-nums" }}>{n == null ? "…" : v}</div>
       <div style={{ fontSize: "min(2vw, 19px)", color: T.mist }}>{label}</div>
     </div>
   );
@@ -76,9 +76,9 @@ export function Celebrate({ className, found, total, coopLine, counters, onNext,
         <i key={i} aria-hidden="true" style={{ position: "absolute", top: 0, left: `${c.left}%`, width: 14, height: 22, borderRadius: 3, background: c.colour, "--dx": c.dx, "--rot": c.rot, animation: `ws-confetti 3.4s ${c.delay} linear both`, pointerEvents: "none" }} />
       ))}
       <div style={{ fontSize: "min(2.6vw, 26px)", color: T.mist }}>{className ? `Time's up, ${className}` : "Time's up!"}</div>
-      <h2 className="ws-display" style={{ margin: 0, textAlign: "center", fontSize: "min(6vw, 72px)", fontWeight: 700, lineHeight: 1.08 }}>
+      <h2 className="ws-display" style={{ margin: 0, textAlign: "center", fontSize: "min(6vw, 7vh, 72px)", fontWeight: 700, lineHeight: 1.08 }}>
         {found == null ? <>Great work, everyone!</> : (
-          <>Together you found<br /><span style={{ display: "inline-block", color: T.amber, fontSize: "min(12vw, 140px)", animation: "ws-pop .6s ease both" }}>{found}</span> different {found === 1 ? "word" : "words"}</>
+          <>Together you found<br /><span style={{ display: "inline-block", color: T.amber, fontSize: "min(12vw, 15vh, 140px)", animation: "ws-pop .6s ease both" }}>{found}</span> different {found === 1 ? "word" : "words"}</>
         )}
       </h2>
       {pct != null && (

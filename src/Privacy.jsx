@@ -91,7 +91,7 @@ export function Privacy() {
           <List items={[
             "A class's teacher sees their own classes only: names, secret pictures, rounds and progress. No other teacher can.",
             "A signed-in student sees their own progress, stars and word jar on their own device.",
-            "During a lesson, the big screen shows the names of students in the game, the answers, and team or whole-class totals. In \"Class together\" games, the words being found appear live.",
+            "During a lesson, the big screen shows the names of students in the game, the answers, and team or whole-class totals. After each round it names the top three scores, whoever found the longest word, and anyone who beat their personal best. In \"Class together\" games, the words being found appear live.",
             "Rob's Education Tools can reach the database to keep WordShake working, and only looks when that's needed to fix a problem.",
           ]} />
         </Section>
