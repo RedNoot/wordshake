@@ -465,7 +465,8 @@ test("class together: one shared list, live on the big screen, compared with the
   // The class's total once late words have had their grace window: a first best.
   await call(host, "host:phase", { phase: "reveal" });
   const result = next(host, "round:coop-result"), avaResult = next(ava2, "round:coop-result");
-  // The big screen's celebration gets every different word the class found (guests-only rooms too), once.
+  // The big screen's celebration gets every different word the class found (guests-only rooms too), once,
+  // with the top scores and who found the longest word.
   const found = next(host, "round:class-found");
   await call(host, "host:phase", { phase: "reveal" });
   let sentFound = 0;
@@ -474,9 +475,12 @@ test("class together: one shared list, live on the big screen, compared with the
   const res = await result;
   assert.deepEqual(res, { n: r.n, words: 2, of: 2, points: 3, key: "4-3-all", best: null, newBest: true });
   assert.deepEqual(await avaResult, res);
-  assert.deepEqual(await found, { n: r.n, words: ["cat", "cats"] });
+  const standouts = { top: [{ name: "Ben", score: 3, place: 1 }, { name: "Ava", score: 1, place: 2 }], longest: [{ name: "Ben", word: "cats" }] };
+  assert.deepEqual(await found, { n: r.n, words: ["cat", "cats"], standouts });
   assert.equal(sentFound, 1, "a repeated 'answers' message doesn't send it twice");
-  assert.deepEqual((await call(host, "host:resume", { idToken: "tok-b" })).round.classFound, ["cat", "cats"]);
+  const resumed = (await call(host, "host:resume", { idToken: "tok-b" })).round;
+  assert.deepEqual(resumed.classFound, ["cat", "cats"]);
+  assert.deepEqual(resumed.standouts, standouts, "and the shout-outs come back with a refresh");
 
   // Next time the class is compared with that best (and only that).
   const r2 = await call(host, "host:start", { settings: ROUND });
@@ -536,7 +540,7 @@ test("progress: finished class-list rounds are saved once, after the grace windo
   assert.deepEqual(mine.best, [], "no personal best in a first round");
   assert.equal(mine.summary.rounds, 1, "the device gets its own updated collection for the end-of-round splash");
   assert.ok(mine.summary.trophies["first-word"]);
-  assert.deepEqual(totals, { n: r.n, trophies: 4, stickers: 4, bests: 0 }, "big screen: totals only (Ava 3, Ben 1)");
+  assert.deepEqual(totals, { n: r.n, trophies: 4, stickers: 4, bests: 0, bestNames: [] }, "big screen: totals (Ava 3, Ben 1), no personal bests in a first round");
   assert.equal(guestGotRewards, false, "guests get no rewards");
   assert.equal(saved[0].updates.s1.rounds, 1);
   assert.equal(saved[0].updates.s1.name, "Ava");
@@ -580,6 +584,20 @@ test("progress: finished class-list rounds are saved once, after the grace windo
   await call(host, "host:phase", { phase: "reveal" });
   assert.equal(pending.length, 0);
 
+  // A second round: Ben beats his first round, so the big screen can celebrate him by name. Ava doesn't, and
+  // Chloe's first round can't be a best.
+  const rb = await call(host, "host:start", { settings: ROUND });
+  await call(host, "host:clock", { n: rb.n, state: "playing", remainingMs: 60000 });
+  assert.equal((await call(ben, "player:word", { n: rb.n, word: "cat" })).result, "ok");
+  assert.equal((await call(chloe, "player:word", { n: rb.n, word: "cats" })).result, "ok");
+  await call(host, "host:phase", { phase: "reveal" });
+  const bestTotals = next(host, "round:rewards-summary");
+  runTimers();
+  assert.deepEqual((await bestTotals).bestNames, ["Ben"]);
+  assert.equal((await bestTotals).bests, 1);
+  await settle();
+  assert.equal(saved.length, 2);
+
   // An abandoned round (back to the lobby mid-round) is never saved, even when its clock would have run out.
   const r2 = await call(host, "host:start", { settings: ROUND });
   await call(host, "host:clock", { n: r2.n, state: "playing", remainingMs: 60000 });
@@ -588,7 +606,7 @@ test("progress: finished class-list rounds are saved once, after the grace windo
   clock += 61000;
   runTimers();
   await settle();
-  assert.equal(saved.length, 1);
+  assert.equal(saved.length, 2);
 
   // Closing the room straight after a round still saves it.
   const r3 = await call(host, "host:start", { settings: ROUND });
@@ -596,7 +614,7 @@ test("progress: finished class-list rounds are saved once, after the grace windo
   await call(host, "host:phase", { phase: "reveal" });
   await call(host, "host:close");
   await settle();
-  assert.equal(saved.length, 2);
+  assert.equal(saved.length, 3);
   assert.deepEqual(Object.keys(saved[1].record.players).sort(), ["s1", "s2", "s3"], "Chloe plays from the next round");
   pending = [];
 
@@ -610,7 +628,7 @@ test("progress: finished class-list rounds are saved once, after the grace windo
   await call(host2, "host:phase", { phase: "reveal" });
   runTimers();
   await settle();
-  assert.equal(saved.length, 2);
+  assert.equal(saved.length, 3);
   await call(host2, "host:close");
 });
 

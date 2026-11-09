@@ -93,7 +93,37 @@ export function coopResult(round, best = null) {
   };
 }
 
-// Every different word found by anyone this round, for the big screen's "Together you found…" (no names, no counts per person).
+/*
+ * The big screen's shout-outs once the round is over: the top three scores, and who found the longest word anyone found.
+ * One row per student (a student on two devices counts once, by their better device); guests by their room name.
+ * Nobody on 0 points is named. Equal scores share a place, so a place can have more than one name (at most 5 rows).
+ */
+const MAX_TOP = 5, MAX_LONGEST = 6;
+export function standouts(round) {
+  const rows = new Map();
+  for (const [playerId, who] of round.who || []) {
+    if (!round.eligible.has(playerId)) continue;
+    const score = playerTotal(round, playerId);
+    if (!score) continue;
+    const key = who.studentId ? `s:${who.studentId}` : `p:${playerId}`;
+    const prev = rows.get(key);
+    if (prev && prev.score >= score) continue;
+    let longest = "";
+    for (const w of (round.found.get(playerId) || new Map()).keys()) {
+      if (w.length > longest.length || (w.length === longest.length && w < longest)) longest = w;
+    }
+    rows.set(key, { name: who.name, score, longest });
+  }
+  const all = [...rows.values()].sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+  const top = all.map(r => ({ name: r.name, score: r.score, place: 1 + all.filter(x => x.score > r.score).length }))
+    .filter(r => r.place <= 3).slice(0, MAX_TOP);
+  const len = Math.max(0, ...all.map(r => r.longest.length));
+  const longest = len ? all.filter(r => r.longest.length === len).sort((a, b) => a.name.localeCompare(b.name))
+    .slice(0, MAX_LONGEST).map(r => ({ name: r.name, word: r.longest })) : [];
+  return { top, longest };
+}
+
+// Every different word found by anyone this round, for the big screen's "Together you found…".
 export function classFound(round) {
   const all = new Set();
   for (const mine of round.found.values()) for (const w of mine.keys()) all.add(w);

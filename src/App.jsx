@@ -15,7 +15,7 @@ import { Lobby } from "./Lobby.jsx";
 import { TeamResults, winnerLine } from "./Teams.jsx";
 import { Progress } from "./Progress.jsx";
 import { Guide, guideDone, markGuideDone } from "./Guide.jsx";
-import { Opener, Celebrate, Highlights } from "./RoundEnd.jsx";
+import { Opener, Celebrate, Stars, Highlights } from "./RoundEnd.jsx";
 
 import { wordPoints, BONUS } from "../shared/scoring.js";
 // What joined devices are told about the big screen: in a round (countdown or playing), showing answers, or in the lobby.
@@ -85,12 +85,12 @@ export default function WordShakeWorkbook() {
   const [liveRound, setLiveRound] = useState(null);  // the room's round number while students play on devices; null for a workbook round
   const liveRef = useRef(null);
   liveRef.current = liveRound;
-  const [rewardsTally, setRewardsTally] = useState(null);  // this round's class totals for the big screen (never who earned what)
+  const [rewardsTally, setRewardsTally] = useState(null);  // this round's class totals for the big screen, and who got a personal best
   const [roundTeams, setRoundTeams] = useState(0);         // how many teams played this round (0: no teams)
   const [teamResult, setTeamResult] = useState(null);      // the team scores, once the server has added them up
   const [wall, setWall] = useState(null);                  // Class together: { words, counts, of } found by the class so far (null: not this round)
   const [coopResult, setCoopResult] = useState(null);      // Class together: the class's total once the round is over
-  const [classFound, setClassFound] = useState(null);      // { n, words }: every different word the class found, once the round is over
+  const [classFound, setClassFound] = useState(null);      // { n, words, standouts }: every different word the class found and the top scores, once the round is over
   // The big screen's board fills whatever room the timer, banners and word wall leave, so nothing needs scrolling.
   const [boardBox, setBoardBox] = useState(null);
   const boardRoom = useBoxSize(boardBox);
@@ -184,7 +184,7 @@ export default function WordShakeWorkbook() {
         setTeamResult(r.teamResult || null);
         setWall(r.wall ? { words: r.wall.words, counts: r.wall.counts, of: r.wall.of } : null);
         setCoopResult(r.coopResult || null);
-        setClassFound(r.classFound ? { n: r.n, words: r.classFound } : null);
+        setClassFound(r.classFound ? { n: r.n, words: r.classFound, standouts: r.standouts || null } : null);
         setRemaining(r.remainingMs / 1000);
         if (r.state === "over" || res.room.phase === "reveal") { setStep(0); setPhase("reveal"); }
         else {
@@ -442,16 +442,20 @@ export default function WordShakeWorkbook() {
   const endNow = () => { gong(); setPhase("reveal"); setStep(0); };
 
   /* ---- reveal steps ----
-   * Time's up (with the class's total), the class's celebration (device rounds only), which team won, then the
-   * highlights on one screen. After that, for going through the answers: today's sound, each word length, the longest
-   * word, and how to add up a paper score.
+   * Time's up (with the class's total), the class's celebration and the round's stars (device rounds only), which team
+   * won, then the highlights on one screen. After that, for going through the answers: today's sound, each word length,
+   * the longest word, and how to add up a paper score.
+   * The stars come with the class's total, which the opener waits for, so the steps after it never shift under the teacher.
    */
   const live = !!liveRound;
+  const roundStars = live && classFound && classFound.n === liveRound && classFound.standouts && classFound.standouts.top.length ? classFound.standouts : null;
+  const hasStars = !!roundStars;
   const steps = useMemo(() => {
     if (!game) return [];
     const S = game.solution;
     const arr = [{ t: "open" }];
     if (live) arr.push({ t: "cheer" });
+    if (hasStars) arr.push({ t: "stars" });
     if (roundTeams) arr.push({ t: "teams" });
     arr.push({ t: "sum" });
     if (S.phonics) arr.push({ t: "phonics" });
@@ -459,7 +463,7 @@ export default function WordShakeWorkbook() {
     arr.push({ t: "longest" });
     if (!live) arr.push({ t: "score" });
     return arr;
-  }, [game, roundTeams, live]);
+  }, [game, roundTeams, live, hasStars]);
   const next = useCallback(() => setStep(s => Math.min(s + 1, steps.length - 1)), [steps.length]);
   const back = useCallback(() => setStep(s => Math.max(s - 1, 0)), []);
 
@@ -812,7 +816,12 @@ export default function WordShakeWorkbook() {
 
             {steps[step].t === "cheer" && (
               <Celebrate className={room && room.className} found={foundNow ? foundNow.length : null} total={S.total}
-                coopLine={coopResult ? bestLine(coopResult) : null} counters={counters} onNext={next} />
+                coopLine={coopResult ? bestLine(coopResult) : null} counters={counters} onNext={next}
+                nextLabel={hasStars ? "Meet this round's stars →" : undefined} />
+            )}
+
+            {steps[step].t === "stars" && roundStars && (
+              <Stars standouts={roundStars} bestNames={tallyNow ? tallyNow.bestNames : null} minLen={settings.minLen} onNext={next} />
             )}
 
             {steps[step].t === "sum" && (
@@ -945,7 +954,7 @@ export default function WordShakeWorkbook() {
           </div>
 
           {/* the opener, celebration and highlights show the class's totals themselves */}
-          {!["open", "cheer", "sum"].includes(steps[step].t) && liveRound && rewardsTally && rewardsTally.n === liveRound && (rewardsTally.trophies + rewardsTally.stickers + rewardsTally.bests > 0) && (
+          {!["open", "cheer", "stars", "sum"].includes(steps[step].t) && liveRound && rewardsTally && rewardsTally.n === liveRound && (rewardsTally.trophies + rewardsTally.stickers + rewardsTally.bests > 0) && (
             <div role="status" className="ws-display" style={{ alignSelf: "center", marginTop: 8, background: "rgb(var(--ws-amber-rgb) / .12)", border: "1px solid rgb(var(--ws-amber-rgb) / .45)", borderRadius: 999, padding: "8px 22px", fontSize: 19, fontWeight: 600, animation: "ws-pop .5s ease both" }}>
               🎉 This round: {[
                 rewardsTally.trophies && `${rewardsTally.trophies} new ${rewardsTally.trophies === 1 ? "trophy" : "trophies"}`,

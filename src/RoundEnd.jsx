@@ -4,9 +4,9 @@ import { Board } from "./components/Board.jsx";
 import { wordPoints } from "../shared/scoring.js";
 
 /*
- * The big screen's end of round, in three beats: the opener ("Time's up!" beside the class's total drumming up),
- * the celebration (what the class did together) and the highlights (the whole board on one screen).
- * Only totals for the class, never who found or earned what. The word lists, sound and longest-word steps follow.
+ * The big screen's end of round, in four beats: the opener ("Time's up!" beside the class's total drumming up),
+ * the celebration (what the class did together), the round's stars (top scores, longest word and new personal bests,
+ * by name) and the highlights (the whole board on one screen). The word lists, sound and longest-word steps follow.
  */
 
 const reducedMotion = () => typeof window !== "undefined" && !!window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -68,7 +68,7 @@ function Counter({ n, label, colour, delay }) {
   );
 }
 
-export function Celebrate({ className, found, total, coopLine, counters, onNext }) {
+export function Celebrate({ className, found, total, coopLine, counters, onNext, nextLabel = "See the board →" }) {
   const pct = found != null && total ? Math.round((found / total) * 100) : null;
   return (
     <div style={{ position: "relative", width: "100%", flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "min(3vh, 26px)", padding: "10px 4vw", boxSizing: "border-box", borderRadius: 24, background: "radial-gradient(ellipse at 50% 30%, rgb(var(--ws-fg) / .07) 0%, transparent 65%)" }}>
@@ -93,13 +93,104 @@ export function Celebrate({ className, found, total, coopLine, counters, onNext 
         </div>
       )}
       <button className="ws-btn ws-display" onClick={onNext} style={{ fontSize: 22, fontWeight: 700, background: T.amber, color: T.ink, border: "none", borderRadius: 14, padding: "14px 30px", cursor: "pointer", boxShadow: "0 5px 0 var(--ws-amber-edge)", animation: "ws-fade .6s 1.4s ease both" }}>
+        {nextLabel}
+      </button>
+    </div>
+  );
+}
+
+/* ---- 3. The round's stars: a podium for the top scores, the longest word found, and a line for each new personal best ---- */
+const MEDALS = ["🥇", "🥈", "🥉"];
+const PODIUM = [2, 1, 3];                                  // second on the left, first in the middle, third on the right
+const STEP_HEIGHT = { 1: "62%", 2: "46%", 3: "34%" };
+const BEST_MS = 2600;                                      // each personal best stays up this long before the next
+
+// Cycles through the names one at a time (all at once when motion is reduced); nothing until the names arrive.
+function BestLine({ names }) {
+  const [i, setI] = useState(0);
+  const still = reducedMotion();
+  useEffect(() => {
+    setI(0);
+    if (!names || names.length < 2 || still) return;
+    const t = setInterval(() => setI(v => (v + 1) % names.length), BEST_MS);
+    return () => clearInterval(t);
+  }, [names, still]);
+  if (!names || !names.length) return null;
+  const text = still || names.length === 1 ? names.join(", ") : names[i];
+  return (
+    <div role="status" style={{ display: "flex", alignItems: "center", gap: 14, background: "rgb(var(--ws-amber-rgb) / .12)", border: "1px solid rgb(var(--ws-amber-rgb) / .5)", borderRadius: 999, padding: "min(12px, 1.4vh) 28px", animation: "ws-fade .6s ease both" }}>
+      <span aria-hidden="true" style={{ fontSize: "min(4vh, 34px)" }}>🌟</span>
+      <span style={{ fontSize: "min(2.8vh, 24px)", color: T.mist }}>New personal {still && names.length > 1 ? "bests" : "best"}:</span>
+      <span key={text} className="ws-display" style={{ fontSize: "min(4.6vh, 42px)", fontWeight: 700, color: T.amber, display: "inline-block", animation: "ws-pop .5s ease both" }}>{text}!</span>
+      {!still && names.length > 1 && <span style={{ fontSize: "min(2.2vh, 17px)", color: T.mist }}>{i + 1} of {names.length}</span>}
+    </div>
+  );
+}
+
+export function Stars({ standouts, bestNames, minLen, onNext }) {
+  const { top, longest } = standouts;
+  const byPlace = p => top.filter(r => r.place === p);
+  const words = [...new Set(longest.map(l => l.word))];
+  const len = words.length ? words[0].length : 0;
+  const pts = len ? wordPoints(len, minLen) : 0;
+  return (
+    <div style={{ position: "relative", width: "100%", flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "min(3vh, 26px)", padding: "6px 3vw", boxSizing: "border-box", borderRadius: 24, background: "radial-gradient(ellipse at 50% 20%, rgb(var(--ws-amber-rgb) / .09) 0%, transparent 60%)" }}>
+      {CONFETTI.map((c, i) => (
+        <i key={i} aria-hidden="true" style={{ position: "absolute", top: 0, left: `${c.left}%`, width: 14, height: 22, borderRadius: 3, background: c.colour, "--dx": c.dx, "--rot": c.rot, animation: `ws-confetti 3.4s ${c.delay} linear both`, pointerEvents: "none" }} />
+      ))}
+      <h2 className="ws-display" style={{ margin: 0, fontSize: "min(6vw, 7vh, 64px)", fontWeight: 700, lineHeight: 1 }}>This round's <span style={{ color: T.amber }}>stars</span></h2>
+
+      <div style={{ flex: 1, minHeight: 0, maxHeight: 440, width: "min(1200px, 100%)", display: "grid", gridTemplateColumns: "minmax(0, 3fr) minmax(0, 2fr)", gap: "min(3vw, 32px)" }}>
+        <section aria-label="Top scores" style={{ ...panel, padding: "min(2vh, 18px) 20px 0", gap: 8 }}>
+          <p style={label}>Top scores</p>
+          <div style={{ flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 14, alignItems: "end" }}>
+            {PODIUM.map((p, col) => {
+              const rows = byPlace(p);
+              return (
+                <div key={p} style={{ height: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center", gap: 6, minWidth: 0 }}>
+                  {rows.length > 0 && (
+                    <div style={{ textAlign: "center", minWidth: 0, maxWidth: "100%", animation: `ws-pop .6s ${1.2 - col * 0.4 + (p === 1 ? 0.8 : 0)}s ease both` }}>
+                      {rows.map(r => (
+                        <div key={r.name} className="ws-display" style={{ fontSize: rows.length > 1 ? "min(2.4vw, 3.4vh, 26px)" : "min(3.2vw, 4.6vh, 38px)", fontWeight: 700, lineHeight: 1.15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
+                      ))}
+                      <div style={{ fontSize: "min(2vh, 17px)", color: T.mist }}>{rows[0].score} {rows[0].score === 1 ? "point" : "points"}</div>
+                    </div>
+                  )}
+                  <div style={{ width: "100%", height: rows.length ? STEP_HEIGHT[p] : "18%", minHeight: 40, borderRadius: "14px 14px 0 0", background: rows.length ? (p === 1 ? T.amber : p === 2 ? "var(--ws-bar)" : "var(--ws-amber-soft)") : "rgb(var(--ws-fg) / .06)", display: "flex", justifyContent: "center", paddingTop: 8, boxSizing: "border-box", transformOrigin: "bottom", animation: `ws-fade .6s ${0.2 + col * 0.15}s ease both` }}>
+                    <span aria-label={`place ${p}`} style={{ fontSize: "min(5vh, 46px)", lineHeight: 1 }}>{rows.length ? MEDALS[p - 1] : ""}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        <section aria-label="Longest word" style={{ ...panel, justifyContent: "center", alignItems: "center", textAlign: "center", animation: "ws-fade .6s 1.6s ease both" }}>
+          <p style={{ ...label, alignSelf: "flex-start" }}>Longest word found</p>
+          {words.length === 0 ? <div style={{ color: T.mist }}>—</div> : (
+            <>
+              {words.map(w => (
+                <div key={w} className="ws-display" style={{ fontSize: words.length > 1 ? "min(3.4vw, 4.6vh, 44px)" : "min(5vw, 7.5vh, 68px)", fontWeight: 700, color: T.amber, letterSpacing: 2, lineHeight: 1.05, wordBreak: "break-word", animation: "ws-slap .8s 1.9s ease both" }}>{w.toUpperCase()}</div>
+              ))}
+              <div style={{ fontSize: "min(2vh, 17px)", color: T.mist }}>{len} letters · {pts} {pts === 1 ? "point" : "points"}</div>
+              <div style={{ fontSize: "min(2.8vh, 24px)", fontWeight: 600, lineHeight: 1.3 }}>
+                found by {longest.map(l => l.name).join(", ").replace(/, ([^,]*)$/, " and $1")}
+              </div>
+            </>
+          )}
+        </section>
+      </div>
+
+      <div style={{ minHeight: "min(7vh, 60px)", display: "flex", alignItems: "center" }}><BestLine names={bestNames} /></div>
+
+      <button className="ws-btn ws-display" onClick={onNext} style={{ fontSize: 22, fontWeight: 700, background: T.amber, color: T.ink, border: "none", borderRadius: 14, padding: "min(14px, 1.6vh) 30px", cursor: "pointer", boxShadow: "0 5px 0 var(--ws-amber-edge)", animation: "ws-fade .6s 2.2s ease both" }}>
         See the board →
       </button>
     </div>
   );
 }
 
-/* ---- 3. The highlights: the board's words, the longest word, and the class's totals, on one screen ---- */
+/* ---- 4. The highlights: the board's words, the longest word, and the class's totals, on one screen ---- */
 const panel = { border: `1px solid ${T.faint}`, background: "rgb(var(--ws-fg) / .04)", borderRadius: 18, padding: "18px 20px", boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 12, minWidth: 0 };
 const label = { margin: 0, fontSize: 14, letterSpacing: 1.6, textTransform: "uppercase", color: T.mist };
 

@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomInt } from "crypto";
 import { openSeasons } from "../../shared/seasons.js";
 import { cleanGuestName, uniqueName } from "./names.js";
 import { pickRoundSettings } from "./settings.js";
-import { newRound, setClock, remainingMs, playerView, checkWord, giveHint, roundRecord, teamResults, coopResult, coopKey, classFound, GRACE_MS } from "./round.js";
+import { newRound, setClock, remainingMs, playerView, checkWord, giveHint, roundRecord, teamResults, coopResult, coopKey, classFound, standouts, GRACE_MS } from "./round.js";
 import { emptySummary } from "../../shared/rewards.js";
 import { ITEM_BY_ID, balanceOf, wornLooks } from "../../shared/shop.js";
 import { walletOut } from "./wallet.js";
@@ -264,14 +264,22 @@ export function attachRooms(io, {
   const tellHost = (room, event, data) => { if (rooms.get(room.code) === room) io.to(`host:${room.code}`).emit(event, data); };
 
   // Each student's device hears only its own rewards, with its own updated collection for the end-of-round splash;
-  // the big screen only ever gets totals, never who earned what.
+  // the big screen gets the class's totals, and the names of everyone on a new personal best, to celebrate them.
   function giveRewards(room, round, bySid, summaries) {
-    const tally = { trophies: 0, stickers: 0, bests: 0 };
+    const tally = { trophies: 0, stickers: 0, bests: 0, bestNames: [] };
     for (const e of Object.values(bySid)) {
       tally.trophies += e.trophies.length;
       tally.stickers += e.stickers.length;
       tally.bests += e.best.length ? 1 : 0;
     }
+    const named = new Set();
+    for (const [playerId, who] of round.who || []) {
+      const e = who.studentId && bySid[who.studentId];
+      if (!e || !e.best.length || !round.eligible.has(playerId) || named.has(who.studentId)) continue;
+      named.add(who.studentId);
+      tally.bestNames.push(who.name);
+    }
+    tally.bestNames.sort((a, b) => a.localeCompare(b));
     round.rewards = new Map();
     for (const [playerId, who] of round.who || []) {
       if (!who.studentId || !bySid[who.studentId] || !round.eligible.has(playerId)) continue;
@@ -364,7 +372,7 @@ export function attachRooms(io, {
     if (!round || round.aborted || round.classSent) return;
     round.classSent = true;
     later(() => {
-      if (room.round === round) io.to(`host:${room.code}`).emit("round:class-found", { n: round.n, words: classFound(round) });
+      if (room.round === round) io.to(`host:${room.code}`).emit("round:class-found", { n: round.n, words: classFound(round), standouts: standouts(round) });
     }, GRACE_MS + 100);
   }
 
@@ -493,6 +501,7 @@ export function attachRooms(io, {
     teams: room.round.teams ? room.round.teams.count : 0, teamResult: room.round.teamResult || null,
     wall: room.round.coop ? wallView(room.round) : null, coopResult: room.round.coopResult || null,
     classFound: room.round.state === "over" && !room.round.aborted ? classFound(room.round) : null,
+    standouts: room.round.state === "over" && !room.round.aborted ? standouts(room.round) : null,
   };
   // Each device gets its own copy (its own words, and whether it joined in time to play).
   function sendRound(room) {
