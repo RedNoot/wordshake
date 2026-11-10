@@ -1,5 +1,6 @@
 import { Component } from "react";
 import { T, CSS } from "./theme.js";
+import { REPORT_IGNORE } from "./report-ignore.js";
 
 /*
  * If the screen ever crashes, show a friendly "carry on" button instead of a blank page.
@@ -34,6 +35,7 @@ export function startReporting(view) {
     env: import.meta.env.PROD ? "prod" : "dev",
     button: false,             // no feedback button: children use this
     scrubPaths: SCRUB_PATHS,
+    ignore: REPORT_IGNORE,
     context: () => ({ view }),
     beforeSend: scrubReport,
   });
