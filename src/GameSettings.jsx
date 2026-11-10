@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { T } from "./theme.js";
 import { SOUNDS, SOUND_BY_ID } from "./sounds.js";
 import { Chip } from "./components/Chip.jsx";
@@ -6,13 +7,14 @@ import { Toggle } from "./components/Toggle.jsx";
 /*
  * The teacher's settings drawer beside the start screen: Basics, Today's sound and Advanced, each folding away
  * with a one-line summary, so starting a game is just class + Open the room. Which sections are open is
- * remembered on this computer only.
+ * remembered on this computer only. Send feedback (last) files a bug or idea through AppReporter; it's only here,
+ * on the teacher's screen: students never see a way to send one.
  */
 export const HINT_SECONDS = [10, 15, 20, 30];   // matches server/lib/settings.js
 const OPEN_KEY = "ws-settings-open";
 export const loadOpen = () => {
-  try { return { basics: true, sound: false, advanced: false, ...JSON.parse(localStorage.getItem(OPEN_KEY) || "{}") }; }
-  catch { return { basics: true, sound: false, advanced: false }; }
+  try { return { basics: true, sound: false, advanced: false, feedback: false, ...JSON.parse(localStorage.getItem(OPEN_KEY) || "{}") }; }
+  catch { return { basics: true, sound: false, advanced: false, feedback: false }; }
 };
 export const saveOpen = open => { try { localStorage.setItem(OPEN_KEY, JSON.stringify(open)); } catch { /* private mode */ } };
 
@@ -113,7 +115,53 @@ export function GameSettings({ settings, setSettings, soundDef, phStats, dict, o
           <Toggle on={settings.sound} onClick={() => set({ sound: !settings.sound })} label="Sound effects" />
         </div>
       </Section>
+
+      <Section id="feedback" title="Send feedback" summary="A problem or an idea" open={open.feedback} onToggle={() => flip("feedback")}>
+        <Feedback />
+      </Section>
     </aside>
+  );
+}
+
+/*
+ * A bug report or suggestion, filed in Discord by AppReporter (through WordShake's server, see ErrorBoundary.jsx).
+ * Hidden if the kit didn't load. Sent, or kept to send later when offline, both count as done.
+ */
+function Feedback() {
+  const [kind, setKind] = useState("bug");
+  const [text, setText] = useState("");
+  const [state, setState] = useState("idle");   // idle | sending | sent | failed
+  if (!window.AppReporter) return <div style={{ fontSize: 14, color: T.mist }}>Feedback can't be sent from this computer right now.</div>;
+  const send = async () => {
+    setState("sending");
+    const res = await window.AppReporter.report(kind, { userText: text.trim(), context: { feedback: kind } });
+    if (res) { setText(""); setState("sent"); } else setState("failed");
+  };
+  return (
+    <>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <Chip small active={kind === "bug"} onClick={() => setKind("bug")}>Something's wrong</Chip>
+        <Chip small active={kind === "suggestion"} onClick={() => setKind("suggestion")}>An idea</Chip>
+      </div>
+      <div>
+        <label htmlFor="ws-feedback" style={{ display: "block", color: T.mist, fontSize: 13, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1.2 }}>
+          {kind === "bug" ? "What happened?" : "What would make WordShake better?"}
+        </label>
+        <textarea id="ws-feedback" value={text} maxLength={2000} rows={4}
+          onChange={e => { setText(e.target.value); if (state !== "sending") setState("idle"); }}
+          style={{ width: "100%", boxSizing: "border-box", resize: "vertical", borderRadius: 12, padding: "10px 12px", font: "inherit", fontSize: 15, color: "var(--ws-text)", background: "rgb(var(--ws-fg) / .04)", border: `1px solid ${T.faint}` }} />
+        <div style={{ marginTop: 6, fontSize: 13, color: T.mist }}>Please leave out students' names and class codes.</div>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+        <button className="ws-btn ws-display" onClick={send} disabled={!text.trim() || state === "sending"}
+          style={{ fontSize: 16, fontWeight: 600, borderRadius: 12, padding: "10px 22px", border: "none", cursor: text.trim() ? "pointer" : "default", background: T.amber, color: T.ink, opacity: text.trim() && state !== "sending" ? 1 : 0.5 }}>
+          {state === "sending" ? "Sending…" : "Send"}
+        </button>
+        <span role="status" style={{ fontSize: 14, color: state === "failed" ? T.amber : T.mist }}>
+          {state === "sent" ? "Thanks! It's been sent." : state === "failed" ? "That didn't send. Please try again in a minute." : ""}
+        </span>
+      </div>
+    </>
   );
 }
 
