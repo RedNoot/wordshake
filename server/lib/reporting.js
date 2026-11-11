@@ -7,7 +7,7 @@ import reporter from "./app-reporter.cjs";
  * Crash reports go to AppReporter (D:\AppReporter), which files them in Discord. The server reports its own errors,
  * and forwards the browser's reports (see /api/report in index.js) so students' devices only ever talk to WordShake.
  */
-export const RELAY = "https://app-reporter.app-reporter-relay.workers.dev";
+export const RELAY = "https://relay.robmakes.app";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
