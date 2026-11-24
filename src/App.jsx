@@ -69,6 +69,17 @@ export default function WordShakeWorkbook() {
   const [remaining, setRemaining] = useState(180);
   const [paused, setPaused] = useState(false);
   const [step, setStep] = useState(0);
+  // Full screen for the projector: the button follows the browser's own state, so Esc stays in sync.
+  const [fullscreen, setFullscreen] = useState(() => !!document.fullscreenElement);
+  useEffect(() => {
+    const h = () => setFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", h);
+    return () => document.removeEventListener("fullscreenchange", h);
+  }, []);
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else document.documentElement.requestFullscreen().catch(() => {});
+  };
   const [pathWord, setPathWord] = useState(0);
   const [accountsReady, setAccountsReady] = useState(false);
   const [account, setAccount] = useState(null);
@@ -481,6 +492,7 @@ export default function WordShakeWorkbook() {
     const h = e => {
       if (["ArrowRight", "PageDown", " ", "Enter"].includes(e.key)) { e.preventDefault(); next(); }
       if (["ArrowLeft", "PageUp"].includes(e.key)) { e.preventDefault(); back(); }
+      if (e.key === "f" || e.key === "F") toggleFullscreen();
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
@@ -553,9 +565,16 @@ export default function WordShakeWorkbook() {
           )}
         </div>
         {["countdown", "playing", "reveal"].includes(phase) && (
-          <button className="ws-btn" onClick={toSettings} style={{ background: "none", border: `1px solid ${T.faint}`, color: T.mist, borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 13 }}>
-            {room ? "✕ Back to lobby" : "✕ Quit to settings"}
-          </button>
+          <div style={{ display: "flex", gap: 8 }}>
+            {document.fullscreenEnabled && (
+              <button className="ws-btn" onClick={toggleFullscreen} style={{ background: "none", border: `1px solid ${T.faint}`, color: T.mist, borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 13 }}>
+                {fullscreen ? "⤡ Exit full screen" : "⛶ Full screen"}
+              </button>
+            )}
+            <button className="ws-btn" onClick={toSettings} style={{ background: "none", border: `1px solid ${T.faint}`, color: T.mist, borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 13 }}>
+              {room ? "✕ Back to lobby" : "✕ Quit to settings"}
+            </button>
+          </div>
         )}
         {["setup", "classes", "progress"].includes(phase) && signInConfigured && accountsReady && (account ? (
           <div style={{ display: "flex", alignItems: "baseline", gap: 14, fontSize: 14, color: T.mist, flexWrap: "wrap" }}>
@@ -809,7 +828,7 @@ export default function WordShakeWorkbook() {
 
       {/* ---------- REVEAL ---------- */}
       {phase === "reveal" && game && S && (
-        <main style={{ flex: 1, display: "flex", flexDirection: "column", padding: "8px 24px 16px", overflow: "hidden" }}>
+        <main style={{ flex: 1, display: "flex", flexDirection: "column", padding: "8px 24px 16px", overflow: "hidden", position: "relative" }}>
           <div key={step} className="ws-fade" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, overflow: "hidden", minHeight: 0 }}>
 
             {steps[step].t === "open" && <Opener live={live} found={foundNow ? foundNow.length : null} total={S.total} />}
@@ -972,16 +991,14 @@ export default function WordShakeWorkbook() {
             </div>
           )}
 
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 18, paddingTop: 10 }}>
-            <button className="ws-btn" onClick={back} disabled={step === 0} style={{ background: "none", border: `1px solid ${T.faint}`, color: step === 0 ? "rgb(var(--ws-fg) / .25)" : T.mist, borderRadius: 10, padding: "10px 18px", cursor: step === 0 ? "default" : "pointer", fontSize: 16 }}>← Back</button>
-            <div style={{ display: "flex", gap: 6 }}>
-              {steps.map((_, i) => <span key={i} style={{ width: 8, height: 8, borderRadius: "50%", background: i === step ? T.amber : "rgb(var(--ws-fg) / .2)" }} />)}
-            </div>
-            <button className="ws-btn ws-display" onClick={next} disabled={step === steps.length - 1}
-              style={{ background: step === steps.length - 1 ? "rgb(var(--ws-fg) / .1)" : T.amber, color: step === steps.length - 1 ? "rgb(var(--ws-fg) / .35)" : T.ink, border: "none", borderRadius: 10, padding: "10px 22px", cursor: step === steps.length - 1 ? "default" : "pointer", fontSize: 17, fontWeight: 700 }}>
-              Next →
-            </button>
-            <span style={{ color: "rgb(var(--ws-fg) / .35)", fontSize: 12 }}>arrow keys / clicker work too</span>
+          {/* small corner controls for touch screens; keys and clickers work too */}
+          <div style={{ position: "absolute", right: 20, bottom: 16, display: "flex", gap: 8 }}>
+            {step > 0 && (
+              <button className="ws-btn" onClick={back} aria-label="Back" style={{ background: "none", border: `1px solid ${T.faint}`, color: T.mist, borderRadius: 10, padding: "8px 14px", cursor: "pointer", fontSize: 15 }}>←</button>
+            )}
+            {step < steps.length - 1 && (
+              <button className="ws-btn ws-display" onClick={next} style={{ background: T.amber, color: T.ink, border: "none", borderRadius: 10, padding: "8px 18px", cursor: "pointer", fontSize: 16, fontWeight: 700 }}>Next →</button>
+            )}
           </div>
         </main>
       )}

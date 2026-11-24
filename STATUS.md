@@ -11,9 +11,10 @@ _Updated 2026-11-24. Read this first in a new session, and update it as each ste
   - word of the game, Class together and teams mode;
   - the word jar, the Progress page and the end-of-round stars beat;
   - "Send feedback" in the teacher's settings drawer (AppReporter).
+  - The end-of-round reveal uses small ← / Next → corner buttons, and there's a ⛶ Full screen button during games (F toggles it on the reveal). Live from 24 Nov.
 
 ## In progress
-- **Uncommitted in `src/App.jsx`:** the end-of-round bar is replaced by small ← / Next → corner buttons, and a ⛶ Full screen button (F toggles it) is added. Checked in the browser pane. Full screen still needs a try in a normal tab. **Waiting for Rob's OK to commit and deploy.**
+- Nothing. Full screen hasn't been tried on the classroom projector yet.
 
 ## Next (ideas waiting for a yes)
 - A **wordshake.robmakes.app** address via a Render custom domain. Steps:
